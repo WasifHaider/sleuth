@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SLEUTH — Build Log</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff;
+    --fg: #1a1a1a;
+    --muted: #5c5c5c;
+    --border: #e2e2e2;
+    --code-bg: #f5f5f5;
+    --accent: #2563eb;
+    --done: #15803d;
+    --done-bg: #dcfce7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111318;
+      --fg: #e8e8e8;
+      --muted: #9a9a9a;
+      --border: #2a2d34;
+      --code-bg: #1b1e24;
+      --accent: #60a5fa;
+      --done: #4ade80;
+      --done-bg: #123320;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 2rem 1.25rem 4rem;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    line-height: 1.55;
+  }
+  main { max-width: 780px; margin: 0 auto; }
+  h1 { font-size: 1.6rem; margin-bottom: 0.25rem; }
+  .subtitle { color: var(--muted); margin-top: 0; margin-bottom: 2.5rem; font-size: 0.95rem; }
+  .task {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.25rem 1.5rem;
+    margin-bottom: 1.5rem;
+  }
+  .task-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-wrap: wrap;
+  }
+  .task-header h2 { margin: 0; font-size: 1.15rem; }
+  .status {
+    font-size: 0.75rem;
+    font-weight: 600;
+    padding: 0.2rem 0.6rem;
+    border-radius: 999px;
+    background: var(--done-bg);
+    color: var(--done);
+    white-space: nowrap;
+  }
+  .files {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.85rem;
+    color: var(--muted);
+    margin: 0.6rem 0 0.9rem;
+  }
+  .files code {
+    background: var(--code-bg);
+    padding: 0.1rem 0.4rem;
+    border-radius: 4px;
+  }
+  h3 {
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    margin: 1.1rem 0 0.4rem;
+  }
+  p { margin: 0.4rem 0; }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--code-bg);
+    padding: 0.1rem 0.35rem;
+    border-radius: 4px;
+    font-size: 0.9em;
+  }
+  .test-result {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.85rem;
+    background: var(--code-bg);
+    border-radius: 6px;
+    padding: 0.6rem 0.8rem;
+    color: var(--done);
+  }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+  <h1>SLEUTH — Build Log</h1>
+  <p class="subtitle">Running record of each implementation task: what got built, why, and what it means. Updated after every task in <a href="superpowers/plans/2026-08-06-rag-core-pipeline-cli.md">the plan</a>.</p>
+
+  <section class="task">
+    <div class="task-header">
+      <h2>Task 1 — Project scaffolding &amp; config</h2>
+      <span class="status">done</span>
+    </div>
+    <div class="files">
+      <code>requirements.txt</code> · <code>.env.example</code> · <code>.gitignore</code> · <code>sleuth/config.py</code> · <code>tests/test_config.py</code>
+    </div>
+
+    <h3>What it does</h3>
+    <p><code>config.py</code> is the single place the app reads secrets/settings from the environment. A frozen <code>Config</code> dataclass carries <code>voyage_api_key</code>, <code>groq_api_key</code>, <code>groq_model</code>, <code>database_url</code>. <code>load_config()</code> builds it from env vars (via a local <code>.env</code> file, loaded through <code>python-dotenv</code>).</p>
+
+    <h3>Why it's built this way</h3>
+    <p>Nothing downstream calls <code>os.environ</code> directly — every module (embedder, DB connection, Groq client) takes a <code>Config</code> object instead. One place to look when a value is wrong; tests can build a fake <code>Config</code> directly without touching real env vars.</p>
+    <p><code>load_config()</code> checks the three <em>required</em> vars (<code>VOYAGE_API_KEY</code>, <code>GROQ_API_KEY</code>, <code>DATABASE_URL</code>) up front and raises <code>ConfigError</code> naming exactly what's missing — fail fast at startup, not a cryptic 401 three layers deep during a chat request. <code>GROQ_MODEL</code> is optional, defaulting to <code>llama-3.3-70b-versatile</code>, so the model is a one-line config change, never a code change.</p>
+
+    <h3>Tests</h3>
+    <div class="test-result">tests/test_config.py::test_load_config_reads_all_values PASSED
+tests/test_config.py::test_load_config_defaults_groq_model PASSED
+tests/test_config.py::test_load_config_raises_on_missing_required_var PASSED
+
+3 passed in 0.29s</div>
+  </section>
+
+  <section class="task">
+    <div class="task-header">
+      <h2>Task 2 — Postgres schema, local dev DB &amp; connection helper</h2>
+      <span class="status">done</span>
+    </div>
+    <div class="files">
+      <code>schema.sql</code> · <code>docker-compose.yml</code> · <code>sleuth/db.py</code> · <code>tests/conftest.py</code> · <code>tests/test_db.py</code>
+    </div>
+
+    <h3>What it does</h3>
+    <p><code>schema.sql</code> defines two tables: <code>repos</code> (one row per indexed GitHub repo, tracks status/error/indexed_at) and <code>chunks</code> (one row per code chunk — function/method/class — with its <code>embedding vector(1024)</code>, a <code>content_hash</code> for incremental re-index, and a unique index on <code>(repo_id, file_path, symbol_name)</code> so re-indexing upserts instead of duplicating). <code>sleuth/db.py</code> exposes <code>get_connection(database_url)</code>, which opens a psycopg connection and registers the pgvector type adapter, and <code>apply_schema(conn)</code>, which runs <code>schema.sql</code> idempotently (everything is <code>CREATE ... IF NOT EXISTS</code>).</p>
+
+    <h3>Why it's built this way</h3>
+    <p>Raw SQL + psycopg, no ORM — the user wants to see and understand every table and query directly rather than have SQLAlchemy generate it. <code>content_hash</code> on each chunk is what makes re-indexing cheap: on a repeat run, chunks whose hash hasn't changed are skipped instead of re-embedded (an API call saved per unchanged function). The HNSW index on <code>embedding</code> is what makes similarity search fast at query time instead of a full table scan.</p>
+    <p><code>docker-compose.yml</code> runs the same <code>pgvector/pgvector:pg16</code> image locally that the schema targets in Supabase, so dev/test behavior matches prod. Host port is <code>5433</code>, not the default <code>5432</code> — a native Postgres 18 install already runs inside WSL on 5432 (unrelated to this project), and it intercepts <code>localhost:5432</code> before Docker's port mapping ever sees the connection. Remapping the container avoids touching that native install.</p>
+    <p>One wrinkle: <code>get_connection()</code> registers the <code>vector</code> pgvector type immediately on connect, but a brand-new database doesn't have the <code>vector</code> extension installed until <code>apply_schema()</code> runs <code>CREATE EXTENSION vector</code> — and <code>apply_schema()</code> needs a connection first. Chicken-and-egg on a fresh container. Fixed by bootstrapping the extension once by hand (plain <code>CREATE EXTENSION IF NOT EXISTS vector</code>, no type registration) right after the container comes up; extensions persist in the database afterward, so every later connection's <code>get_connection()</code> finds the type already registered.</p>
+
+    <h3>Tests</h3>
+    <div class="test-result">tests/test_config.py::test_load_config_reads_all_values PASSED
+tests/test_config.py::test_load_config_defaults_groq_model PASSED
+tests/test_config.py::test_load_config_raises_on_missing_required_var PASSED
+tests/test_db.py::test_apply_schema_creates_tables PASSED
+
+4 passed in 0.40s</div>
+  </section>
+
+</main>
+</body>
+</html>
