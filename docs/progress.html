@@ -155,6 +155,30 @@ tests/test_db.py::test_apply_schema_creates_tables PASSED
 4 passed in 0.40s</div>
   </section>
 
+  <section class="task">
+    <div class="task-header">
+      <h2>Task 3 — Chunk data model &amp; context formatting</h2>
+      <span class="status">done</span>
+    </div>
+    <div class="files">
+      <code>sleuth/chunking.py</code> · <code>tests/test_chunking.py</code>
+    </div>
+
+    <h3>What it does</h3>
+    <p>A <code>Chunk</code> dataclass — one piece of code (function, method, class, or leftover module-level statements): <code>file_path</code>, <code>symbol_name</code> (<code>None</code> for module-level), <code>kind</code>, <code>start_line</code>/<code>end_line</code>, <code>code_text</code>. It carries a <code>content_hash</code> property (SHA-256 of <code>code_text</code>). <code>format_chunk_context(chunk, language)</code> wraps that code with a small header (file, symbol, kind, language) — this is the exact text that later gets sent to Voyage for embedding, and reused when building the LLM prompt at answer time.</p>
+
+    <h3>Why it's built this way</h3>
+    <p>Pure data model, no tree-sitter or DB dependency here — Task 4/5 (parsing + AST walk) produce <code>Chunk</code>s, Task 7 (embedding) and the future <code>retrieve/answer.py</code> both consume <code>format_chunk_context()</code>, so the "what does the LLM/embedder actually see" logic lives in exactly one place instead of being duplicated on the ingest and retrieve sides.</p>
+    <p><code>content_hash</code> is the incremental-reindex hook: Task 8's store compares this against what's already in the DB and only re-embeds chunks whose hash changed — an unchanged function costs zero API calls on a repeat index.</p>
+
+    <h3>Tests</h3>
+    <div class="test-result">tests/test_chunking.py::test_content_hash_deterministic_and_sensitive_to_text PASSED
+tests/test_chunking.py::test_format_chunk_context_includes_metadata_and_code PASSED
+tests/test_chunking.py::test_format_chunk_context_handles_module_level_symbol_none PASSED
+
+7 passed in 0.40s (full suite)</div>
+  </section>
+
 </main>
 </body>
 </html>
