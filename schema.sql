@@ -2,12 +2,17 @@ CREATE EXTENSION IF NOT EXISTS vector;
 CREATE EXTENSION IF NOT EXISTS pgcrypto;
 
 CREATE TABLE IF NOT EXISTS repos (
-    id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    github_url    text NOT NULL,
-    status        text NOT NULL DEFAULT 'pending',
-    error_message text,
-    indexed_at    timestamptz
+    id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    github_url      text NOT NULL,
+    status          text NOT NULL DEFAULT 'pending',
+    error_message   text,
+    indexed_at      timestamptz,
+    embedding_model text,
+    embedding_dim   int
 );
+
+ALTER TABLE repos ADD COLUMN IF NOT EXISTS embedding_model text;
+ALTER TABLE repos ADD COLUMN IF NOT EXISTS embedding_dim int;
 
 CREATE TABLE IF NOT EXISTS chunks (
     id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -275,6 +275,61 @@ tests/test_clone.py::test_list_source_files_filters_by_extension PASSED
 21 passed in 3.79s (full suite — the 1 remaining failure is test_db.py, unrelated: local Postgres container wasn't running for this run)</div>
   </section>
 
+  <section class="task">
+    <div class="task-header">
+      <h2>Task 7 — HTTP retry helper &amp; Voyage embedder</h2>
+      <span class="status">done</span>
+    </div>
+    <div class="files">
+      <code>sleuth/http_retry.py</code> · <code>sleuth/ingest/embed.py</code> · <code>tests/test_http_retry.py</code> · <code>tests/test_embed.py</code>
+    </div>
+
+    <h3>What it does</h3>
+    <p><code>post_with_retry(client, url, retries=1, backoff_seconds=1.0, **kwargs)</code> wraps <code>httpx.AsyncClient.post</code>: on a network error (<code>httpx.TransportError</code>) or a transient status code (429/500/502/503/504), it sleeps <code>backoff_seconds</code> and retries once, then raises via <code>raise_for_status()</code>; any other error status (e.g. 401) raises immediately with no retry. <code>Embedder</code> is an ABC (<code>embed_batch(texts)</code>, class attrs <code>model_name</code>, <code>dim</code>). <code>VoyageEmbedder(api_key, batch_size=128, max_concurrency=5)</code> is <code>model_name="voyage-code-3"</code>, <code>dim=1024</code>: it splits input texts into batches of <code>batch_size</code>, fires them concurrently under an <code>asyncio.Semaphore(max_concurrency)</code>, and for each batch response sorts Voyage's returned <code>data</code> by its <code>index</code> field before extracting embeddings — guaranteeing output vector <code>i</code> corresponds to input text <code>i</code> even though concurrent batches (and possibly the API itself) don't guarantee response order. Scope for this task deliberately narrowed to Voyage only — <code>NimEmbedder</code> and a <code>get_embedder(config)</code> provider switch are deferred until NIM support is actually needed.</p>
+
+    <h3>Why it's built this way</h3>
+    <p>One shared retry helper instead of duplicating retry logic in the Voyage client, the future Groq client, and the future NIM client — every provider call in the app goes through <code>post_with_retry</code>, so the retry policy (what counts as transient, how many attempts, backoff) is defined once and applied identically everywhere. Retrying blindly on <em>any</em> failure would silently double-charge/double-call on a permanent error like bad auth — the transient-status allowlist is what keeps retries meaningful instead of wasteful.</p>
+    <p>Batching + bounded concurrency is the main lever on ingest speed: embedding is network-bound, so one request per chunk would be dominated by round-trip latency, while unbounded concurrency risks tripping Voyage's rate limits. The semaphore caps in-flight requests without capping throughput below what's actually needed. The index-sort step exists because this is the one place a silent bug would be catastrophic and undetectable: if a batch's embeddings ever came back reordered relative to their input texts, every chunk in that batch would get permanently mismatched to the wrong vector — no error, no crash, just wrong retrieval results forever. Sorting explicitly by <code>index</code> removes the assumption entirely instead of trusting the API's ordering to hold.</p>
+
+    <h3>Tests</h3>
+    <div class="test-result">tests/test_http_retry.py::test_post_with_retry_succeeds_after_one_transient_failure PASSED
+tests/test_http_retry.py::test_post_with_retry_raises_after_exhausting_retries PASSED
+tests/test_http_retry.py::test_post_with_retry_does_not_retry_non_transient_error PASSED
+tests/test_embed.py::test_embed_batch_returns_vectors_in_input_order PASSED
+tests/test_embed.py::test_embed_batch_splits_into_batch_size_chunks PASSED
+tests/test_embed.py::test_embed_batch_sends_auth_header_and_model PASSED
+tests/test_embed.py::test_voyage_embedder_metadata PASSED
+
+28 passed in 6.17s (full suite — the 1 remaining failure is test_db.py, unrelated: local Postgres container wasn't running for this run)</div>
+  </section>
+
+  <section class="task">
+    <div class="task-header">
+      <h2>Task 8 — Repo/chunk store (raw SQL CRUD)</h2>
+      <span class="status">done</span>
+    </div>
+    <div class="files">
+      <code>sleuth/store.py</code> · <code>schema.sql</code> · <code>tests/test_store.py</code>
+    </div>
+
+    <h3>What it does</h3>
+    <p><code>create_repo(conn, github_url)</code> inserts a <code>repos</code> row and returns its id. <code>update_repo_status(conn, repo_id, status, error_message=None)</code> and <code>set_repo_embedding_info(conn, repo_id, model, dim)</code> update that row. <code>get_existing_hashes(conn, repo_id)</code> returns <code>{(file_path, symbol_name): content_hash}</code> for every chunk already stored for that repo. <code>upsert_chunks(conn, repo_id, [(Chunk, embedding), ...])</code> inserts each chunk or, on a conflict against the existing <code>(repo_id, file_path, symbol_name)</code> unique index, overwrites it in place. <code>delete_stale_chunks(conn, repo_id, current_keys)</code> removes any stored chunk whose key isn't in the freshly-parsed set. <code>schema.sql</code> gained <code>embedding_model</code>/<code>embedding_dim</code> columns on <code>repos</code>, added via both <code>CREATE TABLE IF NOT EXISTS</code> (fresh DB) and <code>ALTER TABLE ADD COLUMN IF NOT EXISTS</code> (the already-running dev container from Task 2) — <code>apply_schema()</code> stays idempotent either way.</p>
+
+    <h3>Why it's built this way</h3>
+    <p>Scope was narrowed from the plan's per-dimension design (separate <code>chunks_1024</code>/<code>chunks_2048</code> tables, one per embedding provider) down to the single existing <code>chunks</code> table — only Voyage (1024-dim) is wired up right now, so a second table with nothing to put in it is pure speculation; the multi-table split gets added if/when NIM support actually happens. Every function takes a plain connection and never commits internally — the caller (ingest orchestration, Task 9) controls the transaction boundary, so <code>create_repo</code> → <code>upsert_chunks</code> → <code>update_repo_status</code> can all land in one commit, or all roll back together if something mid-run fails, instead of leaving a repo row in a half-indexed state. <code>COALESCE(symbol_name, '')</code> appears in the unique index, the upsert's conflict target, and the delete's match clause — SQL treats <code>NULL != NULL</code>, so without it two module-level chunks (both <code>symbol_name=NULL</code>) in the same file would never conflict/dedupe against each other and every reindex would insert a duplicate leftover-chunk instead of overwriting the one already there.</p>
+    <p><code>get_existing_hashes</code> is the incremental-reindex hook <code>content_hash</code> (Task 3) was built for: Task 9's orchestration will diff a fresh parse's hashes against this map and only send changed/new chunks to the embedder — an unchanged function costs zero Voyage calls on a repeat index, not just zero DB writes.</p>
+
+    <h3>Tests</h3>
+    <div class="test-result">tests/test_store.py::test_create_repo_and_update_status PASSED
+tests/test_store.py::test_update_repo_status_with_error_message PASSED
+tests/test_store.py::test_set_repo_embedding_info PASSED
+tests/test_store.py::test_upsert_and_get_existing_hashes PASSED
+tests/test_store.py::test_upsert_overwrites_existing_row_on_conflict PASSED
+tests/test_store.py::test_delete_stale_chunks_removes_missing_keys PASSED
+
+35 passed in 2.14s (full suite, live Postgres container)</div>
+  </section>
+
 </main>
 </body>
 </html>
