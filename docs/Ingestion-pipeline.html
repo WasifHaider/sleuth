@@ -1,0 +1,1077 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SLEUTH — Ingestion Pipeline, Line by Line</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff;
+    --fg: #1a1a1a;
+    --muted: #5c5c5c;
+    --border: #e2e2e2;
+    --code-bg: #f5f5f5;
+    --code-fg: #1a1a1a;
+    --accent: #2563eb;
+    --done: #15803d;
+    --done-bg: #dcfce7;
+    --warn: #b45309;
+    --warn-bg: #fef3c7;
+    --kw: #7c3aed;
+    --str: #15803d;
+    --num: #b45309;
+    --com: #8a8f98;
+    --step-bg: #eff6ff;
+    --step-num: #2563eb;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111318;
+      --fg: #e8e8e8;
+      --muted: #9a9a9a;
+      --border: #2a2d34;
+      --code-bg: #1b1e24;
+      --code-fg: #e8e8e8;
+      --accent: #60a5fa;
+      --done: #4ade80;
+      --done-bg: #123320;
+      --warn: #fbbf24;
+      --warn-bg: #3a2c0a;
+      --kw: #c4b5fd;
+      --str: #86efac;
+      --num: #fcd34d;
+      --com: #6b7280;
+      --step-bg: #101d33;
+      --step-num: #60a5fa;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 2rem 1.25rem 5rem;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+  }
+  main { max-width: 860px; margin: 0 auto; }
+  h1 { font-size: 1.7rem; margin-bottom: 0.25rem; }
+  .subtitle { color: var(--muted); margin-top: 0; margin-bottom: 1rem; font-size: 0.98rem; }
+  .toc {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem 1.25rem;
+    margin-bottom: 2.5rem;
+    font-size: 0.92rem;
+  }
+  .toc h2 { font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 0 0 0.6rem; }
+  .toc ol { margin: 0; padding-left: 1.3rem; columns: 2; column-gap: 2rem; }
+  .toc li { margin-bottom: 0.35rem; break-inside: avoid; }
+  .toc a { color: var(--fg); text-decoration: none; }
+  .toc a:hover { color: var(--accent); text-decoration: underline; }
+
+  section.block {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1.25rem 1.5rem 1.5rem;
+    margin-bottom: 1.75rem;
+  }
+  section.block > h2 { margin-top: 0; font-size: 1.25rem; }
+  section.block > .files {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.83rem;
+    color: var(--muted);
+    margin: -0.3rem 0 1rem;
+  }
+  h3 {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    margin: 1.4rem 0 0.5rem;
+  }
+  h3:first-of-type { margin-top: 1rem; }
+  p { margin: 0.5rem 0; }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--code-bg);
+    padding: 0.1rem 0.35rem;
+    border-radius: 4px;
+    font-size: 0.9em;
+    color: var(--code-fg);
+  }
+  a { color: var(--accent); }
+
+  pre.code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--code-bg);
+    color: var(--code-fg);
+    border-radius: 8px;
+    padding: 0.9rem 1rem;
+    overflow-x: auto;
+    font-size: 0.84rem;
+    line-height: 1.55;
+    margin: 0.6rem 0 1rem;
+  }
+  pre.code .ln {
+    display: inline-block;
+    width: 2.1em;
+    color: var(--muted);
+    user-select: none;
+    text-align: right;
+    margin-right: 0.9em;
+  }
+  .kw { color: var(--kw); }
+  .str { color: var(--str); }
+  .num { color: var(--num); }
+  .com { color: var(--com); font-style: italic; }
+
+  .step {
+    display: flex;
+    gap: 0.9rem;
+    margin: 1.1rem 0;
+    padding: 0.9rem 1rem;
+    background: var(--step-bg);
+    border-radius: 8px;
+  }
+  .step .num-badge {
+    flex: 0 0 auto;
+    width: 1.7rem;
+    height: 1.7rem;
+    border-radius: 50%;
+    background: var(--step-num);
+    color: var(--bg);
+    font-weight: 700;
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .step .step-body p:first-child { margin-top: 0; }
+  .step .step-body p:last-child { margin-bottom: 0; }
+
+  .callout {
+    border-left: 3px solid var(--accent);
+    background: var(--step-bg);
+    padding: 0.7rem 1rem;
+    border-radius: 0 6px 6px 0;
+    margin: 0.9rem 0;
+    font-size: 0.94rem;
+  }
+  .callout.warn { border-left-color: var(--warn); background: var(--warn-bg); }
+  .callout strong { color: var(--accent); }
+  .callout.warn strong { color: var(--warn); }
+
+  table.linetable {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+    margin: 0.7rem 0 1.2rem;
+  }
+  table.linetable th, table.linetable td {
+    text-align: left;
+    padding: 0.45rem 0.6rem;
+    border-bottom: 1px solid var(--border);
+    vertical-align: top;
+  }
+  table.linetable th { color: var(--muted); font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.03em; }
+  table.linetable td:first-child { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.83rem; color: var(--muted); white-space: nowrap; }
+  table.linetable code { background: transparent; padding: 0; }
+
+  .glossary dt { font-weight: 600; margin-top: 0.9rem; }
+  .glossary dd { margin: 0.25rem 0 0; color: var(--fg); }
+
+  .badge {
+    display: inline-block;
+    font-size: 0.72rem;
+    font-weight: 600;
+    padding: 0.15rem 0.5rem;
+    border-radius: 999px;
+    background: var(--done-bg);
+    color: var(--done);
+    margin-left: 0.5rem;
+    vertical-align: middle;
+  }
+  footer { color: var(--muted); font-size: 0.85rem; text-align: center; margin-top: 3rem; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>SLEUTH — Ingestion Pipeline, Line by Line</h1>
+<p class="subtitle">
+  How <code>sleuth/ingest/pipeline.py</code> turns a GitHub URL into searchable, embedded code chunks in Postgres —
+  every function it calls, why each step exists, and how the tests prove it works. Written to be read start to finish.
+</p>
+
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#big-picture">1. The big picture</a></li>
+    <li><a href="#entry">2. Entry point &amp; helpers</a></li>
+    <li><a href="#walkthrough">3. <code>ingest_repo</code> — line by line</a></li>
+    <li><a href="#clone">4. Deep dive: cloning &amp; file listing</a></li>
+    <li><a href="#parse-chunk">5. Deep dive: parsing &amp; chunking</a></li>
+    <li><a href="#hashing">6. Deep dive: the <code>Chunk</code> model &amp; hashing</a></li>
+    <li><a href="#embed">7. Deep dive: embedding + retry</a></li>
+    <li><a href="#store">8. Deep dive: the store layer (SQL)</a></li>
+    <li><a href="#schema">9. Deep dive: the database schema</a></li>
+    <li><a href="#tests">10. How the tests prove it works</a></li>
+    <li><a href="#glossary">11. Glossary of concepts used</a></li>
+  </ol>
+</nav>
+
+<!-- ============================================================ -->
+<section class="block" id="big-picture">
+<h2>1. The big picture</h2>
+
+<p>
+One function, <code>ingest_repo(github_url, conn, config)</code>, does the whole job. It is <strong>async</strong>
+(because embedding calls go over the network) and it takes a GitHub URL, a live database connection, and a
+<code>Config</code> object holding API keys. It returns the repo's database id, and — this is the important
+design rule — it <strong>never raises</strong>. Every failure mode ends with the repo's <code>status</code>
+column set to <code>'failed'</code> plus an error message, not a Python exception bubbling up. That matters
+because ingestion will eventually run as a background job; nothing should be sitting there ready to crash a
+worker process over a bad clone URL.
+</p>
+
+<div class="callout">
+  <strong>Flow:</strong> find/create repo row → mark "indexing" → clone repo to a temp dir → walk every source
+  file → parse + chunk each one with tree-sitter → hash each chunk's code and compare against what's already
+  stored → embed <em>only the chunks that changed</em> → upsert those into Postgres → delete chunks for code
+  that no longer exists → mark "ready" → delete the temp clone.
+</div>
+
+<p>
+The single idea that shapes almost every line in this file is <strong>incremental re-indexing</strong>: re-running
+ingestion on a repo that's mostly unchanged should re-embed almost nothing. Embedding calls cost money and time;
+a content hash per chunk is the cheap check that avoids paying for it twice.
+</p>
+</section>
+
+<!-- ============================================================ -->
+<section class="block" id="entry">
+<h2>2. Entry point &amp; helpers</h2>
+<div class="files"><code>sleuth/ingest/pipeline.py</code> lines 1–29</div>
+
+<pre class="code"><span class="ln">1</span><span class="kw">import</span> shutil
+<span class="ln">2</span><span class="kw">import</span> tempfile
+<span class="ln">3</span>
+<span class="ln">4</span><span class="kw">from</span> sleuth.chunking <span class="kw">import</span> format_chunk_context
+<span class="ln">5</span><span class="kw">from</span> sleuth.config <span class="kw">import</span> Config
+<span class="ln">6</span><span class="kw">from</span> sleuth.ingest.chunk <span class="kw">import</span> chunk_source
+<span class="ln">7</span><span class="kw">from</span> sleuth.ingest.clone <span class="kw">import</span> CloneError, clone_repo, list_source_files
+<span class="ln">8</span><span class="kw">from</span> sleuth.ingest.embed <span class="kw">import</span> VoyageEmbedder
+<span class="ln">9</span><span class="kw">from</span> sleuth.ingest.parse <span class="kw">import</span> LANGUAGES
+<span class="ln">10</span><span class="kw">from</span> sleuth.store <span class="kw">import</span> (
+<span class="ln">11</span>    create_repo,
+<span class="ln">12</span>    delete_stale_chunks,
+<span class="ln">13</span>    get_existing_hashes,
+<span class="ln">14</span>    set_repo_embedding_info,
+<span class="ln">15</span>    update_repo_status,
+<span class="ln">16</span>    upsert_chunks,
+<span class="ln">17</span>)
+<span class="ln">18</span>
+<span class="ln">19</span>SUPPORTED_EXTENSIONS = <span class="kw">set</span>(LANGUAGES.keys())
+<span class="ln">20</span>EXTENSION_TO_LANGUAGE = {ext: spec.key <span class="kw">for</span> ext, spec <span class="kw">in</span> LANGUAGES.items()}
+<span class="ln">21</span></pre>
+
+<p>
+This file imports nothing it doesn't call — every name on lines 4–16 shows up later in <code>ingest_repo</code>.
+That's deliberate: this module is <em>orchestration only</em>. It doesn't know how tree-sitter works, how Voyage's
+API is shaped, or what SQL looks like — it just calls the right function at the right time in the right order.
+That separation is why each of those pieces (clone, chunk, embed, store) has its own test file and can be
+understood in isolation.
+</p>
+
+<table class="linetable">
+<tr><th>Lines</th><th>What it builds</th></tr>
+<tr><td>19</td><td>
+  <code>SUPPORTED_EXTENSIONS</code> — the set <code>{'.py', '.js', '.ts'}</code>, read straight off the
+  <code>LANGUAGES</code> registry in <code>parse.py</code> so this file never hardcodes extensions itself.
+  Used later to filter which files in the repo even get looked at.
+</td></tr>
+<tr><td>20</td><td>
+  <code>EXTENSION_TO_LANGUAGE</code> — a dict like <code>{'.py': 'python', '.js': 'javascript', '.ts': 'typescript'}</code>,
+  built by pulling <code>.key</code> off each <code>LanguageSpec</code>. Used later to label each chunk with its
+  language when formatting it for the embedder.
+</td></tr>
+</table>
+
+<h3>_find_or_create_repo</h3>
+<pre class="code"><span class="ln">23</span><span class="kw">def</span> _find_or_create_repo(conn, github_url: <span class="kw">str</span>) -> <span class="kw">str</span>:
+<span class="ln">24</span>    row = conn.execute(<span class="str">"SELECT id FROM repos WHERE github_url = %s"</span>, (github_url,)).fetchone()
+<span class="ln">25</span>    <span class="kw">if</span> row <span class="kw">is not</span> <span class="kw">None</span>:
+<span class="ln">26</span>        <span class="kw">return</span> <span class="kw">str</span>(row[<span class="num">0</span>])
+<span class="ln">27</span>    repo_id = create_repo(conn, github_url)
+<span class="ln">28</span>    conn.commit()
+<span class="ln">29</span>    <span class="kw">return</span> repo_id</pre>
+
+<p>
+This is what makes re-indexing the <em>same</em> repo find the <em>same</em> row instead of creating duplicates.
+It queries <code>repos</code> by <code>github_url</code> first; if a row already exists it returns that row's id
+(cast to <code>str</code> because Postgres hands back a UUID object, and the rest of the codebase treats repo ids
+as plain strings). Only if nothing was found does it call <code>create_repo</code> — a one-line <code>INSERT ...
+RETURNING id</code> in <code>store.py</code> — and commit that insert immediately so the new row is visible to
+any other query on the same connection right away.
+</p>
+<p>
+The <code>%s</code> placeholder with a tuple argument, <code>(github_url,)</code>, is <strong>parameterized SQL</strong>
+— psycopg sends the value separately from the query text, so a URL containing a stray quote character can never
+be interpreted as SQL. This is the standard defense against SQL injection, and every query in this codebase uses
+it instead of string-formatting values into the query.
+</p>
+</section>
+
+<!-- ============================================================ -->
+<section class="block" id="walkthrough">
+<h2>3. <code>ingest_repo</code> — line by line</h2>
+<div class="files"><code>sleuth/ingest/pipeline.py</code> lines 32–87</div>
+
+<pre class="code"><span class="ln">32</span><span class="kw">async def</span> ingest_repo(github_url: <span class="kw">str</span>, conn, config: Config) -> <span class="kw">str</span>:
+<span class="ln">33</span>    repo_id = _find_or_create_repo(conn, github_url)
+<span class="ln">34</span>    update_repo_status(conn, repo_id, <span class="str">"indexing"</span>)
+<span class="ln">35</span>    conn.commit()</pre>
+
+<div class="step">
+  <div class="num-badge">1</div>
+  <div class="step-body">
+    <p><strong>Get or create the repo row, mark it "indexing".</strong> This commit happens immediately, before
+    any slow work starts, so if you query the <code>repos</code> table from anywhere else — a status API, a
+    dashboard — while ingestion is running, you'll see <code>status = 'indexing'</code> rather than stale data
+    from a previous run.</p>
+  </div>
+</div>
+
+<pre class="code"><span class="ln">37</span>    embedder = VoyageEmbedder(api_key=config.voyage_api_key)</pre>
+
+<div class="step">
+  <div class="num-badge">2</div>
+  <div class="step-body">
+    <p><strong>Construct the embedder.</strong> One object, created once per ingestion run, reused for every
+    batch of texts sent to Voyage later. It carries the API key, the model name (<code>voyage-code-3</code>),
+    and the fixed output dimension (<code>1024</code>).</p>
+  </div>
+</div>
+
+<pre class="code"><span class="ln">39</span>    workdir = tempfile.mkdtemp(prefix=<span class="str">"sleuth-clone-"</span>)
+<span class="ln">40</span>    <span class="kw">try</span>:</pre>
+
+<div class="step">
+  <div class="num-badge">3</div>
+  <div class="step-body">
+    <p><strong>Create a scratch directory and open a <code>try</code> block that spans the entire rest of the
+    function.</strong> <code>tempfile.mkdtemp</code> makes a real directory on disk (e.g.
+    <code>/tmp/sleuth-clone-a8f3x_/</code>) and returns its path as a string. Everything from here to the end of
+    the function runs inside this <code>try</code>, matched by a <code>finally</code> at the very bottom (line
+    86) that deletes this directory no matter what happens in between — success, a caught error, or an
+    uncaught one.</p>
+  </div>
+</div>
+
+<pre class="code"><span class="ln">41</span>        <span class="kw">try</span>:
+<span class="ln">42</span>            repo_path = clone_repo(github_url, workdir)
+<span class="ln">43</span>        <span class="kw">except</span> CloneError <span class="kw">as</span> exc:
+<span class="ln">44</span>            update_repo_status(conn, repo_id, <span class="str">"failed"</span>, <span class="kw">str</span>(exc))
+<span class="ln">45</span>            conn.commit()
+<span class="ln">46</span>            <span class="kw">return</span> repo_id</pre>
+
+<div class="step">
+  <div class="num-badge">4</div>
+  <div class="step-body">
+    <p><strong>Clone the repo — and this is the first of the "never raise" exit points.</strong>
+    <code>clone_repo</code> shells out to <code>git clone --depth 1</code>. If the URL is bad, private without
+    credentials, or unreachable, it raises <code>CloneError</code> with git's own stderr text as the message.
+    This inner <code>try/except</code> catches exactly that, writes <code>status = 'failed'</code> plus the git
+    error into the row, commits, and <code>return</code>s straight out of <code>ingest_repo</code>. Note it
+    still hits the outer <code>finally</code> on the way out, so the (empty) temp dir still gets cleaned up.</p>
+  </div>
+</div>
+
+<pre class="code"><span class="ln">48</span>        files = list_source_files(repo_path, SUPPORTED_EXTENSIONS)
+<span class="ln">49</span>
+<span class="ln">50</span>        all_chunks = []
+<span class="ln">51</span>        <span class="kw">for</span> file_path <span class="kw">in</span> files:
+<span class="ln">52</span>            relative_path = <span class="kw">str</span>(file_path.relative_to(repo_path))
+<span class="ln">53</span>            source_bytes = file_path.read_bytes()
+<span class="ln">54</span>            <span class="kw">try</span>:
+<span class="ln">55</span>                chunks = chunk_source(source_bytes, relative_path, file_path.suffix)
+<span class="ln">56</span>            <span class="kw">except</span> <span class="kw">Exception</span>:
+<span class="ln">57</span>                <span class="kw">continue</span>  <span class="com"># skip files that fail to parse, don't abort the whole index</span>
+<span class="ln">58</span>            all_chunks.extend(chunks)</pre>
+
+<div class="step">
+  <div class="num-badge">5</div>
+  <div class="step-body">
+    <p><strong>Walk every supported source file and chunk it.</strong> <code>list_source_files</code> recursively
+    finds every <code>.py</code>/<code>.js</code>/<code>.ts</code> file under the clone, skipping the
+    <code>.git/</code> folder. For each file: read it as raw <code>bytes</code> (tree-sitter parses bytes, not
+    strings — more on why in section 5), compute a path relative to the repo root (so <code>file_path</code>
+    stored in the database is <code>src/foo.py</code>, not <code>/tmp/sleuth-clone-xyz/src/foo.py</code>, which
+    would break as soon as the temp dir is deleted), and hand it to <code>chunk_source</code>.</p>
+    <p>Line 56's bare <code>except Exception</code> is intentional and narrow in purpose: one unparseable file
+    (a syntax error, an encoding oddity) shouldn't take down indexing for the other 400 files in the repo. It's
+    a deliberate trade-off — silently skipping — accepted because <code>chunk_source</code> already has its own
+    fallback chunker for files tree-sitter can't handle structurally (section 5), so this branch is really a
+    last-resort safety net, not the primary error path.</p>
+  </div>
+</div>
+
+<pre class="code"><span class="ln">60</span>        current_keys = {(c.file_path, c.symbol_name) <span class="kw">for</span> c <span class="kw">in</span> all_chunks}
+<span class="ln">61</span>        existing_hashes = get_existing_hashes(conn, repo_id)
+<span class="ln">62</span>
+<span class="ln">63</span>        to_embed = [
+<span class="ln">64</span>            c <span class="kw">for</span> c <span class="kw">in</span> all_chunks
+<span class="ln">65</span>            <span class="kw">if</span> existing_hashes.get((c.file_path, c.symbol_name)) != c.content_hash
+<span class="ln">66</span>        ]</pre>
+
+<div class="step">
+  <div class="num-badge">6</div>
+  <div class="step-body">
+    <p><strong>This is the incremental re-index check — the heart of the whole design.</strong> Every chunk is
+    identified by the pair <code>(file_path, symbol_name)</code> — e.g. <code>("src/auth.py", "login")</code>.
+    <code>current_keys</code> is the set of every chunk that exists in the repo <em>right now</em>, from this
+    fresh clone. <code>existing_hashes</code> is a dict pulled from Postgres: for every chunk already stored for
+    this repo, what content hash did it have last time?</p>
+    <p>Line 63–66 keeps only the chunks whose current hash differs from what's stored (including chunks that
+    are brand new, where <code>.get(...)</code> returns <code>None</code> and automatically fails the equality
+    check). If a function's code hasn't changed one character since the last index, its hash is identical, it's
+    excluded from <code>to_embed</code>, and it costs zero embedding API calls this run.</p>
+  </div>
+</div>
+
+<pre class="code"><span class="ln">68</span>        <span class="kw">if</span> to_embed:
+<span class="ln">69</span>            texts = [
+<span class="ln">70</span>                format_chunk_context(c, EXTENSION_TO_LANGUAGE.get(<span class="str">"."</span> + c.file_path.rsplit(<span class="str">"."</span>, <span class="num">1</span>)[-<span class="num">1</span>], <span class="str">""</span>))
+<span class="ln">71</span>                <span class="kw">for</span> c <span class="kw">in</span> to_embed
+<span class="ln">72</span>            ]
+<span class="ln">73</span>            vectors = <span class="kw">await</span> embedder.embed_batch(texts)
+<span class="ln">74</span>            upsert_chunks(conn, repo_id, <span class="kw">list</span>(<span class="kw">zip</span>(to_embed, vectors)))
+<span class="ln">75</span>            conn.commit()</pre>
+
+<div class="step">
+  <div class="num-badge">7</div>
+  <div class="step-body">
+    <p><strong>Embed and store only the changed chunks — but only if there are any.</strong> The
+    <code>if to_embed:</code> guard means a fully-unchanged re-index makes <em>zero</em> network calls to Voyage.</p>
+    <p>Line 70 recovers the chunk's language from its file extension by splitting the path on the last
+    <code>.</code> (<code>"src/auth.py".rsplit(".", 1)[-1]</code> → <code>"py"</code>, then prefixed back to
+    <code>".py"</code> to look it up in <code>EXTENSION_TO_LANGUAGE</code>). This is a slightly roundabout way to
+    get the extension — <code>file_path.suffix</code> would have done it more directly if a <code>Path</code>
+    were kept around — but it works because <code>chunk_source</code> already validated the extension earlier.
+    <code>format_chunk_context</code> then turns each raw <code>Chunk</code> into the labeled text block that
+    actually gets embedded (full breakdown in section 6).</p>
+    <p>Line 73 sends the whole batch of texts to Voyage in one call to <code>embed_batch</code>, which internally
+    splits into sub-batches and fires them concurrently (section 7) — this pipeline code doesn't need to know
+    that.</p>
+    <p>Line 74 pairs each chunk back up with its vector via <code>zip</code> (order-preserving, since
+    <code>embed_batch</code> is contracted to return vectors in the same order as the input texts) and hands the
+    pairs to <code>upsert_chunks</code>, which writes them to Postgres with <code>INSERT ... ON CONFLICT ...
+    DO UPDATE</code> (section 8) — so a changed chunk overwrites its old row instead of creating a duplicate.</p>
+  </div>
+</div>
+
+<pre class="code"><span class="ln">77</span>        set_repo_embedding_info(conn, repo_id, embedder.model_name, embedder.dim)
+<span class="ln">78</span>        conn.commit()
+<span class="ln">79</span>
+<span class="ln">80</span>        delete_stale_chunks(conn, repo_id, current_keys)
+<span class="ln">81</span>        conn.commit()</pre>
+
+<div class="step">
+  <div class="num-badge">8</div>
+  <div class="step-body">
+    <p><strong>Record which model produced these vectors, then remove chunks for code that's gone.</strong>
+    Line 77 stamps <code>repos.embedding_model</code>/<code>embedding_dim</code> — this runs unconditionally
+    (not just inside the <code>if to_embed:</code> block), so even a no-op re-index confirms which model the
+    stored vectors belong to.</p>
+    <p>Line 80 is the other half of incremental indexing: if a function was deleted, or a file was removed,
+    its key won't be in <code>current_keys</code> (built fresh from this clone on line 60) but will still be in
+    the database from the previous run. <code>delete_stale_chunks</code> diffs the two sets and deletes exactly
+    those leftover rows — otherwise every deleted function would keep haunting the retrieval index forever.</p>
+  </div>
+</div>
+
+<pre class="code"><span class="ln">83</span>        update_repo_status(conn, repo_id, <span class="str">"ready"</span>)
+<span class="ln">84</span>        conn.commit()
+<span class="ln">85</span>        <span class="kw">return</span> repo_id
+<span class="ln">86</span>    <span class="kw">finally</span>:
+<span class="ln">87</span>        shutil.rmtree(workdir, ignore_errors=<span class="kw">True</span>)</pre>
+
+<div class="step">
+  <div class="num-badge">9</div>
+  <div class="step-body">
+    <p><strong>Mark ready, return the id, then always clean up the clone.</strong> The
+    <code>finally</code> block runs whether the function returned normally on line 85 or exited early on line
+    46 after a clone failure — <code>shutil.rmtree(..., ignore_errors=True)</code> deletes the temp directory
+    tree without raising even if something about the cleanup itself goes wrong. Nothing about the outcome of
+    ingestion depends on this step succeeding, which is why errors here are deliberately swallowed.</p>
+  </div>
+</div>
+
+<div class="callout warn">
+  <strong>Notice what's absent:</strong> there is no top-level <code>try/except</code> around the whole function
+  body. A truly unexpected exception (a bug in <code>chunk_source</code>, a dropped DB connection mid-run) would
+  still propagate out of <code>ingest_repo</code> today. The "never raises" guarantee currently covers the one
+  failure mode that's expected to happen routinely in practice — a bad clone URL — not every conceivable
+  exception. Worth keeping in mind if this is ever wrapped in a background job queue.
+</div>
+</section>
+
+<!-- ============================================================ -->
+<section class="block" id="clone">
+<h2>4. Deep dive: cloning &amp; file listing</h2>
+<div class="files"><code>sleuth/ingest/clone.py</code></div>
+
+<pre class="code"><span class="ln">9</span><span class="kw">def</span> clone_repo(url: <span class="kw">str</span>, dest_dir: <span class="kw">str</span>) -> Path:
+<span class="ln">10</span>    dest = Path(dest_dir)
+<span class="ln">11</span>    result = subprocess.run(
+<span class="ln">12</span>        [<span class="str">"git"</span>, <span class="str">"clone"</span>, <span class="str">"--depth"</span>, <span class="str">"1"</span>, url, <span class="kw">str</span>(dest)],
+<span class="ln">13</span>        capture_output=<span class="kw">True</span>,
+<span class="ln">14</span>        text=<span class="kw">True</span>,
+<span class="ln">15</span>    )
+<span class="ln">16</span>    <span class="kw">if</span> result.returncode != <span class="num">0</span>:
+<span class="ln">17</span>        <span class="kw">raise</span> CloneError(result.stderr.strip())
+<span class="ln">18</span>    <span class="kw">return</span> dest</pre>
+
+<p>
+<code>subprocess.run</code> with a list of arguments (not a shell string) is used deliberately — passing
+<code>["git", "clone", ..., url, ...]</code> as a list means the OS invokes <code>git</code> directly with each
+argument as its own value, so there's no shell interpreting the URL string. If <code>url</code> contained
+something like <code>; rm -rf ~</code>, it would just be treated as a literal (invalid) URL argument to git, not
+executed as a shell command. This is the subprocess equivalent of the parameterized-SQL protection used
+everywhere else in this codebase.
+</p>
+<p>
+<code>--depth 1</code> is a <strong>shallow clone</strong> — only the latest commit's file tree, no history.
+Ingestion only ever reads the current state of files, so pulling the entire commit history would be pure waste
+of bandwidth and disk. <code>result.returncode != 0</code> is how you detect failure from a
+<code>subprocess.run</code> call (it doesn't raise by default); git's own explanation of what went wrong is on
+<code>stderr</code>, which gets wrapped into <code>CloneError</code> and is exactly the string that ends up in
+<code>repos.error_message</code> when this bubbles up through <code>ingest_repo</code>.
+</p>
+
+<pre class="code"><span class="ln">21</span><span class="kw">def</span> list_source_files(repo_path: Path, extensions: <span class="kw">set</span>[<span class="kw">str</span>]) -> <span class="kw">list</span>[Path]:
+<span class="ln">22</span>    files = []
+<span class="ln">23</span>    <span class="kw">for</span> path <span class="kw">in</span> Path(repo_path).rglob(<span class="str">"*"</span>):
+<span class="ln">24</span>        <span class="kw">if</span> <span class="str">".git"</span> <span class="kw">in</span> path.parts:
+<span class="ln">25</span>            <span class="kw">continue</span>
+<span class="ln">26</span>        <span class="kw">if</span> path.is_file() <span class="kw">and</span> path.suffix <span class="kw">in</span> extensions:
+<span class="ln">27</span>            files.append(path)
+<span class="ln">28</span>    <span class="kw">return</span> files</pre>
+
+<p>
+<code>rglob("*")</code> recursively walks every entry — files <em>and</em> directories — under
+<code>repo_path</code>. <code>".git" in path.parts</code> checks whether any path segment is literally named
+<code>.git</code> (catches the whole <code>.git/</code> internals folder, not just a file called
+<code>.git</code>). The final filter keeps only real files (not directories) whose suffix — <code>.py</code>,
+<code>.js</code>, <code>.ts</code> — is in the caller-supplied <code>extensions</code> set. This function doesn't
+hardcode which extensions matter; <code>ingest_repo</code> passes in <code>SUPPORTED_EXTENSIONS</code>, keeping
+the language list defined in exactly one place (<code>parse.py</code>'s <code>LANGUAGES</code> registry).
+</p>
+</section>
+
+<!-- ============================================================ -->
+<section class="block" id="parse-chunk">
+<h2>5. Deep dive: parsing &amp; chunking</h2>
+<div class="files"><code>sleuth/ingest/parse.py</code> · <code>sleuth/ingest/chunk.py</code></div>
+
+<h3>parse_source — turning bytes into a syntax tree</h3>
+<pre class="code"><span class="ln">30</span><span class="kw">def</span> parse_source(source_bytes: <span class="kw">bytes</span>, extension: <span class="kw">str</span>) -> <span class="kw">tuple</span>[Tree, LanguageSpec]:
+<span class="ln">31</span>    spec = LANGUAGES.get(extension)
+<span class="ln">32</span>    <span class="kw">if</span> spec <span class="kw">is</span> <span class="kw">None</span>:
+<span class="ln">33</span>        <span class="kw">raise</span> UnsupportedFileType(extension)
+<span class="ln">34</span>
+<span class="ln">35</span>    parser = Parser(spec.ts_language)
+<span class="ln">36</span>    tree = parser.parse(source_bytes)
+<span class="ln">37</span>    <span class="kw">return</span> tree, spec</pre>
+<p>
+Tree-sitter is a real parser, not a regex hack — it builds a full <strong>concrete syntax tree</strong> (every
+paren, every keyword, every block gets a node) for the language matching the file's extension. It parses
+<code>bytes</code> directly rather than a decoded string, because tree-sitter's own node positions are byte
+offsets — feeding it a Python <code>str</code> would create an offset mismatch the moment the file contains any
+non-ASCII character (a byte-string in a docstring, a name with an accent). <code>LANGUAGES</code> is the single
+lookup table from file extension → compiled tree-sitter grammar (Python/JS/TS), built once at import time from
+the <code>tree_sitter_python</code>/<code>tree_sitter_javascript</code>/<code>tree_sitter_typescript</code>
+packages.
+</p>
+
+<h3>chunk_source — the tree becomes a list of Chunks</h3>
+<pre class="code"><span class="ln">20</span><span class="kw">def</span> chunk_source(source_bytes: <span class="kw">bytes</span>, file_path: <span class="kw">str</span>, extension: <span class="kw">str</span>) -> <span class="kw">list</span>[Chunk]:
+<span class="ln">21</span>    <span class="kw">try</span>:
+<span class="ln">22</span>        tree, spec = parse_source(source_bytes, extension)
+<span class="ln">23</span>    <span class="kw">except</span> UnsupportedFileType:
+<span class="ln">24</span>        chunks = _fallback_chunk(source_bytes, file_path)
+<span class="ln">25</span>    <span class="kw">else</span>:
+<span class="ln">26</span>        query = _load_query(spec.key, spec.ts_language)
+<span class="ln">27</span>        chunks = run_query(query, tree.root_node, source_bytes, file_path)
+<span class="ln">28</span>
+<span class="ln">29</span>    <span class="kw">return</span> _cap_chunk_sizes(chunks)</pre>
+<p>
+Two ways a file gets chunked: <strong>structural</strong> for supported languages, via a tree-sitter
+<em>query</em> — a small pattern-matching language (loaded from a <code>.scm</code> file per language in
+<code>sleuth/ingest/queries/</code>) that finds function/class/method definitions in the syntax tree and returns
+each as a <code>Chunk</code> with the right symbol name, kind, and line span. Or <strong>fallback</strong>, for
+any extension not in <code>LANGUAGES</code> — blank-line-delimited blocks of text, no symbol awareness. Every
+chunk, from either path, then goes through <code>_cap_chunk_sizes</code> before being returned.
+</p>
+<div class="callout">
+  <strong>Design history worth knowing:</strong> the query-based approach replaced an earlier per-node-type
+  walker after it was found to silently drop decorated/exported definitions — <code>@app.get(...)</code> in
+  Python, <code>export class Foo {}</code> in TS — because those wrap the real definition node inside a
+  <code>decorated_definition</code>/<code>export_statement</code> wrapper the old walker didn't unwrap. See the
+  Task 5 entry in <code>docs/progress.html</code> for the full story.
+</div>
+
+<h3>_fallback_chunk — for unsupported extensions</h3>
+<pre class="code"><span class="ln">32</span><span class="kw">def</span> _fallback_chunk(source_bytes: <span class="kw">bytes</span>, file_path: <span class="kw">str</span>) -> <span class="kw">list</span>[Chunk]:
+<span class="ln">33</span>    text = source_bytes.decode(<span class="str">"utf-8"</span>, errors=<span class="str">"replace"</span>)
+<span class="ln">34</span>    lines = text.splitlines()
+<span class="ln">35</span>
+<span class="ln">36</span>    blocks: <span class="kw">list</span>[<span class="kw">tuple</span>[<span class="kw">int</span>, <span class="kw">int</span>, <span class="kw">list</span>[<span class="kw">str</span>]]] = []
+<span class="ln">37</span>    current: <span class="kw">list</span>[<span class="kw">str</span>] = []
+<span class="ln">38</span>    start = <span class="num">1</span>
+<span class="ln">39</span>    <span class="kw">for</span> lineno, line <span class="kw">in</span> <span class="kw">enumerate</span>(lines, start=<span class="num">1</span>):
+<span class="ln">40</span>        <span class="kw">if</span> line.strip() == <span class="str">""</span>:
+<span class="ln">41</span>            <span class="kw">if</span> current:
+<span class="ln">42</span>                blocks.append((start, lineno - <span class="num">1</span>, current))
+<span class="ln">43</span>                current = []
+<span class="ln">44</span>            <span class="kw">continue</span>
+<span class="ln">45</span>        <span class="kw">if</span> <span class="kw">not</span> current:
+<span class="ln">46</span>            start = lineno
+<span class="ln">47</span>        current.append(line)
+<span class="ln">48</span>    <span class="kw">if</span> current:
+<span class="ln">49</span>        blocks.append((start, <span class="kw">len</span>(lines), current))</pre>
+<p>
+Note this path is currently unreachable from <code>ingest_repo</code> in practice — <code>SUPPORTED_EXTENSIONS</code>
+is derived from <code>LANGUAGES.keys()</code>, so only <code>.py</code>/<code>.js</code>/<code>.ts</code> files
+ever get listed by <code>list_source_files</code> in the first place. It exists as a safety net inside
+<code>chunk_source</code> itself (used directly by its own tests) and would matter the day the supported-extension
+list grows without every new extension getting a tree-sitter query. The algorithm: walk lines, accumulate
+non-blank runs into <code>current</code>, and whenever a blank line closes a run, record it as one block
+<code>(start_line, end_line, lines)</code>. <code>errors="replace"</code> on the decode means a file with invalid
+UTF-8 bytes doesn't crash this function — bad bytes become the <code>�</code> replacement character instead.
+</p>
+
+<h3>_cap_chunk_sizes — splitting oversized chunks</h3>
+<pre class="code"><span class="ln">64</span><span class="kw">def</span> _cap_chunk_sizes(chunks: <span class="kw">list</span>[Chunk]) -> <span class="kw">list</span>[Chunk]:
+<span class="ln">65</span>    capped: <span class="kw">list</span>[Chunk] = []
+<span class="ln">66</span>    <span class="kw">for</span> chunk <span class="kw">in</span> chunks:
+<span class="ln">67</span>        <span class="kw">if</span> <span class="kw">len</span>(chunk.code_text) <= MAX_CHUNK_CHARS:
+<span class="ln">68</span>            capped.append(chunk)
+<span class="ln">69</span>            <span class="kw">continue</span></pre>
+<p>
+<code>MAX_CHUNK_CHARS = 4000</code>. Most chunks (a typical function) pass straight through unchanged on line 68.
+For the rare giant function or class that blows past 4000 characters, the rest of the function (not reproduced
+line-by-line here — see the file directly) walks its lines and greedily packs them into sub-chunks that each
+stay under the limit, naming them <code>symbol#1</code>, <code>symbol#2</code>, etc. via a <code>flush()</code>
+closure that captures <code>part_lines</code>/<code>part_index</code>/<code>part_start</code> from the enclosing
+scope using <code>nonlocal</code>. This exists because embedding models have an input token limit, and a single
+giant chunk would either get truncated silently by the API or blow the budget disproportionately for one
+oversized function versus every other normal-sized chunk.
+</p>
+</section>
+
+<!-- ============================================================ -->
+<section class="block" id="hashing">
+<h2>6. Deep dive: the <code>Chunk</code> model &amp; hashing</h2>
+<div class="files"><code>sleuth/chunking.py</code></div>
+
+<pre class="code"><span class="ln">5</span><span class="kw">@dataclass</span>
+<span class="ln">6</span><span class="kw">class</span> Chunk:
+<span class="ln">7</span>    file_path: <span class="kw">str</span>
+<span class="ln">8</span>    symbol_name: <span class="kw">str</span> | <span class="kw">None</span>
+<span class="ln">9</span>    kind: <span class="kw">str</span>  <span class="com"># 'function' | 'method' | 'class' | 'module'</span>
+<span class="ln">10</span>    start_line: <span class="kw">int</span>
+<span class="ln">11</span>    end_line: <span class="kw">int</span>
+<span class="ln">12</span>    code_text: <span class="kw">str</span>
+<span class="ln">13</span>
+<span class="ln">14</span>    <span class="kw">@property</span>
+<span class="ln">15</span>    <span class="kw">def</span> content_hash(<span class="kw">self</span>) -> <span class="kw">str</span>:
+<span class="ln">16</span>        <span class="kw">return</span> hashlib.sha256(<span class="kw">self</span>.code_text.encode(<span class="str">"utf-8"</span>)).hexdigest()</pre>
+<p>
+A dataclass is just a plain container — <code>@dataclass</code> auto-generates <code>__init__</code>,
+<code>__repr__</code>, and <code>__eq__</code> from the field list, so no boilerplate constructor is hand-written.
+<code>symbol_name: str | None</code> is deliberately nullable — module-level fallback chunks and top-of-file code
+don't belong to any named function/class, so they're stored with <code>symbol_name = None</code>.
+</p>
+<p>
+<code>content_hash</code> is a <code>@property</code>, not a stored field — it's <em>computed on demand</em> from
+<code>code_text</code> every time it's accessed, using SHA-256. This is the entire mechanism incremental
+re-indexing is built on: two chunks with byte-for-byte identical code produce the identical hash, deterministically,
+every time, regardless of when or where it's computed. Comparing hashes instead of comparing full code strings
+is faster (32-byte hash vs. potentially thousands of characters of code) and is exactly what
+<code>get_existing_hashes</code>/<code>to_embed</code> in <code>pipeline.py</code> line 65 relies on.
+</p>
+
+<pre class="code"><span class="ln">19</span><span class="kw">def</span> format_chunk_context(chunk: Chunk, language: <span class="kw">str</span>) -> <span class="kw">str</span>:
+<span class="ln">20</span>    symbol = chunk.symbol_name <span class="kw">or</span> <span class="str">"(module level)"</span>
+<span class="ln">21</span>    header = (
+<span class="ln">22</span>        <span class="str">f"# File: {chunk.file_path}\n"</span>
+<span class="ln">23</span>        <span class="str">f"# {chunk.kind}: {symbol}\n"</span>
+<span class="ln">24</span>        <span class="str">f"# Language: {language}\n\n"</span>
+<span class="ln">25</span>    )
+<span class="ln">26</span>    <span class="kw">return</span> header + chunk.code_text</pre>
+<p>
+This is what actually gets sent to the embedding API — <em>not</em> the raw code alone. A three-line comment
+header is prepended: which file, what kind of symbol and its name, and what language. Why bother? Because
+embedding models produce better, more discriminating vectors when given a little surrounding context — a
+function named <code>login</code> in <code>auth.py</code> means something different from one named
+<code>login</code> in a test fixture file, and the embedding should reflect that. This function is called from
+<code>pipeline.py</code> line 70, once per chunk in <code>to_embed</code>, right before the batch goes to
+<code>embed_batch</code>.
+</p>
+</section>
+
+<!-- ============================================================ -->
+<section class="block" id="embed">
+<h2>7. Deep dive: embedding + retry</h2>
+<div class="files"><code>sleuth/ingest/embed.py</code> · <code>sleuth/http_retry.py</code></div>
+
+<pre class="code"><span class="ln">20</span><span class="kw">class</span> VoyageEmbedder(Embedder):
+<span class="ln">21</span>    model_name = <span class="str">"voyage-code-3"</span>
+<span class="ln">22</span>    dim = <span class="num">1024</span>
+<span class="ln">23</span>
+<span class="ln">24</span>    <span class="kw">def</span> __init__(<span class="kw">self</span>, api_key: <span class="kw">str</span>, batch_size: <span class="kw">int</span> = <span class="num">128</span>, max_concurrency: <span class="kw">int</span> = <span class="num">5</span>):</pre>
+<p>
+<code>VoyageEmbedder</code> implements the abstract <code>Embedder</code> base (one required method,
+<code>embed_batch</code>) — a seam for adding another provider later without touching
+<code>pipeline.py</code>, even though today only Voyage is wired up (see the "Tasks 7-8 scope note" in the
+project's CLAUDE.md). <code>model_name</code> and <code>dim</code> are class attributes, not
+constructor arguments, because they're fixed properties of "being a VoyageEmbedder" — the pipeline reads
+<code>embedder.model_name</code>/<code>embedder.dim</code> straight off the instance on line 77 to record what
+produced the vectors.
+</p>
+
+<pre class="code"><span class="ln">29</span>    <span class="kw">async def</span> embed_batch(<span class="kw">self</span>, texts: <span class="kw">list</span>[<span class="kw">str</span>]) -> <span class="kw">list</span>[<span class="kw">list</span>[<span class="kw">float</span>]]:
+<span class="ln">30</span>        batches = [texts[i : i + <span class="kw">self</span>.batch_size] <span class="kw">for</span> i <span class="kw">in</span> <span class="kw">range</span>(<span class="num">0</span>, <span class="kw">len</span>(texts), <span class="kw">self</span>.batch_size)]
+<span class="ln">31</span>        semaphore = asyncio.Semaphore(<span class="kw">self</span>.max_concurrency)
+<span class="ln">32</span>
+<span class="ln">33</span>        <span class="kw">async with</span> httpx.AsyncClient() <span class="kw">as</span> client:
+<span class="ln">34</span>            results = <span class="kw">await</span> asyncio.gather(
+<span class="ln">35</span>                *(<span class="kw">self</span>._embed_one_batch(client, semaphore, batch) <span class="kw">for</span> batch <span class="kw">in</span> batches)
+<span class="ln">36</span>            )</pre>
+<p>
+This is where "embedding calls sent concurrently (bounded)" — a stated project requirement — actually gets
+implemented. Line 30 chops the (possibly huge) list of texts into chunks of at most 128 — Voyage's API accepts a
+batch of texts per request, so this is the largest slice sent in one HTTP call. Line 31 creates a
+<strong>semaphore</strong> capped at 5: a counter that at most 5 concurrent tasks can "hold" at once — the
+concurrency bound, so a repo with 40 batches doesn't fire 40 simultaneous HTTP requests at Voyage and get rate
+limited. Line 34's <code>asyncio.gather(*(...))</code> starts <em>all</em> the per-batch coroutines at once, but
+each one immediately blocks on the semaphore inside <code>_embed_one_batch</code> until a slot frees up — so at
+most 5 are actually in flight against the network at any moment, and <code>gather</code> waits for every one to
+finish before returning, preserving order.
+</p>
+
+<pre class="code"><span class="ln">43</span>    <span class="kw">async def</span> _embed_one_batch(<span class="kw">self</span>, client, semaphore, batch: <span class="kw">list</span>[<span class="kw">str</span>]) -> <span class="kw">list</span>[<span class="kw">list</span>[<span class="kw">float</span>]]:
+<span class="ln">44</span>        <span class="kw">async with</span> semaphore:
+<span class="ln">45</span>            response = <span class="kw">await</span> post_with_retry(
+<span class="ln">46</span>                client, VOYAGE_EMBEDDINGS_URL,
+<span class="ln">47</span>                headers={<span class="str">"Authorization"</span>: <span class="str">f"Bearer {self.api_key}"</span>},
+<span class="ln">48</span>                json={<span class="str">"input"</span>: batch, <span class="str">"model"</span>: <span class="kw">self</span>.model_name},
+<span class="ln">49</span>            )
+<span class="ln">50</span>        data = response.json()[<span class="str">"data"</span>]
+<span class="ln">51</span>        data.sort(key=<span class="kw">lambda</span> item: item[<span class="str">"index"</span>])
+<span class="ln">52</span>        <span class="kw">return</span> [item[<span class="str">"embedding"</span>] <span class="kw">for</span> item <span class="kw">in</span> data]</pre>
+<p>
+<code>async with semaphore:</code> is what actually enforces the bound described above — it acquires a slot on
+entry and releases it on exit (even if the request raises). The Voyage API's response doesn't strictly guarantee
+its <code>data</code> array comes back in the same order as the input texts, so each item carries its own
+<code>index</code>; line 51 sorts by that index before extracting embeddings, which is what makes the ordering
+contract <code>embed_batch</code> relies on (matching vectors back up to chunks via <code>zip</code> in
+<code>pipeline.py</code> line 74) actually safe.
+</p>
+
+<h3>post_with_retry — one shared retry policy for every HTTP call</h3>
+<pre class="code"><span class="ln">8</span><span class="kw">async def</span> post_with_retry(client, url, *, retries: <span class="kw">int</span> = <span class="num">1</span>, backoff_seconds: <span class="kw">float</span> = <span class="num">1.0</span>, **kwargs):
+<span class="ln">9</span>    attempt = <span class="num">0</span>
+<span class="ln">10</span>    <span class="kw">while</span> <span class="kw">True</span>:
+<span class="ln">11</span>        <span class="kw">try</span>:
+<span class="ln">12</span>            response = <span class="kw">await</span> client.post(url, **kwargs)
+<span class="ln">13</span>        <span class="kw">except</span> httpx.TransportError:
+<span class="ln">14</span>            <span class="kw">if</span> attempt < retries:
+<span class="ln">15</span>                attempt += <span class="num">1</span>
+<span class="ln">16</span>                <span class="kw">await</span> asyncio.sleep(backoff_seconds)
+<span class="ln">17</span>                <span class="kw">continue</span>
+<span class="ln">18</span>            <span class="kw">raise</span>
+<span class="ln">19</span>
+<span class="ln">20</span>        <span class="kw">if</span> response.status_code <span class="kw">in</span> TRANSIENT_STATUS_CODES <span class="kw">and</span> attempt < retries:
+<span class="ln">21</span>            attempt += <span class="num">1</span>
+<span class="ln">22</span>            <span class="kw">await</span> asyncio.sleep(backoff_seconds)
+<span class="ln">23</span>            <span class="kw">continue</span>
+<span class="ln">24</span>        response.raise_for_status()
+<span class="ln">25</span>        <span class="kw">return</span> response</pre>
+<p>
+Lives in <code>sleuth/http_retry.py</code>, shared by every provider call in the codebase (Voyage here; Groq/NIM
+later for generation). Two distinct failure shapes get one retry each, by default: a
+<strong>transport-level</strong> failure (<code>httpx.TransportError</code> — DNS failure, connection reset,
+timeout — the request never got a response at all) and a <strong>transient HTTP status</strong>
+(<code>429</code> too-many-requests, or <code>500</code>/<code>502</code>/<code>503</code>/<code>504</code>
+server-side errors — <code>TRANSIENT_STATUS_CODES</code>). Both retry exactly once (<code>retries=1</code> by
+default) after a fixed one-second sleep, then give up — a permanent 4xx like 401 (bad API key) or 400 (malformed
+request) is never retried, since retrying an unauthorized request five times wastes time and won't ever succeed.
+<code>response.raise_for_status()</code> on line 24 converts any remaining non-2xx status into an
+<code>httpx.HTTPStatusError</code> exception, which — since nothing in <code>ingest_repo</code> catches it —
+would currently propagate all the way up and violate the "never raises" goal for anything other than a clone
+failure (see the callout at the end of section 3).
+</p>
+</section>
+
+<!-- ============================================================ -->
+<section class="block" id="store">
+<h2>8. Deep dive: the store layer (SQL)</h2>
+<div class="files"><code>sleuth/store.py</code></div>
+
+<p>
+Every function here takes a live <code>psycopg.Connection</code> and issues one raw parameterized SQL statement
+— no ORM, per the project's core constraint. None of these functions call <code>conn.commit()</code>
+themselves; committing is always the caller's job (visible throughout <code>pipeline.py</code>), which keeps
+the store layer honest about not deciding transaction boundaries on the orchestrator's behalf.
+</p>
+
+<h3>get_existing_hashes</h3>
+<pre class="code"><span class="ln">29</span><span class="kw">def</span> get_existing_hashes(conn, repo_id: <span class="kw">str</span>) -> <span class="kw">dict</span>[<span class="kw">tuple</span>[<span class="kw">str</span>, <span class="kw">str</span> | <span class="kw">None</span>], <span class="kw">str</span>]:
+<span class="ln">30</span>    rows = conn.execute(
+<span class="ln">31</span>        <span class="str">"SELECT file_path, symbol_name, content_hash FROM chunks WHERE repo_id = %s"</span>, (repo_id,)
+<span class="ln">32</span>    ).fetchall()
+<span class="ln">33</span>    <span class="kw">return</span> {(file_path, symbol_name): content_hash <span class="kw">for</span> file_path, symbol_name, content_hash <span class="kw">in</span> rows}</pre>
+<p>
+Pulls every chunk currently stored for this repo and reshapes the rows into a dict keyed by
+<code>(file_path, symbol_name)</code> mapping to <code>content_hash</code> — exactly the shape
+<code>ingest_repo</code> needs for the <code>O(1)</code> hash lookup on line 65, instead of scanning a list.
+</p>
+
+<h3>upsert_chunks — insert, or overwrite if it already exists</h3>
+<pre class="code"><span class="ln">42</span>        conn.execute(
+<span class="ln">43</span>            <span class="str">"""</span>
+<span class="ln">44</span><span class="str">            INSERT INTO chunks</span>
+<span class="ln">45</span><span class="str">                (repo_id, file_path, symbol_name, kind, start_line, end_line, code_text, content_hash, embedding)</span>
+<span class="ln">46</span><span class="str">            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)</span>
+<span class="ln">47</span><span class="str">            ON CONFLICT (repo_id, file_path, COALESCE(symbol_name, ''))</span>
+<span class="ln">48</span><span class="str">            DO UPDATE SET</span>
+<span class="ln">49</span><span class="str">                kind = EXCLUDED.kind,</span>
+<span class="ln">50</span><span class="str">                start_line = EXCLUDED.start_line,</span>
+<span class="ln">51</span><span class="str">                end_line = EXCLUDED.end_line,</span>
+<span class="ln">52</span><span class="str">                code_text = EXCLUDED.code_text,</span>
+<span class="ln">53</span><span class="str">                content_hash = EXCLUDED.content_hash,</span>
+<span class="ln">54</span><span class="str">                embedding = EXCLUDED.embedding</span>
+<span class="ln">55</span><span class="str">            """</span>,
+<span class="ln">56</span>            (repo_id, chunk.file_path, chunk.symbol_name, chunk.kind, chunk.start_line, chunk.end_line, chunk.code_text, chunk.content_hash, embedding),
+<span class="ln">57</span>        )</pre>
+<p>
+<code>ON CONFLICT (...) DO UPDATE</code> is Postgres's <strong>upsert</strong>: try the <code>INSERT</code>; if it
+would violate the unique index on <code>(repo_id, file_path, COALESCE(symbol_name, ''))</code> (defined in
+<code>schema.sql</code>, section 9), instead run the <code>UPDATE</code> clause on the row that's already there.
+<code>EXCLUDED</code> is special upsert syntax referring to the row values that <em>would have been</em>
+inserted. This single statement is what makes re-indexing a changed function overwrite its old row in place
+rather than erroring on the duplicate key or leaving two rows for the same symbol.
+</p>
+<p>
+The <code>COALESCE(symbol_name, '')</code> in the conflict target matters because SQL's <code>NULL</code> is
+never equal to another <code>NULL</code> — two rows both having <code>symbol_name = NULL</code> would
+<em>not</em> collide under a plain unique index on <code>(repo_id, file_path, symbol_name)</code>, silently
+producing duplicate rows for module-level chunks every re-index. Coalescing <code>NULL</code> to empty string
+first makes "no symbol" collide with itself correctly.
+</p>
+<p>Called once per (chunk, embedding) pair from a loop in <code>upsert_chunks</code> — one row at a time, not a
+single bulk statement; fine at the scale this pipeline currently runs at, but worth knowing if a very large repo
+ever makes per-row round-trips a bottleneck.</p>
+
+<h3>delete_stale_chunks</h3>
+<pre class="code"><span class="ln">70</span><span class="kw">def</span> delete_stale_chunks(conn, repo_id: <span class="kw">str</span>, current_keys: <span class="kw">set</span>[<span class="kw">tuple</span>[<span class="kw">str</span>, <span class="kw">str</span> | <span class="kw">None</span>]]) -> <span class="kw">None</span>:
+<span class="ln">71</span>    existing = get_existing_hashes(conn, repo_id)
+<span class="ln">72</span>    stale_keys = existing.keys() - current_keys
+<span class="ln">73</span>    <span class="kw">for</span> file_path, symbol_name <span class="kw">in</span> stale_keys:
+<span class="ln">74</span>        conn.execute(
+<span class="ln">75</span>            <span class="str">"DELETE FROM chunks WHERE repo_id = %s AND file_path = %s AND COALESCE(symbol_name, '') = COALESCE(%s, '')"</span>,
+<span class="ln">76</span>            (repo_id, file_path, symbol_name),
+<span class="ln">77</span>        )</pre>
+<p>
+<code>existing.keys() - current_keys</code> is plain Python <strong>set difference</strong> — every key that's in
+the database but not in this run's fresh chunk list. That's exactly "code that used to exist and doesn't
+anymore." The same <code>COALESCE(..., '')</code> trick from the upsert query reappears in the
+<code>DELETE</code>'s <code>WHERE</code> clause, for the same NULL-equality reason — without it, a stale
+module-level chunk (<code>symbol_name IS NULL</code>) would never match and would never get deleted.
+</p>
+</section>
+
+<!-- ============================================================ -->
+<section class="block" id="schema">
+<h2>9. Deep dive: the database schema</h2>
+<div class="files"><code>schema.sql</code></div>
+
+<pre class="code"><span class="ln">17</span><span class="kw">CREATE TABLE</span> <span class="kw">IF NOT EXISTS</span> chunks (
+<span class="ln">18</span>    id            uuid <span class="kw">PRIMARY KEY</span> <span class="kw">DEFAULT</span> gen_random_uuid(),
+<span class="ln">19</span>    repo_id       uuid <span class="kw">NOT NULL</span> <span class="kw">REFERENCES</span> repos(id) <span class="kw">ON DELETE CASCADE</span>,
+<span class="ln">20</span>    file_path     text <span class="kw">NOT NULL</span>,
+<span class="ln">21</span>    symbol_name   text,
+<span class="ln">22</span>    kind          text <span class="kw">NOT NULL</span>,
+<span class="ln">23</span>    start_line    int <span class="kw">NOT NULL</span>,
+<span class="ln">24</span>    end_line      int <span class="kw">NOT NULL</span>,
+<span class="ln">25</span>    code_text     text <span class="kw">NOT NULL</span>,
+<span class="ln">26</span>    content_hash  text <span class="kw">NOT NULL</span>,
+<span class="ln">27</span>    embedding     vector(1024) <span class="kw">NOT NULL</span>
+<span class="ln">28</span>);
+<span class="ln">29</span>
+<span class="ln">30</span><span class="kw">CREATE UNIQUE INDEX IF NOT EXISTS</span> chunks_identity_idx
+<span class="ln">31</span>    <span class="kw">ON</span> chunks (repo_id, file_path, <span class="kw">COALESCE</span>(symbol_name, <span class="str">''</span>));
+<span class="ln">32</span>
+<span class="ln">33</span><span class="kw">CREATE INDEX IF NOT EXISTS</span> chunks_embedding_idx
+<span class="ln">34</span>    <span class="kw">ON</span> chunks <span class="kw">USING</span> hnsw (embedding vector_cosine_ops);</pre>
+
+<p>
+<code>embedding vector(1024)</code> is a <strong>pgvector</strong> column type — a fixed-width array of 1024
+floats, matching <code>VoyageEmbedder.dim</code> exactly. Fixed-width is why the project design notes chunk
+tables per dimension (<code>chunks_1024</code>/<code>chunks_2048</code>) for a future multi-provider setup —
+pgvector can't store a variable-length vector in one column, so a NIM embedder (2048-dim) couldn't share this
+table as-is. Today's schema is the narrowed Voyage-only version: one <code>chunks</code> table, hardcoded
+<code>vector(1024)</code>.
+</p>
+<p>
+<code>REFERENCES repos(id) ON DELETE CASCADE</code> means deleting a row from <code>repos</code> automatically
+deletes every chunk that belongs to it — no orphaned chunk rows left behind pointing at a repo that no longer
+exists.
+</p>
+<p>
+<code>chunks_identity_idx</code> is the unique index that <code>upsert_chunks</code>'s <code>ON CONFLICT</code>
+clause (section 8) targets — it's what turns a duplicate insert into an update instead of a Postgres uniqueness
+error. It's the schema-level enforcement of "one row per (repo, file, symbol)," with the exact same
+<code>COALESCE</code> trick applied here at index-definition time as well.
+</p>
+<p>
+<code>chunks_embedding_idx</code> is an <strong>HNSW</strong> (Hierarchical Navigable Small World) index — an
+approximate-nearest-neighbor index structure that makes "find the chunks whose embedding is closest to this
+query vector" fast even with many thousands of rows, instead of comparing the query against every single vector
+in the table. <code>vector_cosine_ops</code> tells pgvector to measure closeness by
+<strong>cosine similarity</strong> (the angle between vectors) rather than raw Euclidean distance — the standard
+choice for text/code embeddings, where direction matters more than magnitude. This index isn't used by anything
+in the ingestion pipeline itself; it's what the not-yet-built retrieval step (Task 10+) will query against.
+</p>
+</section>
+
+<!-- ============================================================ -->
+<section class="block" id="tests">
+<h2>10. How the tests prove it works</h2>
+<div class="files"><code>tests/test_pipeline.py</code></div>
+
+<p>
+Three tests, each isolating one property of <code>ingest_repo</code>. All three use a real local Postgres
+(<code>pg_conn</code> fixture, from <code>tests/conftest.py</code>) and a real local git repo created fresh in a
+pytest <code>tmp_path</code> — but the network call to Voyage is faked with
+<a href="https://lundberg.github.io/respx/"><code>respx</code></a>, which intercepts any HTTP request
+<code>httpx</code> tries to make and returns a canned response instead. Nothing here talks to the real internet.
+</p>
+
+<pre class="code"><span class="ln">31</span><span class="kw">def</span> _mock_voyage():
+<span class="ln">32</span>    <span class="kw">def</span> handler(request: httpx.Request) -> httpx.Response:
+<span class="ln">33</span>        body = json.loads(request.content)
+<span class="ln">34</span>        data = [
+<span class="ln">35</span>            {<span class="str">"embedding"</span>: [<span class="kw">float</span>(<span class="kw">len</span>(t))] * <span class="num">1024</span>, <span class="str">"index"</span>: i}
+<span class="ln">36</span>            <span class="kw">for</span> i, t <span class="kw">in</span> <span class="kw">enumerate</span>(body[<span class="str">"input"</span>])
+<span class="ln">37</span>        ]
+<span class="ln">38</span>        <span class="kw">return</span> httpx.Response(<span class="num">200</span>, json={<span class="str">"data"</span>: data})
+<span class="ln">39</span>    respx.post(<span class="str">"https://api.voyageai.com/v1/embeddings"</span>).mock(side_effect=handler)</pre>
+<p>
+The fake embedding for each text is just <code>[len(text)] * 1024</code> — a vector of the input text's own
+character count, repeated 1024 times. It's a deliberately trivial, deterministic stand-in; the tests don't care
+about embedding <em>quality</em>, only that the right texts got sent and the right vectors came back in the
+right order (<code>"index": i</code> preserves order, exercising the same sort-by-index logic from
+<code>_embed_one_batch</code> line 51).
+</p>
+
+<h3>Test 1 — basic ingest creates chunks and marks ready</h3>
+<p>
+Builds a tiny local git repo with <code>a.py</code> (<code>def foo()</code>) and <code>b.py</code>
+(<code>def bar()</code>), runs <code>ingest_repo</code>, and asserts: <code>repos.status == 'ready'</code>,
+<code>embedding_model == 'voyage-code-3'</code>, <code>embedding_dim == 1024</code>, and both
+<code>("a.py", "foo")</code> and <code>("b.py", "bar")</code> show up in
+<code>get_existing_hashes</code>. This is the straight-line happy path through every step in section 3.
+</p>
+
+<h3>Test 2 — re-index skips unchanged chunks</h3>
+<p>
+Ingests the same repo twice. Between runs, it edits only <code>a.py</code> and commits that change. It records
+<code>len(respx.calls)</code> — the running count of every intercepted HTTP call — before and after the second
+ingest, and asserts <code>hashes_after[("a.py","foo")] != hashes_before[...]</code> (the changed chunk's hash
+moved) while <code>hashes_after[("b.py","bar")] == hashes_before[...]</code> (the untouched chunk's hash didn't).
+This is a direct test of the incremental-diff logic in <code>pipeline.py</code> lines 60–66 — the whole reason
+that logic exists is proven here by checking that <code>bar</code>'s stored hash is bit-for-bit identical across
+both runs, meaning it was never re-embedded or re-written.
+</p>
+
+<h3>Test 3 — clone failure marks the repo failed, not an exception</h3>
+<pre class="code"><span class="ln">91</span><span class="kw">async def</span> test_ingest_repo_marks_failed_on_clone_error(pg_conn, tmp_path):
+<span class="ln">92</span>    ...
+<span class="ln">93</span>    repo_id = <span class="kw">await</span> ingest_repo(<span class="kw">str</span>(tmp_path / <span class="str">"nope"</span>), pg_conn, config)
+<span class="ln">94</span>    row = pg_conn.execute(
+<span class="ln">95</span>        <span class="str">"SELECT status, error_message FROM repos WHERE id = %s"</span>, (repo_id,)
+<span class="ln">96</span>    ).fetchone()
+<span class="ln">97</span>    <span class="kw">assert</span> row[<span class="num">0</span>] == <span class="str">"failed"</span>
+<span class="ln">98</span>    <span class="kw">assert</span> row[<span class="num">1</span>] <span class="kw">is not</span> <span class="kw">None</span></pre>
+<p>
+Points <code>ingest_repo</code> at a path that doesn't exist on disk (<code>tmp_path / "nope"</code>, never
+created) — <code>git clone</code> will fail against it. Critically, the test calls <code>ingest_repo</code>
+directly with no <code>try/except</code> around the call itself; if <code>CloneError</code> ever escaped
+uncaught, this test would fail with an unhandled exception rather than a clean assertion failure. That it
+passes is the actual proof that the "never raises" contract holds for the clone-failure path described in
+section 3, step 4.
+</p>
+</section>
+
+<!-- ============================================================ -->
+<section class="block" id="glossary">
+<h2>11. Glossary of concepts used</h2>
+<dl class="glossary">
+  <dt>async / await</dt>
+  <dd>Python's syntax for cooperative concurrency. An <code>async def</code> function returns a coroutine that
+  doesn't run until <code>await</code>ed (or scheduled via <code>asyncio.gather</code>); while one coroutine is
+  waiting on I/O (a network response), the event loop can run other coroutines. Used here so embedding batches
+  can be in flight concurrently instead of one at a time.</dd>
+
+  <dt>Semaphore</dt>
+  <dd>A counter-based concurrency limiter. <code>asyncio.Semaphore(5)</code> lets at most 5 concurrent
+  <code>async with semaphore:</code> blocks proceed at once; the 6th caller blocks until one of the first 5
+  finishes and releases its slot.</dd>
+
+  <dt>Shallow clone</dt>
+  <dd><code>git clone --depth 1</code> — fetches only the latest commit's tree, not the repo's full history.
+  Much faster and smaller when only the current file contents matter.</dd>
+
+  <dt>Content hash</dt>
+  <dd>A deterministic fingerprint (here, SHA-256) of a piece of content. Identical content always produces the
+  identical hash, so comparing hashes is a cheap stand-in for comparing full content — the basis of the
+  incremental re-index skip.</dd>
+
+  <dt>Upsert (<code>INSERT ... ON CONFLICT ... DO UPDATE</code>)</dt>
+  <dd>A single SQL statement that inserts a new row, or updates the existing one in place if it would collide
+  with a unique constraint — avoids the insert-then-check-then-update race and boilerplate.</dd>
+
+  <dt>COALESCE</dt>
+  <dd>SQL function returning its first non-NULL argument. <code>COALESCE(symbol_name, '')</code> turns
+  <code>NULL</code> into <code>''</code> so two <code>NULL</code>s can be compared/indexed as equal — plain SQL
+  <code>NULL = NULL</code> is never true.</dd>
+
+  <dt>HNSW index</dt>
+  <dd>Hierarchical Navigable Small World — an approximate-nearest-neighbor graph index. Lets a vector similarity
+  search return "close enough" nearest matches in roughly logarithmic time instead of scanning every row.</dd>
+
+  <dt>Cosine similarity</dt>
+  <dd>Similarity measured by the angle between two vectors, ignoring their magnitude. The standard distance
+  metric for comparing text/code embeddings.</dd>
+
+  <dt>Parameterized SQL / argument-list subprocess calls</dt>
+  <dd>Passing values separately from the query/command template (<code>%s</code> placeholders in SQL, a list of
+  args instead of a shell string for <code>subprocess.run</code>) so user-controlled data can never be
+  misinterpreted as code — the general defense against injection attacks.</dd>
+
+  <dt>respx</dt>
+  <dd>A test library that intercepts outgoing <code>httpx</code> requests and returns programmed fake responses,
+  so tests never touch the real network.</dd>
+</dl>
+</section>
+
+<footer>SLEUTH — generated after Task 9 (ingest pipeline orchestration). See <code>docs/progress.html</code> for the running build log.</footer>
+
+</main>
+</body>
+</html>

@@ -10,10 +10,9 @@ httpx instead), no ORM (raw SQL via psycopg).
 
 Full design (current): `docs/superpowers/specs/2026-08-13-rag-code-chatbot-design-v2.md`
 Superseded design: `docs/superpowers/specs/2026-08-06-rag-code-chatbot-design.md`
-Implementation plan (12 tasks, TDD, real code per step): `docs/superpowers/plans/2026-08-06-rag-core-pipeline-cli.md`
-— **plan predates v2 design**; still valid for Tasks 1-2 done so far, but tasks
-covering retrieval/providers/eval will need a check against v2 before building
-(pluggable providers, agentic mode, eval harness weren't in the plan's source spec).
+Implementation plan (14 tasks, TDD, real code per step): `docs/superpowers/plans/2026-08-06-rag-core-pipeline-cli.md`
+— plan since expanded to 14 tasks (agentic mode and eval harness split out as
+their own Tasks 13-14) and checked against v2 design for pluggable providers.
 
 This plan is **Plan 1**: core pipeline + CLI only. FastAPI + React web app is a
 separate Plan 2, not started, not yet designed in detail.
@@ -33,7 +32,7 @@ separate Plan 2, not started, not yet designed in detail.
 
 ## Execution mode (agreed with user, applies for rest of this plan)
 
-Work through the plan's 12 tasks **one full task at a time**, not step-by-step
+Work through the plan's 14 tasks **one full task at a time**, not step-by-step
 with per-step confirmation. For each task:
 
 1. Implement all steps of the task (write test → confirm it fails → implement → confirm it passes)
@@ -48,9 +47,17 @@ on their behalf unless they ask.
 
 ## Progress
 
-- **Task 1 (config)**: done. `requirements.txt`, `.env.example`, `.gitignore`, `sleuth/config.py`, `tests/test_config.py` all written, tests passing (3/3). Not yet committed by user as of last check.
-- **Task 2 (Postgres schema + connection)**: done. `schema.sql`, `docker-compose.yml`, `sleuth/db.py`, `tests/conftest.py`, `tests/test_db.py` all written, tests passing (4/4 incl. Task 1's). Container runs on host port **5433** (native WSL Postgres 18 occupies 5432 — see below, do **not** touch it). Hit one extra snag on top of the port issue: `get_connection()` registers the pgvector `vector` type on connect, but a fresh DB has no `vector` extension until `apply_schema()` runs — chicken-and-egg. Fixed by bootstrapping `CREATE EXTENSION IF NOT EXISTS vector`/`pgcrypto` once by hand against the fresh container; extensions persist, so this is a one-time step per fresh volume, not per connection. Not yet committed by user as of last check.
-- **Tasks 3-12**: not started.
+- **Task 1 (config)**: done. `requirements.txt`, `.env.example`, `.gitignore`, `sleuth/config.py`, `tests/test_config.py`.
+- **Task 2 (Postgres schema + connection)**: done. `schema.sql`, `docker-compose.yml`, `sleuth/db.py`, `tests/conftest.py`, `tests/test_db.py`. Container runs on host port **5433** (native WSL Postgres 18 occupies 5432 — see below, do **not** touch it). `get_connection()` registers the pgvector `vector` type on connect, but a fresh DB has no `vector` extension until `apply_schema()` runs — bootstrapped `CREATE EXTENSION IF NOT EXISTS vector`/`pgcrypto` once by hand against the fresh container; persists per volume, one-time step.
+- **Task 3 (chunk data model)**: done. `sleuth/chunking.py` (`Chunk` dataclass, `content_hash`, `format_chunk_context`), `tests/test_chunking.py`.
+- **Task 4 (tree-sitter parsing)**: done. Language registry + parsing in `sleuth/ingest/`, `tests/test_parse.py`.
+- **Task 5 (chunker)**: done, then revisited. Original per-node-type walker missed wrapped nodes (`export_statement`/`decorated_definition` in JS/TS/Python — e.g. `export class Foo {}`, `@app.get(...)`), silently dropping decorated methods and producing wrong line spans for the leftover "junk" chunk. Fixed with a query-based chunker that unwraps decorators/exports before classifying, keeping the outer node's byte span. `tests/test_chunk.py`.
+- **Task 6 (git clone / file listing)**: done. `sleuth/ingest/` clone + `list_source_files`, `tests/test_clone.py`.
+- **Task 7 (HTTP retry + Voyage embedder)**: done. `sleuth/http_retry.py` (shared retry-once-on-transient-failure helper), Voyage embedder, `tests/test_http_retry.py`, `tests/test_embed.py`.
+- **Task 8 (repo/chunk store)**: done. `sleuth/store.py` — raw SQL CRUD, per-dimension table selection (`chunks_1024`/`chunks_2048`), `tests/test_store.py`.
+- **Task 9 (ingest pipeline orchestration)**: done. `sleuth/ingest/pipeline.py` — `ingest_repo(github_url, conn, config)` wires clone→chunk→diff-hash→embed→upsert→delete-stale→mark-ready, never raises (failures land in `repos.status = 'failed'`). Built against the actual Voyage-only scope from Tasks 7-8 (see below), not the plan's pluggable-embedder version — calls `VoyageEmbedder` directly, no `get_embedder()` factory, no model-change re-embed path. `tests/test_pipeline.py`.
+- **Tasks 7-8 scope note**: plan's v2-design pluggable Voyage/NIM embedder + per-dimension chunk tables (`chunks_1024`/`chunks_2048`) were narrowed down during actual implementation to Voyage-only: one `VoyageEmbedder` class, one `chunks` table with fixed `vector(1024)`, `Config` has no `embedding_provider`/`nim_*` fields. Confirmed with user 2026-08-18 to keep this narrower scope rather than backfilling NIM support now — revisit as its own task if/when NIM is actually needed.
+- **Tasks 10-14**: not started. Full suite green: 38/38 passing as of last check.
 
 ## Environment notes
 

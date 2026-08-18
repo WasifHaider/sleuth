@@ -330,6 +330,28 @@ tests/test_store.py::test_delete_stale_chunks_removes_missing_keys PASSED
 35 passed in 2.14s (full suite, live Postgres container)</div>
   </section>
 
+  <section class="task">
+    <div class="task-header">
+      <h2>Task 9 — Ingest pipeline orchestration</h2>
+    </div>
+    <h3>Files touched</h3>
+    <p><code>sleuth/ingest/pipeline.py</code> (new), <code>tests/test_pipeline.py</code> (new)</p>
+
+    <h3>What it does</h3>
+    <p><code>async def ingest_repo(github_url, conn, config) -> str</code> is the one function that wires every earlier task together into a full clone-to-searchable-repo run. It finds or creates the <code>repos</code> row, marks it <code>indexing</code>, clones the repo into a temp dir, walks every <code>.py</code>/<code>.js</code>/<code>.ts</code> file through the Task 5 chunker, diffs the resulting chunks' <code>content_hash</code> against what's already stored (Task 8's <code>get_existing_hashes</code>) to find only the new/changed ones, embeds just those through Voyage (Task 7), upserts them, deletes any chunk whose key no longer shows up in the fresh parse, and marks the repo <code>ready</code>. A failed clone is caught and lands the repo in <code>status = 'failed'</code> with the git error message instead of raising — the function never throws.</p>
+
+    <h3>Why it's built this way</h3>
+    <p>The plan's Task 9 assumed the pluggable Voyage/NIM embedder + per-dimension chunk tables that Task 7/8's actual scope narrowed away (see Task 8 above) — so this version drops the <code>get_embedder(config)</code> factory and model-change re-embed path from the plan and calls <code>VoyageEmbedder</code> directly. That piece gets rebuilt if/when NIM support actually lands. The temp clone directory is always cleaned up in a <code>finally</code>, win or lose, so a failed or interrupted index run doesn't leak disk space across repeated attempts. Every step commits as it goes rather than wrapping the whole run in one transaction, so a crash partway through still leaves the DB in a legible state (e.g. <code>indexing</code> with some chunks already upserted) instead of silently rolling everything back with no trace of what happened.</p>
+    <p>The incremental-reindex behavior is the payoff of Task 3's <code>content_hash</code> and Task 8's <code>get_existing_hashes</code>: re-running <code>ingest_repo</code> against a repo where only one file changed sends exactly the chunks from that file to Voyage — everything else is skipped by hash comparison, confirmed by the test asserting the request count during a reindex only reflects the changed chunk.</p>
+
+    <h3>Tests</h3>
+    <div class="test-result">tests/test_pipeline.py::test_ingest_repo_creates_chunks_and_marks_ready PASSED
+tests/test_pipeline.py::test_ingest_repo_skips_unchanged_chunks_on_reindex PASSED
+tests/test_pipeline.py::test_ingest_repo_marks_failed_on_clone_error PASSED
+
+38 passed in 2.44s (full suite, live Postgres container)</div>
+  </section>
+
 </main>
 </body>
 </html>
