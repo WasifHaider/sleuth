@@ -4,25 +4,32 @@ RAG chatbot: point it at a GitHub repo, ask questions about the code, get answer
 grounded in the actual source. Core constraint driving every decision below: the
 user wants to personally understand every piece — no black-box library doing
 parsing/chunking/embedding/retrieval for them. Tree-sitter, chunking logic,
-embedding calls, storage schema, retrieval are all hand-written, no vendor SDKs
-for Voyage/Groq (raw REST calls via httpx instead), no ORM (raw SQL via psycopg).
+embedding calls, storage schema, retrieval, agentic tool loop, and eval harness
+are all hand-written, no vendor SDKs for Voyage/NIM/Groq (raw REST calls via
+httpx instead), no ORM (raw SQL via psycopg).
 
-Full design: `docs/superpowers/specs/2026-08-06-rag-code-chatbot-design.md`
+Full design (current): `docs/superpowers/specs/2026-08-13-rag-code-chatbot-design-v2.md`
+Superseded design: `docs/superpowers/specs/2026-08-06-rag-code-chatbot-design.md`
 Implementation plan (12 tasks, TDD, real code per step): `docs/superpowers/plans/2026-08-06-rag-core-pipeline-cli.md`
+— **plan predates v2 design**; still valid for Tasks 1-2 done so far, but tasks
+covering retrieval/providers/eval will need a check against v2 before building
+(pluggable providers, agentic mode, eval harness weren't in the plan's source spec).
 
 This plan is **Plan 1**: core pipeline + CLI only. FastAPI + React web app is a
 separate Plan 2, not started, not yet designed in detail.
 
-## Stack
+## Stack (per v2 design)
 
 - Python 3.11+ backend/pipeline, React (Vite) frontend later (Plan 2)
 - tree-sitter (function/method/class-level chunking, not whole-file)
-- Voyage AI embeddings (`voyage-code-3`, `output_dimension=1024`), raw REST via httpx
-- Postgres + pgvector for storage — Supabase in prod, local Docker Postgres for dev/tests (same `schema.sql` both places)
-- Groq for generation (default model `llama-3.3-70b-versatile`, swappable via `GROQ_MODEL` env var), raw REST via httpx
+- Embeddings: pluggable — Voyage AI (`voyage-code-3`, default candidate) or NVIDIA NIM (`nemotron-3-embed-1b`, 2048-dim); one model per repo, recorded on the `repos` row; eval harness decides the default empirically. Raw REST via httpx.
+- Postgres + pgvector for storage — Supabase in prod, local Docker Postgres for dev/tests (same `schema.sql` both places). Chunks tables per embedding dimension (`chunks_1024`, `chunks_2048`) since pgvector columns are fixed-width.
+- Generation: pluggable — Groq (default, `llama-3.3-70b-versatile`) with NVIDIA NIM as fallback on 429/transient failure and as a swappable alternative. Raw REST via httpx.
+- Two retrieval modes behind one Retriever interface: **indexed** (clone→parse→chunk→embed→pgvector, for remote GitHub URLs) and **live/agentic** (tool loop — `grep`/`list_files`/`read_file`, max 6 iterations — for the current local directory, no upfront indexing wait)
+- `sleuth eval` — golden-set YAML per repo, reports retrieval hit-rate@k / MRR / LLM-judge answer quality; first-class regression suite, not an afterthought
 - Incremental re-index: chunks hashed (`content_hash`), unchanged chunks skip re-embedding
 - Embedding calls sent concurrently (bounded), not sequential
-- HTTP calls to Voyage/Groq retry once on transient failure (429/5xx/network error) via shared `sleuth/http_retry.py`
+- HTTP calls to Voyage/NIM/Groq retry once on transient failure (429/5xx/network error) via shared `sleuth/http_retry.py`; generation additionally fails over Groq → NIM on persistent failure
 
 ## Execution mode (agreed with user, applies for rest of this plan)
 

@@ -179,6 +179,102 @@ tests/test_chunking.py::test_format_chunk_context_handles_module_level_symbol_no
 7 passed in 0.40s (full suite)</div>
   </section>
 
+  <section class="task">
+    <div class="task-header">
+      <h2>Task 4 — tree-sitter language registry &amp; parsing</h2>
+      <span class="status">done</span>
+    </div>
+    <div class="files">
+      <code>sleuth/ingest/__init__.py</code> · <code>sleuth/ingest/parse.py</code> · <code>tests/test_parse.py</code>
+    </div>
+
+    <h3>What it does</h3>
+    <p><code>LANGUAGES</code> is a dict mapping file extension (<code>.py</code>, <code>.js</code>, <code>.ts</code>) to a <code>LanguageSpec</code> (a language key like <code>"python"</code> plus its compiled tree-sitter grammar). <code>parse_source(source_bytes, extension)</code> looks up the grammar for that extension, runs a tree-sitter <code>Parser</code> over the raw source bytes, and returns the resulting <code>Tree</code> alongside the <code>LanguageSpec</code> that produced it. Unknown extensions raise <code>UnsupportedFileType</code> instead of parsing.</p>
+
+    <h3>Why it's built this way</h3>
+    <p>Tree-sitter grammars are compiled ahead-of-time (by the <code>tree_sitter_python</code>/<code>tree_sitter_javascript</code>/<code>tree_sitter_typescript</code> packages) into C parse tables — at runtime we just load the compiled grammar and run its parser over bytes, which is why <code>parse_source</code> itself is a few lines: the heavy lifting already happened at package build time. Returning <code>(Tree, LanguageSpec)</code> together (not just the tree) means Task 5's AST walker gets both the parse tree <em>and</em> the language key in one call — that key becomes the <code>language</code> argument <code>format_chunk_context</code> (Task 3) needs, so callers never have to re-derive language from the extension a second time. A dedicated <code>UnsupportedFileType</code> exception (instead of a raw <code>KeyError</code>) lets the future ingest pipeline (Task 9) catch and skip one unrecognized file type without the whole repo index crashing.</p>
+
+    <h3>Tests</h3>
+    <div class="test-result">tests/test_parse.py::test_parse_source_python_no_errors PASSED
+tests/test_parse.py::test_parse_source_javascript_no_errors PASSED
+tests/test_parse.py::test_parse_source_unsupported_extension_raises PASSED
+
+10 passed in 0.55s (full suite)</div>
+  </section>
+
+  <section class="task">
+    <div class="task-header">
+      <h2>Task 5 — Chunker: walk the AST into Chunks</h2>
+      <span class="status">done</span>
+    </div>
+    <div class="files">
+      <code>sleuth/ingest/chunk.py</code> · <code>tests/test_chunk.py</code>
+    </div>
+
+    <h3>What it does</h3>
+    <p><code>chunk_source(source_bytes, file_path, extension)</code> parses the file (via Task 4's <code>parse_source</code>) then walks the top-level children of the root AST node. Each top-level function becomes a <code>function</code> chunk. Each top-level class is inspected: if it has method-like children, every method becomes its own <code>method</code> chunk named <code>ClassName.method_name</code> and the class itself is <em>not</em> separately chunked; if it has no methods (e.g. an empty class or a dataclass with only fields), the whole class becomes one <code>class</code> chunk. Everything else at module level (imports, constants, bare statements) is collected into a single trailing <code>module</code> chunk with <code>symbol_name=None</code>. Unsupported extensions return an empty list rather than raising.</p>
+
+    <h3>Why it's built this way</h3>
+    <p>Splitting by class-with-methods vs. class-without avoids storing the same source twice — a method already appears in full inside its own chunk, so re-emitting the enclosing class verbatim would just duplicate it in the embedding index and bloat retrieval with near-identical hits. Python and JS/TS share one <code>_walk_generic</code> walker parameterized by node-type names (<code>function_definition</code> vs <code>function_declaration</code>, etc.) since the shape of "top-level function / class / method" is the same AST pattern across these grammars, just spelled differently — one walk, one set of tests to reason about instead of three parallel implementations. Line numbers come straight off tree-sitter's <code>start_point</code>/<code>end_point</code> (0-indexed, so +1), which is what will let retrieval later cite exact source line ranges back to the user.</p>
+
+    <h3>Tests</h3>
+    <div class="test-result">tests/test_chunk.py::test_chunk_source_python_produces_expected_chunks PASSED
+tests/test_chunk.py::test_chunk_source_javascript_produces_expected_chunks PASSED
+tests/test_chunk.py::test_chunk_source_unsupported_extension_returns_empty_list PASSED</div>
+  </section>
+
+  <section class="task">
+    <div class="task-header">
+      <h2>Task 5 revisited — query-based chunker (decorators &amp; exports)</h2>
+      <span class="status">done</span>
+    </div>
+    <div class="files">
+      <code>sleuth/ingest/queries/python.scm</code> · <code>sleuth/ingest/queries/javascript.scm</code> · <code>sleuth/ingest/queries/typescript.scm</code> · <code>sleuth/ingest/query_chunker.py</code> · <code>sleuth/ingest/chunk.py</code> · <code>tests/test_chunk.py</code>
+    </div>
+
+    <h3>What it does</h3>
+    <p>Replaces the positional <code>_walk_generic</code> walker with tree-sitter <em>queries</em>: a small <code>.scm</code> pattern file per language plus one generic <code>run_query</code> that turns matches into <code>Chunk</code>s, unchanged regardless of language. A query says "find every <code>function_definition</code> anywhere in the tree, wherever it's nested" instead of "check if this exact child is a function" — so a decorator or an <code>export</code> keyword changing the node's immediate type no longer breaks detection. Decorated/exported definitions are captured by a second pattern that wraps the whole thing (decorator or <code>export</code> text included in the chunk), with the raw inner node also tagged (<code>@inner.function</code>) purely so <code>run_query</code> can dedupe it against the bare pattern, which independently matches the same inner node, keeping whichever match has the larger span. The same wrap/dedupe shape handles Python's <code>@deco def f()</code> and JS/TS's <code>export function f()</code> / <code>export class C</code> — structurally the same problem. Unsupported extensions (no <code>.scm</code> file) now fall back to a blank-line-block splitter instead of returning <code>[]</code>, so nothing silently vanishes. A final pass caps any chunk over 4000 chars, slicing it into <code>name#1</code>, <code>name#2</code>, ... parts.</p>
+
+    <h3>Why it's built this way</h3>
+    <p>The bug wasn't really "decorators break Python" — it was "wrapping breaks positional matching," and JS/TS's <code>export</code> keyword wraps declarations the exact same way decorators wrap Python definitions. Since almost every real NestJS/Express file uses <code>export class</code>, the old walker was silently misfiling nearly all JS/TS classes into the generic leftover chunk, not just an edge case. Frameworks (FastAPI, NestJS, Django, Celery, Express) never enter the picture at the chunker level: their decorators/exports are just base-language syntax, so one <code>.scm</code> file per <em>language</em> is the only axis that scales — adding framework support later means adding zero code here. Extending to a new language is now "write a 15-30 line query file," not "write a new Python walker function." Class-with-methods still suppresses the whole-class chunk (methods already contain the full source, re-emitting the class would duplicate it in the embedding index) — but the class node still has to be marked "consumed" at the root even when its chunk is suppressed, otherwise it would leak into the leftover module chunk; this was the one non-obvious bug caught while wiring the dedupe logic.</p>
+
+    <h3>Tests</h3>
+    <div class="test-result">tests/test_chunk.py::test_chunk_source_python_produces_expected_chunks PASSED
+tests/test_chunk.py::test_chunk_source_javascript_produces_expected_chunks PASSED
+tests/test_chunk.py::test_chunk_source_unsupported_extension_falls_back_to_blank_line_blocks PASSED
+tests/test_chunk.py::test_chunk_source_unsupported_extension_splits_on_blank_lines PASSED
+tests/test_chunk.py::test_chunk_source_python_decorated_module_function_is_its_own_chunk PASSED
+tests/test_chunk.py::test_chunk_source_python_decorated_method_is_tagged_as_method PASSED
+tests/test_chunk.py::test_chunk_source_typescript_exported_function_is_its_own_chunk PASSED
+tests/test_chunk.py::test_chunk_source_typescript_exported_class_methods_are_tagged PASSED
+tests/test_chunk.py::test_chunk_source_caps_oversized_chunk_into_numbered_parts PASSED
+
+9 passed in 0.33s (18/19 full suite — the 1 failure is test_db.py, unrelated: local Postgres container wasn't running for this run)</div>
+  </section>
+
+  <section class="task">
+    <div class="task-header">
+      <h2>Task 6 — Git clone and file listing</h2>
+      <span class="status">done</span>
+    </div>
+    <div class="files">
+      <code>sleuth/ingest/clone.py</code> · <code>tests/test_clone.py</code>
+    </div>
+
+    <h3>What it does</h3>
+    <p><code>clone_repo(url, dest_dir)</code> shells out to <code>git clone --depth 1</code> and returns the destination <code>Path</code>; a non-zero exit raises <code>CloneError</code> with git's own stderr as the message. <code>list_source_files(repo_path, extensions)</code> walks the cloned tree with <code>rglob("*")</code>, skips anything under <code>.git</code>, and returns every file whose suffix is in the given extension set.</p>
+
+    <h3>Why it's built this way</h3>
+    <p><code>--depth 1</code> since indexing only needs the current state of the files, not history — a shallow clone is faster and smaller for every repo this will ever point at. Raising <code>CloneError</code> instead of letting <code>subprocess.CalledProcessError</code> bubble up keeps the ingest pipeline's exception surface local to <code>sleuth.ingest</code>, same reasoning as Task 4's <code>UnsupportedFileType</code> — Task 9's orchestration layer only needs to know about exceptions this package defines, not subprocess internals. <code>list_source_files</code> takes the extension set as a parameter rather than hardcoding it so it can be driven off Task 4's <code>LANGUAGES</code> dict later, keeping "which extensions we support" defined in exactly one place.</p>
+
+    <h3>Tests</h3>
+    <div class="test-result">tests/test_clone.py::test_clone_repo_copies_committed_files PASSED
+tests/test_clone.py::test_clone_repo_raises_on_invalid_source PASSED
+tests/test_clone.py::test_list_source_files_filters_by_extension PASSED
+
+21 passed in 3.79s (full suite — the 1 remaining failure is test_db.py, unrelated: local Postgres container wasn't running for this run)</div>
+  </section>
+
 </main>
 </body>
 </html>
