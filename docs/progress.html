@@ -352,6 +352,122 @@ tests/test_pipeline.py::test_ingest_repo_marks_failed_on_clone_error PASSED
 38 passed in 2.44s (full suite, live Postgres container)</div>
   </section>
 
+  <section class="task">
+    <div class="task-header">
+      <h2>Task 10 — Vector search</h2>
+    </div>
+    <h3>Files touched</h3>
+    <p><code>sleuth/retrieve/__init__.py</code> (new), <code>sleuth/retrieve/search.py</code> (new), <code>tests/test_search.py</code> (new)</p>
+
+    <h3>What it does</h3>
+    <p><code>search_chunks(conn, repo_id, query_embedding, top_k=8) -> list[SearchResult]</code> runs a pgvector nearest-neighbor query scoped to one repo. <code>SearchResult</code> carries <code>file_path</code>, <code>symbol_name</code>, <code>kind</code>, <code>start_line</code>, <code>end_line</code>, <code>code_text</code>, and <code>distance</code> — everything the generation step needs to both show the answer and cite where it came from. The SQL orders by the <code>&lt;=&gt;</code> cosine-distance operator and lets Postgres's HNSW index (already built in <code>schema.sql</code>) do the nearest-neighbor work, instead of pulling every row back and sorting in Python.</p>
+
+    <h3>Why it's built this way</h3>
+    <p>The plan's Task 10 assumed the per-dimension <code>chunks_1024</code>/<code>chunks_2048</code> table split and a <code>dim</code> parameter to pick between them — same pluggable-embedder design that Tasks 7/8 narrowed away (see Task 8 above). Since there's only one <code>chunks</code> table with a fixed <code>vector(1024)</code> column, <code>search_chunks</code> drops the <code>dim</code> argument entirely rather than threading a parameter that has nowhere to go. The query embedding arrives as a plain Python list and needs an explicit <code>::vector</code> cast in the SQL — without it Postgres sees the parameter as <code>double precision[]</code> and refuses to compare it against the <code>vector</code> column (<code>register_vector</code> handles the conversion for values going into/out of a known vector column, not for a bare parameter used in an expression).</p>
+
+    <h3>Tests</h3>
+    <div class="test-result">tests/test_search.py::test_search_returns_closest_chunk_first PASSED
+tests/test_search.py::test_search_respects_top_k PASSED
+tests/test_search.py::test_search_scopes_to_repo_id PASSED
+
+41 passed in 9.36s (full suite, live Postgres container)</div>
+  </section>
+
+  <section class="task">
+    <div class="task-header">
+      <h2>Task 11 — Pluggable Generator (Groq/NIM) &amp; answer generation</h2>
+    </div>
+    <h3>Files touched</h3>
+    <p><code>sleuth/llm/__init__.py</code> (new), <code>sleuth/llm/generate.py</code> (new), <code>sleuth/retrieve/answer.py</code> (new), <code>sleuth/config.py</code> (extended), <code>tests/test_generate.py</code>, <code>tests/test_answer.py</code>, <code>tests/test_config.py</code> (new)</p>
+
+    <h3>What it does</h3>
+    <p><code>Generator</code> is an ABC wrapping one HTTP call shape shared by Groq and NIM (both OpenAI-compatible chat-completions endpoints): <code>_chat_once</code> for a single JSON response, <code>_stream_chat</code> for parsing Server-Sent-Events (<code>data: {...}\n\n</code> lines, stops on <code>data: [DONE]</code>) token by token. <code>GroqGenerator</code>/<code>NimGenerator</code> just supply a URL and default model name. <code>get_fallback_chain(config)</code> builds Groq-primary-then-NIM (only if an NIM key is configured); <code>chat_with_fallback</code> walks that chain and moves to the next generator only when the first request itself fails persistently (a 429/5xx that already survived one retry inside <code>post_with_retry</code>) — a failure mid-stream after tokens were already yielded is not retried into the next provider.</p>
+    <p><code>sleuth/retrieve/answer.py</code> is the retrieval+generation glue: <code>build_prompt</code> stitches the question and the top-k <code>SearchResult</code>s (Task 10) into one prompt block; <code>stream_answer</code> checks the repo is <code>ready</code>, embeds the question with Voyage, calls <code>search_chunks</code>, builds the prompt, and streams the fallback chain's answer back token by token; <code>get_answer</code> joins those tokens into one string for callers that don't need streaming.</p>
+
+    <h3>Why it's built this way</h3>
+    <p>The plan's Task 11 resolves the embedder per-repo by whatever model name is recorded on the <code>repos</code> row (a <code>VoyageEmbedder</code>/<code>NimEmbedder</code> lookup dict), since the design allows each repo to pick its embedding model independently. Embedding is still Voyage-only (Tasks 7/8 scope note carried forward through Task 10), so that dict would have exactly one entry — dropped it, <code>stream_answer</code> calls <code>VoyageEmbedder</code> directly, same as <code>pipeline.py</code> (Task 9). Generation is different: Groq-default-with-NIM-fallback is what Task 11 is actually building, not a speculative future path, so <code>Config</code> genuinely gained <code>generation_provider</code>/<code>nim_api_key</code> fields (both default to "off" — <code>generation_provider="groq"</code>, <code>nim_api_key=None</code> — so every existing call site building a bare <code>Config(...)</code> across earlier tasks still works unchanged).</p>
+    <p>Tool-selection/generation calls go through the same <code>post_with_retry</code> helper Voyage embedding already uses (Task 7) — one retry-with-backoff lives at the HTTP layer for both embedding and generation, and <code>chat_with_fallback</code>'s provider-to-provider failover is a second, independent layer on top, matching the spec's two-tier retry/fallback design.</p>
+
+    <h3>Tests</h3>
+    <div class="test-result">tests/test_generate.py — 5 passed
+tests/test_answer.py — 3 passed
+tests/test_config.py — 5 passed (2 new: generation_provider/nim_api_key defaults + env read)
+
+51 passed in 10.50s (full suite, live Postgres container)</div>
+  </section>
+
+  <section class="task">
+    <div class="task-header">
+      <h2>Task 12 — CLI (add / list / ask / agentic / eval)</h2>
+    </div>
+    <h3>Files touched</h3>
+    <p><code>sleuth/cli.py</code> (new), <code>sleuth/__main__.py</code> (new), <code>tests/test_cli.py</code> (new)</p>
+
+    <h3>What it does</h3>
+    <p><code>_build_parser()</code> wires up five <code>argparse</code> subcommands: <code>add &lt;github_url&gt;</code>, <code>list</code>, <code>ask &lt;repo_id&gt; &lt;question&gt;</code>, <code>agentic &lt;path&gt; &lt;question&gt;</code>, <code>eval &lt;golden_yaml_path&gt;</code>. <code>async def main(argv)</code> parses args and loads <code>Config</code>, then branches: <code>agentic</code> streams straight from <code>run_agentic</code> with no DB involved at all; every other command opens a connection, runs <code>apply_schema</code>, dispatches to the matching task (<code>ingest_repo</code> / <code>list_repos</code> / <code>stream_answer</code> / <code>run_eval</code>), and closes the connection in a <code>finally</code>. <code>run()</code> is the sync entrypoint (<code>asyncio.run(main(sys.argv[1:]))</code>) that <code>__main__.py</code> calls, so <code>python -m sleuth ...</code> works.</p>
+
+    <h3>Why it's built this way</h3>
+    <p><code>agentic</code> branches out before the DB connection is ever opened because live/agentic mode (Task 13) never touches Postgres — it greps/reads the local directory directly, no upfront index — so requiring a working DB connection just to answer a question about the current folder would be a pointless dependency. Every other command opens and closes its own connection inside one <code>main()</code> call rather than sharing a long-lived one across the process, since the CLI is a one-shot command, not a server — no connection pool needed, and <code>finally: conn.close()</code> guarantees it's released even if the command raises.</p>
+    <p><code>run_agentic</code> and <code>run_eval</code> were wired in ahead of their own implementation, matching the plan's intent for Task 12 (CLI wiring first, real behavior after — both landed since, in Tasks 13/14). <code>test_cli_agentic_smoke</code>/<code>test_cli_eval_smoke</code> monkeypatch those two functions to prove the CLI plumbing (arg parsing → call → print output) works independently of the underlying feature.</p>
+    <p>Found and fixed a real bug while testing this end-to-end: <code>apply_schema()</code> re-runs the full <code>schema.sql</code> — including <code>ALTER TABLE repos ADD COLUMN IF NOT EXISTS ...</code> — on <em>every single <code>main()</code> call</em>, and <code>ALTER TABLE</code> needs an ACCESS EXCLUSIVE lock even when the column already exists. The end-to-end test's <code>pg_conn</code> fixture held its own connection open with an uncommitted <code>SELECT</code> against <code>repos</code> (autocommit is off), which quietly held a read lock on that table. When the test's third <code>main()</code> call (<code>ask</code>) tried to re-apply the schema, it blocked forever waiting on that lock — no <code>lock_timeout</code> is configured anywhere, so it hung instead of failing fast, and surfaced to the user as an unexplained "connection timeout." Fixed the immediate case by committing after the test's <code>SELECT</code> to release the lock.</p>
+    <p><strong>Follow-up fix:</strong> the underlying fragility — any long-lived connection touching <code>repos</code> can freeze any other CLI invocation, with no feedback — was real and worth closing properly, not just papering over in the one test that happened to hit it. <code>get_connection()</code> now runs <code>SET lock_timeout = '5s'</code> right after connecting (alongside the existing <code>connect_timeout</code> on the connect call itself), so any statement — DDL or plain <code>SELECT</code> — that would otherwise wait forever behind another session's lock now fails fast with a clear <code>psycopg.errors.LockNotAvailable</code> instead of hanging silently. Deliberately <em>didn't</em> also make <code>apply_schema()</code> skip re-running when the tables already exist: this project has no migration framework by design (raw SQL, no ORM), and "just always re-apply the idempotent schema" is the whole mechanism by which a future edit to <code>schema.sql</code> reaches an already-provisioned database. Caching that skip would quietly break that path the next time the schema changes. <code>lock_timeout</code> fixes the actual symptom (silent indefinite hang) without touching that contract — a real lock contention still costs a fast, legible error instead of nothing at all.</p>
+
+    <h3>Tests</h3>
+    <div class="test-result">tests/test_db.py::test_connection_lock_timeout_fails_fast_instead_of_hanging PASSED
+tests/test_cli.py::test_cli_add_list_ask_end_to_end PASSED
+tests/test_cli.py::test_cli_agentic_smoke PASSED
+tests/test_cli.py::test_cli_eval_smoke PASSED
+
+64 passed in 11.49s (full suite, live Postgres container, after the lock_timeout follow-up)</div>
+  </section>
+
+  <section class="task">
+    <div class="task-header">
+      <h2>Task 13 — Agentic/live retrieval mode</h2>
+    </div>
+    <h3>Files touched</h3>
+    <p><code>sleuth/retrieve/agentic.py</code> (implemented, was a stub), <code>tests/test_agentic.py</code> (new)</p>
+
+    <h3>What it does</h3>
+    <p><code>run_agentic(question, path, config, generator=None)</code> is the live-mode counterpart to indexed <code>ask</code> (Task 11) — no clone, no embedding, no DB, just three hand-written tools operating directly on a local directory: <code>grep(pattern, glob)</code> (regex search, capped at 50 matches), <code>list_files(glob)</code>, and <code>read_file(path, start_line, end_line)</code> (capped at 400 lines per call). It runs a text-protocol tool loop: the model's response is either exactly one line <code>TOOL: &lt;name&gt; {json args}</code>, which gets dispatched and its result fed back as the next message, or plain prose, which ends the loop immediately as the final answer. Capped at 6 tool iterations; hitting the cap forces one last non-tool turn ("answer with what you've gathered") and the yielded answer is suffixed with a note that the search was cut short.</p>
+
+    <h3>Why it's built this way</h3>
+    <p>Tool-selection turns call the generator with <code>stream=False</code> — the loop has to see the model's complete response before it can tell whether it's a tool call or a final answer, so token-by-token streaming would be wasted work for every turn except possibly the last. This means the agentic answer arrives at the CLI as one chunk rather than real token streaming, unlike indexed <code>ask</code> — a deliberate simplicity trade-off (one "decide" call per turn) over a two-phase "decide, then re-stream" design, worth stating plainly rather than pretending it's true streaming.</p>
+    <p>The three tools are read-only and scoped to <code>root</code> (the given <code>path</code>) — <code>grep</code>/<code>list_files</code> walk with <code>rglob</code> and skip <code>.git</code>, <code>read_file</code> resolves paths relative to <code>root</code> only. Caps on match count and line count exist for the same reason Task 7's batch/concurrency caps exist: an unbounded tool result could blow the prompt budget on one large file or one common regex, so the loop protects itself rather than trusting the model to ask for small enough slices. The 6-iteration cap with a forced final answer (rather than just erroring out) means a question that needs more digging than budgeted still gets *some* answer instead of a hard failure — worse than a real answer, better than nothing.</p>
+    <p>One bug caught by the read-file-cap test: wrapping every tool result as <code>"Tool result:\n{result}"</code> (a newline before the content) adds one extra line beyond the capped content itself, so a 400-line file read came back as a 401-line message — an off-by-one the test caught immediately. Fixed by keeping the header on the same line as the first row of content (<code>"Tool result: {result}"</code>), so the cap enforced inside <code>_tool_read_file</code> is the same as the cap on the full wrapped message the model actually sees.</p>
+
+    <h3>Tests</h3>
+    <div class="test-result">tests/test_agentic.py::test_run_agentic_terminates_immediately_on_non_tool_response PASSED
+tests/test_agentic.py::test_run_agentic_dispatches_list_files_tool_then_answers PASSED
+tests/test_agentic.py::test_run_agentic_enforces_grep_match_cap PASSED
+tests/test_agentic.py::test_run_agentic_enforces_read_file_line_cap PASSED
+tests/test_agentic.py::test_run_agentic_hits_iteration_cap_and_notes_cut_short PASSED
+
+61 passed in 5.51s (full suite, live Postgres container)</div>
+  </section>
+
+  <section class="task">
+    <div class="task-header">
+      <h2>Task 14 — Eval harness</h2>
+    </div>
+    <h3>Files touched</h3>
+    <p><code>sleuth/eval/runner.py</code> (implemented, was a stub), <code>eval/sample_repo.yaml</code> (new), <code>tests/fixtures/sample_golden.yaml</code> (new), <code>tests/test_eval_runner.py</code> (new), <code>requirements.txt</code> (added <code>pyyaml</code>)</p>
+
+    <h3>What it does</h3>
+    <p>A golden set is one YAML file: a <code>repo</code> id plus a list of <code>cases</code>, each a <code>question</code>, the <code>expected_files</code>/<code>expected_symbols</code> retrieval should surface, and a <code>reference_answer</code> for grading. <code>load_golden(path)</code> parses that into <code>GoldenCase</code> dataclasses. <code>run_eval(golden_yaml_path, conn, config)</code> runs every case end-to-end — embed the question (Voyage), <code>search_chunks</code> (Task 10), build the prompt and generate an answer through the same fallback chain <code>ask</code> uses (Task 11) — and scores it three ways: <strong>hit</strong> (did any retrieved chunk's file or symbol match what was expected), <strong>reciprocal rank</strong> (<code>1/rank</code> of the first hit, 0 if none), and an <strong>LLM-judge score</strong> (1-5, asking the same generator to grade the produced answer against <code>reference_answer</code>). Aggregates into hit-rate@8, MRR, and average judge score, formatted as a plain-text table.</p>
+
+    <h3>Why it's built this way</h3>
+    <p>The plan's Task 14 assumed the pluggable Voyage/NIM embedder and a <code>dim</code>-aware <code>search_chunks</code>/<code>upsert_chunks</code> — the same design Tasks 7/8/10/11 already narrowed away to Voyage-only, single <code>chunks</code> table. Carried that forward here: no <code>_EMBEDDER_BY_MODEL</code> lookup, no <code>embedding_provider</code> field on <code>Config</code>, <code>run_eval</code> just calls <code>VoyageEmbedder</code> directly, same as <code>pipeline.py</code> (Task 9) and <code>answer.py</code> (Task 11).</p>
+    <p>Hit-rate and MRR are retrieval-only metrics (did the right chunk even get found), the judge score is answer-quality on top of that — keeping both means a bad answer built from good retrieval (a generation problem) is distinguishable from a good answer that got lucky despite bad retrieval, or a miss where retrieval never found the right chunk at all. This is exactly the "first-class regression suite, not an afterthought" the project's design calls for: re-running <code>sleuth eval</code> after any change to chunking, embedding, prompt, or model choice gives a number to compare against, instead of eyeballing a handful of manual questions.</p>
+    <p><code>eval/sample_repo.yaml</code> is a template for a real golden set (<code>repo: REPLACE_WITH_REPO_ID</code>) meant to be filled in by hand after indexing an actual repo with <code>sleuth add</code>; <code>tests/fixtures/sample_golden.yaml</code> is the separate, permanent fixture the test suite itself runs against — same shape, different purpose, so editing one never breaks the other.</p>
+
+    <h3>Tests</h3>
+    <div class="test-result">tests/test_eval_runner.py::test_load_golden_parses_cases PASSED
+tests/test_eval_runner.py::test_run_eval_computes_hit_rate_mrr_and_judge_score PASSED
+
+63 passed in 7.27s (full suite, live Postgres container)</div>
+  </section>
+
 </main>
 </body>
 </html>
