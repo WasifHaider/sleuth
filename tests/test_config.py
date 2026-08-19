@@ -16,6 +16,30 @@ def test_load_config_reads_all_values(monkeypatch):
     assert config.database_url == "postgresql://u:p@localhost:5432/db"
 
 
+def test_load_config_defaults_generation_provider_and_nim_key(monkeypatch):
+    monkeypatch.setenv("VOYAGE_API_KEY", "voyage-key")
+    monkeypatch.setenv("GROQ_API_KEY", "groq-key")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@localhost:5432/db")
+    monkeypatch.delenv("GENERATION_PROVIDER", raising=False)
+    monkeypatch.delenv("NIM_API_KEY", raising=False)
+
+    config = load_config()
+
+    assert config.generation_provider == "groq"
+    assert config.nim_api_key is None
+
+
+def test_load_config_reads_nim_api_key(monkeypatch):
+    monkeypatch.setenv("VOYAGE_API_KEY", "voyage-key")
+    monkeypatch.setenv("GROQ_API_KEY", "groq-key")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://u:p@localhost:5432/db")
+    monkeypatch.setenv("NIM_API_KEY", "nim-key")
+
+    config = load_config()
+
+    assert config.nim_api_key == "nim-key"
+
+
 def test_load_config_defaults_groq_model(monkeypatch):
     monkeypatch.setenv("VOYAGE_API_KEY", "voyage-key")
     monkeypatch.setenv("GROQ_API_KEY", "groq-key")

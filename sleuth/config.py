@@ -19,6 +19,8 @@ class Config:
     groq_api_key: str
     groq_model: str
     database_url: str
+    generation_provider: str = "groq"
+    nim_api_key: str | None = None
 
 
 def load_config() -> Config:
@@ -31,4 +33,6 @@ def load_config() -> Config:
         groq_api_key=os.environ["GROQ_API_KEY"],
         groq_model=os.environ.get("GROQ_MODEL", DEFAULT_GROQ_MODEL),
         database_url=os.environ["DATABASE_URL"],
+        generation_provider=os.environ.get("GENERATION_PROVIDER", "groq"),
+        nim_api_key=os.environ.get("NIM_API_KEY") or None,
     )
