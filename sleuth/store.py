@@ -10,6 +10,11 @@ def create_repo(conn: psycopg.Connection, github_url: str) -> str:
     return str(row[0])
 
 
+def list_repos(conn: psycopg.Connection) -> list[tuple[str, str, str]]:
+    rows = conn.execute("SELECT id, github_url, status FROM repos ORDER BY github_url").fetchall()
+    return [(str(repo_id), github_url, status) for repo_id, github_url, status in rows]
+
+
 def update_repo_status(
     conn: psycopg.Connection, repo_id: str, status: str, error_message: str | None = None
 ) -> None:
