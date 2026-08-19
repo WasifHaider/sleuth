@@ -1,0 +1,8 @@
+repo: example-repo
+cases:
+  - question: "Where is foo defined?"
+    expected_files:
+      - f.py
+    expected_symbols:
+      - foo
+    reference_answer: "foo is defined in f.py and returns 1."

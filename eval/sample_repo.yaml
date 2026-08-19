@@ -1,0 +1,12 @@
+# Example golden set for `sleuth eval`. Replace `repo` with a real repo_id
+# from `sleuth list` after indexing a repo with `sleuth add`.
+repo: REPLACE_WITH_REPO_ID
+cases:
+  - question: "How does the Session class handle cookies?"
+    expected_files:
+      - requests/sessions.py
+    expected_symbols:
+      - Session
+    reference_answer: >
+      The Session class stores cookies in a cookiejar and merges them with
+      per-request cookies before sending.
