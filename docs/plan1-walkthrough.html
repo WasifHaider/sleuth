@@ -1,0 +1,1523 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SLEUTH — Plan 1 Line-by-Line</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff;
+    --fg: #1a1a1a;
+    --muted: #5c5c5c;
+    --border: #e2e2e2;
+    --code-bg: #f5f5f5;
+    --code-fg: #24292e;
+    --accent: #2563eb;
+    --accent2: #0f766e;
+    --note-bg: #fff7e6;
+    --note-border: #e8c064;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111318;
+      --fg: #e8e8e8;
+      --muted: #9a9a9a;
+      --border: #2a2d34;
+      --code-bg: #1b1e24;
+      --code-fg: #d8dee9;
+      --accent: #60a5fa;
+      --accent2: #5eead4;
+      --note-bg: #26210f;
+      --note-border: #7a5c1e;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    padding: 2.5rem 1.25rem 5rem;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    line-height: 1.6;
+  }
+  main { max-width: 880px; margin: 0 auto; }
+  h1 { font-size: 1.7rem; margin-bottom: 0.3rem; }
+  .subtitle { color: var(--muted); margin-top: 0; margin-bottom: 2rem; font-size: 0.95rem; max-width: 68ch; }
+  nav.toc {
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 1rem 1.25rem;
+    margin-bottom: 3rem;
+    font-size: 0.9rem;
+  }
+  nav.toc h2 { margin: 0 0 0.6rem; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+  nav.toc ol { columns: 2; column-gap: 2rem; margin: 0; padding-left: 1.2rem; }
+  nav.toc li { break-inside: avoid; margin-bottom: 0.3rem; }
+  nav.toc a { color: var(--fg); text-decoration: none; }
+  nav.toc a:hover { color: var(--accent); text-decoration: underline; }
+
+  section.task {
+    border-top: 3px solid var(--accent);
+    padding-top: 1.5rem;
+    margin-bottom: 4rem;
+  }
+  section.task h2 {
+    font-size: 1.35rem;
+    margin: 0 0 0.2rem;
+  }
+  .task-files {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.82rem;
+    color: var(--muted);
+    margin: 0 0 1.2rem;
+  }
+  .task-files code { background: var(--code-bg); padding: 0.1rem 0.35rem; border-radius: 4px; }
+
+  h3 { font-size: 1.02rem; margin: 1.8rem 0 0.5rem; }
+  h4 {
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--accent2);
+    margin: 1.4rem 0 0.4rem;
+  }
+  p { margin: 0.55rem 0; }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--code-bg);
+    padding: 0.1rem 0.35rem;
+    border-radius: 4px;
+    font-size: 0.87em;
+  }
+  pre.code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--code-bg);
+    color: var(--code-fg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 0.9rem 1.1rem;
+    overflow-x: auto;
+    font-size: 0.82rem;
+    line-height: 1.55;
+    margin: 0.4rem 0 1rem;
+  }
+  pre.code code { background: none; padding: 0; border-radius: 0; font-size: 1em; }
+  .explain { margin: 0.3rem 0 1.3rem; }
+  .explain ul { margin: 0.3rem 0; padding-left: 1.3rem; }
+  .explain li { margin-bottom: 0.35rem; }
+  .note {
+    background: var(--note-bg);
+    border: 1px solid var(--note-border);
+    border-radius: 8px;
+    padding: 0.8rem 1rem;
+    font-size: 0.9rem;
+    margin: 1rem 0;
+  }
+  .note strong { display: inline-block; margin-bottom: 0.2rem; }
+  footer.closing {
+    border-top: 3px solid var(--accent2);
+    padding-top: 1.5rem;
+  }
+  footer.closing h2 { font-size: 1.35rem; }
+  a { color: var(--accent); }
+</style>
+</head>
+<body>
+<main>
+
+<h1>SLEUTH — Plan 1, Line by Line</h1>
+<p class="subtitle">
+  Every task in Plan 1 (core pipeline + CLI), walked through with the actual source code and what each
+  piece is doing and why. Companion to <code>docs/progress.html</code> (the short build-log version) —
+  this one goes deep, file by file, function by function.
+</p>
+
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#t1">Task 1 — Config</a></li>
+    <li><a href="#t2">Task 2 — Schema &amp; connection</a></li>
+    <li><a href="#t3">Task 3 — Chunk model</a></li>
+    <li><a href="#t4">Task 4 — tree-sitter parsing</a></li>
+    <li><a href="#t5">Task 5 — Query-based chunker</a></li>
+    <li><a href="#t6">Task 6 — Clone &amp; file listing</a></li>
+    <li><a href="#t7">Task 7 — HTTP retry &amp; Voyage embedder</a></li>
+    <li><a href="#t8">Task 8 — Repo/chunk store</a></li>
+    <li><a href="#t9">Task 9 — Ingest pipeline</a></li>
+    <li><a href="#t10">Task 10 — Vector search</a></li>
+    <li><a href="#t11">Task 11 — Generator &amp; answer</a></li>
+    <li><a href="#t12">Task 12 — CLI</a></li>
+    <li><a href="#t13">Task 13 — Agentic/live mode</a></li>
+    <li><a href="#t14">Task 14 — Eval harness</a></li>
+    <li><a href="#closing">Real-world findings</a></li>
+  </ol>
+</nav>
+
+<!-- ============================================================ -->
+<section class="task" id="t1">
+  <h2>Task 1 — Config</h2>
+  <p class="task-files"><code>sleuth/config.py</code></p>
+
+  <p>Every other module in SLEUTH needs secrets and settings — API keys, a model name, a database URL.
+  The naive approach is to have each module call <code>os.environ["WHATEVER"]</code> directly wherever it
+  needs a value. Config exists to stop that: one dataclass, built once, passed down as an explicit
+  argument everywhere. No module reaches into the environment on its own.</p>
+
+  <pre class="code"><code>DEFAULT_GROQ_MODEL = "openai/gpt-oss-120b"
+REQUIRED_VARS = ("VOYAGE_API_KEY", "GROQ_API_KEY", "DATABASE_URL")
+
+
+class ConfigError(Exception):
+    pass
+
+
+@dataclass(frozen=True)
+class Config:
+    voyage_api_key: str
+    groq_api_key: str
+    groq_model: str
+    database_url: str
+    generation_provider: str = "groq"
+    nim_api_key: str | None = None</code></pre>
+  <div class="explain">
+    <ul>
+      <li><code>@dataclass(frozen=True)</code> — immutable. Once built, a <code>Config</code> can't be
+      mutated by some far-away piece of code; every function that takes it can trust the values didn't
+      change mid-run.</li>
+      <li><code>REQUIRED_VARS</code> lists exactly the three values the app cannot function without. It's
+      a tuple of env-var <em>names</em>, checked before anything tries to build a <code>Config</code>.</li>
+      <li><code>generation_provider</code> and <code>nim_api_key</code> default to the "off" state
+      (<code>"groq"</code> / <code>None</code>) — added in Task 11 for the Groq→NIM fallback chain, but
+      defaulted so every earlier call site that builds a bare <code>Config(...)</code> keeps working
+      unchanged.</li>
+    </ul>
+  </div>
+
+  <pre class="code"><code>def load_config() -> Config:
+    missing = [name for name in REQUIRED_VARS if not os.environ.get(name)]
+    if missing:
+        raise ConfigError(f"Missing required environment variable(s): {', '.join(missing)}")
+
+    return Config(
+        voyage_api_key=os.environ["VOYAGE_API_KEY"],
+        groq_api_key=os.environ["GROQ_API_KEY"],
+        groq_model=os.environ.get("GROQ_MODEL", DEFAULT_GROQ_MODEL),
+        database_url=os.environ["DATABASE_URL"],
+        generation_provider=os.environ.get("GENERATION_PROVIDER", "groq"),
+        nim_api_key=os.environ.get("NIM_API_KEY") or None,
+    )</code></pre>
+  <div class="explain">
+    <ul>
+      <li>The missing-var check runs <em>before</em> any <code>os.environ[...]</code> indexing below it —
+      if a key is absent, the error names exactly which one, instead of a bare <code>KeyError</code> three
+      layers into a chat request.</li>
+      <li><code>GROQ_MODEL</code> and the two provider-fallback vars use <code>.get(...)</code> with a
+      default — they're optional, everything else is required.</li>
+      <li><code>os.environ.get("NIM_API_KEY") or None</code> turns an empty string (unset-but-present env
+      var) into a real <code>None</code>, so downstream code can do a plain truthiness check.</li>
+    </ul>
+    <p>One line above the class, easy to miss: <code>load_dotenv()</code> runs at import time, reading a
+    local <code>.env</code> file into the process environment before <code>load_config()</code> ever looks
+    at <code>os.environ</code>. That's what lets a developer keep real keys in a gitignored <code>.env</code>
+    instead of exporting them by hand every session.</p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section class="task" id="t2">
+  <h2>Task 2 — Postgres schema &amp; connection</h2>
+  <p class="task-files"><code>schema.sql</code> · <code>sleuth/db.py</code></p>
+
+  <p>Two tables carry the whole system's state: which repos have been indexed, and every chunk of code
+  pulled out of them.</p>
+
+  <pre class="code"><code>CREATE EXTENSION IF NOT EXISTS vector;
+CREATE EXTENSION IF NOT EXISTS pgcrypto;
+
+CREATE TABLE IF NOT EXISTS repos (
+    id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    github_url      text NOT NULL,
+    status          text NOT NULL DEFAULT 'pending',
+    error_message   text,
+    indexed_at      timestamptz,
+    embedding_model text,
+    embedding_dim   int
+);
+
+ALTER TABLE repos ADD COLUMN IF NOT EXISTS embedding_model text;
+ALTER TABLE repos ADD COLUMN IF NOT EXISTS embedding_dim int;
+
+CREATE TABLE IF NOT EXISTS chunks (
+    id            uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    repo_id       uuid NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
+    file_path     text NOT NULL,
+    symbol_name   text,
+    kind          text NOT NULL,
+    start_line    int NOT NULL,
+    end_line      int NOT NULL,
+    code_text     text NOT NULL,
+    content_hash  text NOT NULL,
+    embedding     vector(1024) NOT NULL
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS chunks_identity_idx
+    ON chunks (repo_id, file_path, COALESCE(symbol_name, ''));
+
+CREATE INDEX IF NOT EXISTS chunks_embedding_idx
+    ON chunks USING hnsw (embedding vector_cosine_ops);</code></pre>
+  <div class="explain">
+    <ul>
+      <li><code>pgvector</code>'s <code>vector</code> extension is what makes <code>embedding vector(1024)</code>
+      a real, indexable column type instead of a plain array — a fixed-width 1024-float vector, matching
+      Voyage's <code>voyage-code-3</code> output dimension exactly.</li>
+      <li><code>pgcrypto</code> supplies <code>gen_random_uuid()</code>, used as the default for both
+      primary keys — the app never generates IDs itself.</li>
+      <li><code>repos.status</code> is the state machine for one repo's index lifecycle:
+      <code>pending → indexing → ready</code>, or <code>failed</code> with a message. Every reader of the
+      DB (the <code>ask</code>, <code>list</code>, and <code>eval</code> commands) trusts this field
+      instead of re-deriving "is this repo usable" from row counts.</li>
+      <li>Everything is <code>CREATE ... IF NOT EXISTS</code> — the whole file can be re-run against an
+      already-provisioned database with no effect. The two <code>ALTER TABLE ... ADD COLUMN IF NOT EXISTS</code>
+      lines exist because <code>embedding_model</code>/<code>embedding_dim</code> were added to the design
+      <em>after</em> some dev databases already had a <code>repos</code> table without them — the
+      <code>CREATE TABLE IF NOT EXISTS</code> above would silently no-op against an existing table and
+      never add the new columns, so the explicit <code>ALTER</code> is what actually backfills them.</li>
+      <li><code>ON DELETE CASCADE</code> on <code>chunks.repo_id</code> means deleting a repo row cleans up
+      every chunk that belonged to it automatically — no separate cleanup query anywhere in the app.</li>
+      <li>The unique index on <code>(repo_id, file_path, COALESCE(symbol_name, ''))</code> is what makes
+      re-indexing an <em>upsert</em> instead of a pile of duplicates — see Task 8. <code>COALESCE</code>
+      matters here: SQL treats <code>NULL != NULL</code>, so without it, two module-level chunks (both
+      with <code>symbol_name = NULL</code>) in the same file would never collide against each other.</li>
+      <li><code>chunks_embedding_idx</code> is an HNSW (Hierarchical Navigable Small World) index — an
+      approximate-nearest-neighbor structure that's what makes <code>search_chunks</code> (Task 10) fast
+      at query time instead of comparing the question's vector against every single row in the table.</li>
+    </ul>
+  </div>
+
+  <pre class="code"><code>SCHEMA_PATH = Path(__file__).resolve().parent.parent / "schema.sql"
+LOCK_TIMEOUT = "5s"
+
+
+def get_connection(
+    database_url: str, *, connect_timeout: int = 5, retries: int = 1, backoff_seconds: float = 0.5
+) -> psycopg.Connection:
+    attempt = 0
+    while True:
+        try:
+            conn = psycopg.connect(database_url, autocommit=False, connect_timeout=connect_timeout)
+            register_vector(conn)
+            conn.execute(f"SET lock_timeout = '{LOCK_TIMEOUT}'")
+            conn.commit()
+            return conn
+        except psycopg.OperationalError:
+            if attempt >= retries:
+                raise
+            attempt += 1
+            time.sleep(backoff_seconds)
+
+
+def apply_schema(conn: psycopg.Connection) -> None:
+    sql = SCHEMA_PATH.read_text()
+    conn.execute(sql)
+    conn.commit()</code></pre>
+  <div class="explain">
+    <ul>
+      <li><code>register_vector(conn)</code> teaches psycopg how to convert between Postgres's
+      <code>vector</code> type and a plain Python list of floats, in both directions, for this specific
+      connection. Without it, a query returning an <code>embedding</code> column would come back as an
+      opaque string.</li>
+      <li><code>autocommit=False</code> — every statement runs inside an explicit transaction that the
+      caller controls with <code>conn.commit()</code>. This is what lets Task 9's ingest pipeline treat a
+      whole multi-step write as one atomic unit when it needs to.</li>
+      <li>The retry loop around <code>psycopg.connect</code> only catches <code>OperationalError</code> —
+      a transient connection failure — and retries exactly once after a half-second pause. A bad password
+      or a nonexistent database raises a different exception and fails immediately; retrying that would
+      just waste half a second before failing anyway.</li>
+      <li><code>SET lock_timeout = '5s'</code> then an immediate <code>conn.commit()</code> — added later,
+      after a real bug (see the <a href="#closing">closing notes</a>). Any statement on this connection
+      that would otherwise wait forever on another session's lock now aborts after 5 seconds with a clear
+      <code>psycopg.errors.LockNotAvailable</code> instead of hanging silently. The <code>commit()</code>
+      right after closes out the transaction that <code>SET</code> itself opened, so the connection isn't
+      handed back to the caller already sitting inside an open transaction.</li>
+      <li><code>apply_schema</code> just reads the whole <code>schema.sql</code> file and executes it as
+      one multi-statement string — safe to call on every single CLI invocation because every statement in
+      the file is idempotent.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section class="task" id="t3">
+  <h2>Task 3 — Chunk data model</h2>
+  <p class="task-files"><code>sleuth/chunking.py</code></p>
+
+  <p>Before there's any parsing or embedding, there needs to be an answer to "what <em>is</em> a piece of
+  indexed code, structurally." That's <code>Chunk</code> — pure data, no tree-sitter or database
+  dependency at all.</p>
+
+  <pre class="code"><code>@dataclass
+class Chunk:
+    file_path: str
+    symbol_name: str | None
+    kind: str  # 'function' | 'method' | 'class' | 'module'
+    start_line: int
+    end_line: int
+    code_text: str
+
+    @property
+    def content_hash(self) -> str:
+        return hashlib.sha256(self.code_text.encode("utf-8")).hexdigest()
+
+
+def format_chunk_context(chunk: Chunk, language: str) -> str:
+    symbol = chunk.symbol_name or "(module level)"
+    header = (
+        f"# File: {chunk.file_path}\n"
+        f"# {chunk.kind}: {symbol}\n"
+        f"# Language: {language}\n\n"
+    )
+    return header + chunk.code_text</code></pre>
+  <div class="explain">
+    <ul>
+      <li><code>symbol_name: str | None</code> — <code>None</code> specifically means "this chunk isn't
+      one named thing," i.e. the leftover module-level code (imports, constants, bare statements) that
+      doesn't belong to any single function or class.</li>
+      <li><code>content_hash</code> is a plain SHA-256 of the code text, computed on demand as a property
+      rather than stored. It's the single mechanism that makes incremental re-indexing possible: Task 8's
+      store keeps a map of <code>(file_path, symbol_name) → content_hash</code> for everything already in
+      the database, and Task 9's pipeline only sends a chunk to the embedder if its hash doesn't match what's
+      already stored. An unchanged function costs zero embedding calls on a repeat index.</li>
+      <li><code>format_chunk_context</code> wraps the raw code with a small header — file, symbol, kind,
+      language — before it goes anywhere. This exact wrapped text is what gets embedded (Task 7) <em>and</em>
+      what gets shown to the LLM in the answer prompt (Task 11), so "what does the model actually see" is
+      defined in exactly one place instead of being reconstructed twice.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section class="task" id="t4">
+  <h2>Task 4 — tree-sitter parsing</h2>
+  <p class="task-files"><code>sleuth/ingest/parse.py</code></p>
+
+  <p>tree-sitter turns source text into a concrete syntax tree — a real parse, not a regex guessing at
+  where a function starts and ends. The grammars for Python/JS/TS are pre-compiled C parse tables shipped
+  as Python packages; this file just loads the right one and runs it.</p>
+
+  <pre class="code"><code>PY_LANGUAGE = Language(tspython.language())
+JS_LANGUAGE = Language(tsjavascript.language())
+TS_LANGUAGE = Language(tstypescript.language_typescript())
+
+
+@dataclass(frozen=True)
+class LanguageSpec:
+    key: str
+    ts_language: Language
+
+
+LANGUAGES: dict[str, LanguageSpec] = {
+    ".py": LanguageSpec("python", PY_LANGUAGE),
+    ".js": LanguageSpec("javascript", JS_LANGUAGE),
+    ".ts": LanguageSpec("typescript", TS_LANGUAGE),
+}
+
+
+class UnsupportedFileType(Exception):
+    pass
+
+
+def parse_source(source_bytes: bytes, extension: str) -> tuple[Tree, LanguageSpec]:
+    spec = LANGUAGES.get(extension)
+    if spec is None:
+        raise UnsupportedFileType(extension)
+
+    parser = Parser(spec.ts_language)
+    tree = parser.parse(source_bytes)
+    return tree, spec</code></pre>
+  <div class="explain">
+    <ul>
+      <li><code>LANGUAGES</code> is the one dictionary that answers "which extensions does SLEUTH
+      understand" — every other module (the chunker, the clone/file-listing step) derives its behavior
+      from this map rather than hardcoding its own extension list.</li>
+      <li><code>parse_source</code> returns the tree <em>and</em> the <code>LanguageSpec</code> together,
+      not just the tree. That <code>spec.key</code> (e.g. <code>"python"</code>) is exactly the
+      <code>language</code> argument <code>format_chunk_context</code> needs — callers never have to
+      re-derive the language name from a file extension a second time.</li>
+      <li><code>UnsupportedFileType</code> is a dedicated exception rather than a raw <code>KeyError</code>
+      — it lets Task 5's chunker catch specifically "I don't know this extension" and fall back to a
+      generic splitter, without accidentally swallowing an unrelated bug.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section class="task" id="t5">
+  <h2>Task 5 — Query-based chunker</h2>
+  <p class="task-files"><code>sleuth/ingest/chunk.py</code> · <code>sleuth/ingest/query_chunker.py</code> ·
+  <code>sleuth/ingest/queries/*.scm</code></p>
+
+  <p>This is the piece that decides where one chunk ends and the next begins: every top-level function
+  becomes its own chunk; every method inside a class becomes its own chunk (named
+  <code>ClassName.method_name</code>); a class with no methods becomes one whole-class chunk; everything
+  else at module level (imports, constants) becomes one trailing "module" chunk. The first version walked
+  the AST positionally (checking each top-level child's exact node type) and broke the moment a decorator
+  or an <code>export</code> keyword wrapped a definition — this is the rewritten, query-based version.</p>
+
+  <h3>The query files — what to look for, not how to walk</h3>
+  <pre class="code"><code>; bare module-level (or nested-in-function) function
+(function_definition
+  name: (identifier) @name.function) @definition.function
+
+; decorated function — @definition.function is the *wrapper*, so decorator
+; text is included; @inner.function is the raw node, used only for dedup
+; against the bare pattern above which also matches it independently
+(decorated_definition
+  definition: (function_definition
+    name: (identifier) @name.function) @inner.function) @definition.function
+
+; plain method
+(class_definition
+  name: (identifier) @name.class
+  body: (block
+    (function_definition
+      name: (identifier) @name.method) @definition.method)) @definition.class_context
+
+; decorated method
+(class_definition
+  name: (identifier) @name.class
+  body: (block
+    (decorated_definition
+      definition: (function_definition
+        name: (identifier) @name.method) @inner.method) @definition.method)) @definition.class_context
+
+; whole class, bare
+(class_definition
+  name: (identifier) @name.class) @definition.class
+
+; whole class, decorated (e.g. @dataclass)
+(decorated_definition
+  definition: (class_definition
+    name: (identifier) @name.class) @inner.class) @definition.class</code></pre>
+  <div class="explain">
+    <p><code>sleuth/ingest/queries/python.scm</code> — a small pattern-matching language tree-sitter ships
+    with. Each S-expression describes a <em>shape</em> in the syntax tree to find, wherever it occurs,
+    tagged with capture names (<code>@name.function</code>, <code>@definition.class</code>, …). This is
+    the fix for the original bug: a query says "find every <code>function_definition</code> anywhere,
+    however deeply it's wrapped," instead of "check whether <em>this exact child</em> is a function." A
+    <code>@dataclass</code> decorator or a wrapping <code>decorated_definition</code> node no longer breaks
+    detection, because the query isn't looking at position — it's looking at shape.</p>
+    <p><code>typescript.scm</code> mirrors this for JS/TS's <code>export_statement</code> wrapper, which is
+    structurally the same problem as Python's decorators — <code>export class Foo {}</code> wraps a
+    <code>class_declaration</code> exactly the way <code>@dataclass class Foo:</code> wraps a
+    <code>class_definition</code>. (<code>javascript.scm</code> is the same pattern set again, for the JS
+    grammar.) One notable difference: in this grammar, method decorators are <em>siblings</em> of the
+    method, not wrappers around it — so TS never needed a separate "decorated method" pattern the way
+    Python did.</p>
+  </div>
+
+  <h4>run_query — turning matches into Chunks</h4>
+  <pre class="code"><code>def run_query(query: Query, root: Node, source_bytes: bytes, file_path: str) -> list[Chunk]:
+    matches = query.matches(root)
+
+    method_records = []
+    for _, captures in matches:
+        if "definition.method" not in captures:
+            continue
+        outer = captures["definition.method"][0]
+        inner = captures.get("inner.method", [outer])[0]
+        class_name = _node_text(captures["name.class"][0], source_bytes)
+        method_name = _node_text(captures["name.method"][0], source_bytes)
+        method_records.append(
+            {
+                "outer": outer,
+                "key": _span_key(inner),
+                "symbol_name": f"{class_name}.{method_name}",
+                "kind": "method",
+            }
+        )</code></pre>
+  <div class="explain">
+    <ul>
+      <li><code>query.matches(root)</code> runs every pattern in the <code>.scm</code> file against the
+      whole tree at once and returns every match, each with its own dictionary of captures.</li>
+      <li>Methods are collected first and separately, because they take priority: a method's containing
+      class must never also be emitted as its own whole-class chunk (that would duplicate the method's
+      source inside two different chunks in the embedding index).</li>
+      <li><code>captures.get("inner.method", [outer])[0]</code> — for an undecorated method there's no
+      <code>inner.method</code> capture at all, so this falls back to the same node as <code>outer</code>.
+      This one line is what lets decorated and undecorated methods share the rest of the logic.</li>
+    </ul>
+  </div>
+
+  <pre class="code"><code>    excluded_function_keys = {r["key"] for r in method_records}
+    classes_with_methods = {
+        _span_key(captures["definition.class_context"][0])
+        for _, captures in matches
+        if "definition.method" in captures
+    }
+
+    function_candidates: dict[tuple[int, int], dict] = {}
+    class_candidates: dict[tuple[int, int], dict] = {}
+
+    for _, captures in matches:
+        if "definition.method" in captures or "definition.class_context" in captures:
+            continue
+
+        if "definition.function" in captures:
+            outer = captures["definition.function"][0]
+            inner = captures.get("inner.function", [outer])[0]
+            key = _span_key(inner)
+            if key in excluded_function_keys:
+                continue
+            _keep_largest(
+                function_candidates, key, outer=outer,
+                symbol_name=_node_text(captures["name.function"][0], source_bytes),
+                kind="function",
+            )
+        elif "definition.class" in captures:
+            outer = captures["definition.class"][0]
+            inner = captures.get("inner.class", [outer])[0]
+            key = _span_key(inner)
+            _keep_largest(
+                class_candidates, key, outer=outer,
+                symbol_name=_node_text(captures["name.class"][0], source_bytes),
+                kind="class",
+            )</code></pre>
+  <div class="explain">
+    <ul>
+      <li><code>_span_key(node)</code> is just <code>(start_byte, end_byte)</code> — a hashable identity
+      for "this exact span of source," used to deduplicate matches and to check membership across sets.</li>
+      <li>The dedup problem this section solves: the bare <code>@definition.function</code> pattern and the
+      decorated <code>@definition.function</code> pattern both independently match the same inner function
+      node for a decorated function. <code>_keep_largest</code> resolves that by keeping whichever matched
+      span is bigger — the decorated (outer) one — so a decorated function is captured with its decorator
+      text intact instead of twice.</li>
+      <li><code>classes_with_methods</code> records every class that had at least one method match, by the
+      byte-span of its <code>@definition.class_context</code> capture — this is checked later so that
+      class is excluded from getting its own whole-class chunk.</li>
+    </ul>
+  </div>
+
+  <pre class="code"><code>    records = (
+        method_records
+        + list(function_candidates.values())
+        + [r for key, r in class_candidates.items() if key not in classes_with_methods]
+    )
+
+    # a class-with-methods is consumed at the root even though it emits no
+    # whole-class chunk of its own — methods represent it instead
+    top_level_keys = {_span_key(r["outer"]) for r in function_candidates.values()}
+    top_level_keys |= {_span_key(r["outer"]) for r in class_candidates.values()}
+
+    chunks = [
+        Chunk(
+            file_path=file_path,
+            symbol_name=r["symbol_name"],
+            kind=r["kind"],
+            start_line=r["outer"].start_point[0] + 1,
+            end_line=r["outer"].end_point[0] + 1,
+            code_text=_node_text(r["outer"], source_bytes),
+        )
+        for r in records
+    ]
+
+    leftover = [child for child in root.children if _span_key(child) not in top_level_keys]
+    if leftover:
+        chunks.append(Chunk(
+            file_path=file_path, symbol_name=None, kind="module",
+            start_line=leftover[0].start_point[0] + 1,
+            end_line=leftover[-1].end_point[0] + 1,
+            code_text="\n".join(_node_text(n, source_bytes) for n in leftover),
+        ))
+
+    return chunks</code></pre>
+  <div class="explain">
+    <ul>
+      <li><code>start_point[0] + 1</code> — tree-sitter's line numbers are 0-indexed; <code>+1</code>
+      converts to the 1-indexed line numbers everything else in the app (and every editor) uses.</li>
+      <li>The subtle bug this code specifically had to get right, called out in the code comment: a
+      class-with-methods still has to be added to <code>top_level_keys</code> even though it never produces
+      its own chunk — otherwise it would leak into <code>leftover</code> and get re-emitted, whole, inside
+      the trailing module chunk.</li>
+      <li>Everything not claimed by a function, method, or standalone class — imports, constants, bare
+      top-level statements — falls through to <code>leftover</code> and becomes one final
+      <code>kind="module"</code>, <code>symbol_name=None</code> chunk.</li>
+    </ul>
+  </div>
+
+  <h4>chunk_source and the size cap — sleuth/ingest/chunk.py</h4>
+  <pre class="code"><code>def chunk_source(source_bytes: bytes, file_path: str, extension: str) -> list[Chunk]:
+    try:
+        tree, spec = parse_source(source_bytes, extension)
+    except UnsupportedFileType:
+        chunks = _fallback_chunk(source_bytes, file_path)
+    else:
+        query = _load_query(spec.key, spec.ts_language)
+        chunks = run_query(query, tree.root_node, source_bytes, file_path)
+
+    return _cap_chunk_sizes(chunks)</code></pre>
+  <div class="explain">
+    <p>An unsupported extension no longer returns an empty list (the original behavior) — it falls back to
+    <code>_fallback_chunk</code>, a plain blank-line-block splitter, so nothing silently vanishes from the
+    index just because it isn't Python/JS/TS. <code>_cap_chunk_sizes</code> runs on every chunk regardless
+    of path: anything over 4000 characters gets sliced into <code>name#1</code>, <code>name#2</code>, ...
+    parts on line boundaries, so one enormous generated file or minified bundle can't produce a single
+    chunk too large to embed sensibly.</p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section class="task" id="t6">
+  <h2>Task 6 — Git clone &amp; file listing</h2>
+  <p class="task-files"><code>sleuth/ingest/clone.py</code></p>
+
+  <pre class="code"><code>class CloneError(Exception):
+    pass
+
+
+def clone_repo(url: str, dest_dir: str) -> Path:
+    dest = Path(dest_dir)
+    result = subprocess.run(
+        ["git", "clone", "--depth", "1", url, str(dest)],
+        capture_output=True,
+        text=True,
+    )
+    if result.returncode != 0:
+        raise CloneError(result.stderr.strip())
+    return dest
+
+
+def list_source_files(repo_path: Path, extensions: set[str]) -> list[Path]:
+    files = []
+    for path in Path(repo_path).rglob("*"):
+        if ".git" in path.parts:
+            continue
+        if path.is_file() and path.suffix in extensions:
+            files.append(path)
+    return files</code></pre>
+  <div class="explain">
+    <ul>
+      <li><code>--depth 1</code> — a shallow clone. Indexing only ever needs the current state of the
+      files, never the commit history, so there's no reason to pull the whole history down.</li>
+      <li><code>subprocess.run(..., capture_output=True, text=True)</code> — git's own stderr becomes the
+      <code>CloneError</code> message directly, rather than letting a raw
+      <code>subprocess.CalledProcessError</code> bubble up. It keeps the exception surface local to
+      <code>sleuth.ingest</code>: Task 9's pipeline only ever needs to know about exceptions this package
+      defines, not subprocess internals.</li>
+      <li><code>list_source_files</code> takes the extension set as a parameter instead of hardcoding
+      <code>{".py", ".js", ".ts"}</code> — the caller (Task 9's pipeline) drives it off Task 4's
+      <code>LANGUAGES</code> dict, so "which extensions we support" stays defined in exactly one place.</li>
+      <li><code>.git</code> is explicitly skipped — walking a repo's own git internals would waste time and
+      could pick up junk that isn't source code at all.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section class="task" id="t7">
+  <h2>Task 7 — HTTP retry &amp; Voyage embedder</h2>
+  <p class="task-files"><code>sleuth/http_retry.py</code> · <code>sleuth/ingest/embed.py</code></p>
+
+  <pre class="code"><code>TRANSIENT_STATUS_CODES = {429, 500, 502, 503, 504}
+
+
+async def post_with_retry(
+    client: httpx.AsyncClient, url: str, *, retries: int = 1, backoff_seconds: float = 1.0, **kwargs
+) -> httpx.Response:
+    attempt = 0
+    while True:
+        try:
+            response = await client.post(url, **kwargs)
+        except httpx.TransportError:
+            if attempt &lt; retries:
+                attempt += 1
+                await asyncio.sleep(backoff_seconds)
+                continue
+            raise
+
+        if response.status_code in TRANSIENT_STATUS_CODES and attempt &lt; retries:
+            attempt += 1
+            await asyncio.sleep(backoff_seconds)
+            continue
+
+        response.raise_for_status()
+        return response</code></pre>
+  <div class="explain">
+    <ul>
+      <li>One shared helper instead of duplicating retry logic in the Voyage client, the Groq client, and
+      the NIM client — every outbound HTTP call in the app goes through this function, so the retry policy
+      (what counts as transient, how many attempts, how long to wait) is defined once.</li>
+      <li>Two separate failure paths are handled: a network-level exception
+      (<code>httpx.TransportError</code> — the request never got a response at all) and a transient
+      <em>status code</em> (429 rate-limited, or a 5xx server error) — both retry once after a fixed
+      backoff, everything else (a 400, a 401, a 404) raises immediately via
+      <code>response.raise_for_status()</code>.</li>
+      <li>That immediate-raise-on-non-transient behavior matters: retrying blindly on <em>any</em> failure
+      would silently double-call on a permanent error like bad auth. Only the allowlisted transient codes
+      get a second attempt.</li>
+    </ul>
+  </div>
+
+  <pre class="code"><code>class VoyageEmbedder(Embedder):
+    model_name = "voyage-code-3"
+    dim = 1024
+
+    def __init__(self, api_key: str, batch_size: int = 128, max_concurrency: int = 5):
+        self.api_key = api_key
+        self.batch_size = batch_size
+        self.max_concurrency = max_concurrency
+
+    async def embed_batch(self, texts: list[str]) -> list[list[float]]:
+        batches = [texts[i : i + self.batch_size] for i in range(0, len(texts), self.batch_size)]
+        semaphore = asyncio.Semaphore(self.max_concurrency)
+
+        async with httpx.AsyncClient() as client:
+            results = await asyncio.gather(
+                *(self._embed_one_batch(client, semaphore, batch) for batch in batches)
+            )
+
+        vectors: list[list[float]] = []
+        for batch_vectors in results:
+            vectors.extend(batch_vectors)
+        return vectors
+
+    async def _embed_one_batch(
+        self, client: httpx.AsyncClient, semaphore: asyncio.Semaphore, batch: list[str]
+    ) -> list[list[float]]:
+        async with semaphore:
+            response = await post_with_retry(
+                client, VOYAGE_EMBEDDINGS_URL,
+                headers={"Authorization": f"Bearer {self.api_key}"},
+                json={"input": batch, "model": self.model_name},
+            )
+
+        data = response.json()["data"]
+        data.sort(key=lambda item: item["index"])
+        return [item["embedding"] for item in data]</code></pre>
+  <div class="explain">
+    <ul>
+      <li>Texts are split into fixed-size batches, then all batches are fired concurrently through
+      <code>asyncio.gather</code>, bounded by <code>asyncio.Semaphore(max_concurrency)</code> so at most
+      <code>max_concurrency</code> requests are ever in flight at once. Embedding is network-bound, so one
+      request per chunk would be dominated by round-trip latency; unbounded concurrency risks tripping the
+      provider's rate limit. The semaphore is the middle ground.</li>
+      <li><code>data.sort(key=lambda item: item["index"])</code> is the one line in this whole codebase
+      where a silent bug would be the most dangerous and the least visible: Voyage's response doesn't
+      guarantee its <code>data</code> array comes back in the same order the input texts were sent, and
+      neither does running several batches concurrently. If embeddings ever landed mismatched against their
+      source chunks, every one of them would silently point at the wrong vector forever — no crash, no
+      error, just permanently wrong retrieval. Sorting explicitly by the <code>index</code> field Voyage
+      returns removes the assumption entirely instead of trusting the ordering to hold.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section class="task" id="t8">
+  <h2>Task 8 — Repo/chunk store</h2>
+  <p class="task-files"><code>sleuth/store.py</code></p>
+
+  <p>Raw SQL, no ORM — every function here takes a plain <code>psycopg.Connection</code> and issues one
+  parameterized query. Nothing here commits on its own; the caller controls the transaction boundary.</p>
+
+  <pre class="code"><code>def create_repo(conn: psycopg.Connection, github_url: str) -> str:
+    row = conn.execute(
+        "INSERT INTO repos (github_url) VALUES (%s) RETURNING id", (github_url,)
+    ).fetchone()
+    return str(row[0])
+
+
+def get_existing_hashes(conn: psycopg.Connection, repo_id: str) -> dict[tuple[str, str | None], str]:
+    rows = conn.execute(
+        "SELECT file_path, symbol_name, content_hash FROM chunks WHERE repo_id = %s", (repo_id,)
+    ).fetchall()
+    return {(file_path, symbol_name): content_hash for file_path, symbol_name, content_hash in rows}</code></pre>
+  <div class="explain">
+    <p><code>get_existing_hashes</code> is the read side of incremental re-indexing: it loads every chunk
+    already stored for a repo as a <code>{(file_path, symbol_name): content_hash}</code> map. Task 9's
+    pipeline diffs a fresh parse's hashes against this map and only sends the changed/new ones to the
+    embedder.</p>
+  </div>
+
+  <pre class="code"><code>def upsert_chunks(
+    conn: psycopg.Connection, repo_id: str,
+    chunks_with_embeddings: list[tuple[Chunk, list[float]]],
+) -> None:
+    for chunk, embedding in chunks_with_embeddings:
+        conn.execute(
+            """
+            INSERT INTO chunks
+                (repo_id, file_path, symbol_name, kind, start_line, end_line, code_text, content_hash, embedding)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (repo_id, file_path, COALESCE(symbol_name, ''))
+            DO UPDATE SET
+                kind = EXCLUDED.kind, start_line = EXCLUDED.start_line, end_line = EXCLUDED.end_line,
+                code_text = EXCLUDED.code_text, content_hash = EXCLUDED.content_hash, embedding = EXCLUDED.embedding
+            """,
+            (repo_id, chunk.file_path, chunk.symbol_name, chunk.kind,
+             chunk.start_line, chunk.end_line, chunk.code_text, chunk.content_hash, embedding),
+        )
+
+
+def delete_stale_chunks(
+    conn: psycopg.Connection, repo_id: str, current_keys: set[tuple[str, str | None]]
+) -> None:
+    existing = get_existing_hashes(conn, repo_id)
+    stale_keys = existing.keys() - current_keys
+    for file_path, symbol_name in stale_keys:
+        conn.execute(
+            "DELETE FROM chunks WHERE repo_id = %s AND file_path = %s AND COALESCE(symbol_name, '') = COALESCE(%s, '')",
+            (repo_id, file_path, symbol_name),
+        )</code></pre>
+  <div class="explain">
+    <ul>
+      <li><code>ON CONFLICT (...) DO UPDATE SET</code> is the whole upsert: insert a new chunk, or if one
+      with the same <code>(repo_id, file_path, symbol_name)</code> already exists, overwrite it in place
+      instead of erroring or duplicating. This is what the unique index from Task 2's schema exists for.</li>
+      <li><code>delete_stale_chunks</code> is a plain set difference —
+      <code>existing.keys() - current_keys</code> — every key that was stored before but doesn't appear in
+      the latest parse gets deleted. This is what handles a function being deleted or renamed in the source
+      repo between index runs; without it, old chunks would accumulate forever.</li>
+      <li><code>COALESCE(symbol_name, '')</code> shows up in the conflict target, the delete's match clause,
+      and the schema's unique index — all three have to agree on how <code>NULL</code> is treated, or the
+      upsert and the stale-delete would disagree about whether two module-level chunks are "the same row."</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section class="task" id="t9">
+  <h2>Task 9 — Ingest pipeline orchestration</h2>
+  <p class="task-files"><code>sleuth/ingest/pipeline.py</code></p>
+
+  <p>This is the one function that wires Tasks 4 through 8 together into a full clone-to-searchable-repo
+  run.</p>
+
+  <pre class="code"><code>async def ingest_repo(github_url: str, conn, config: Config) -> str:
+    repo_id = _find_or_create_repo(conn, github_url)
+    update_repo_status(conn, repo_id, "indexing")
+    conn.commit()
+
+    embedder = VoyageEmbedder(api_key=config.voyage_api_key)
+
+    workdir = tempfile.mkdtemp(prefix="sleuth-clone-")
+    try:
+        try:
+            repo_path = clone_repo(github_url, workdir)
+        except CloneError as exc:
+            update_repo_status(conn, repo_id, "failed", str(exc))
+            conn.commit()
+            return repo_id
+
+        files = list_source_files(repo_path, SUPPORTED_EXTENSIONS)
+
+        all_chunks = []
+        for file_path in files:
+            relative_path = str(file_path.relative_to(repo_path))
+            source_bytes = file_path.read_bytes()
+            try:
+                chunks = chunk_source(source_bytes, relative_path, file_path.suffix)
+            except Exception:
+                continue  # skip files that fail to parse, don't abort the whole index
+            all_chunks.extend(chunks)</code></pre>
+  <div class="explain">
+    <ul>
+      <li><code>_find_or_create_repo</code> makes <code>ingest_repo</code> safe to call again on a URL
+      that's already been indexed — it looks up the existing row by <code>github_url</code> rather than
+      always inserting a new one, which is what makes re-indexing (as opposed to indexing-from-scratch
+      every time) possible at all.</li>
+      <li>Status flips to <code>"indexing"</code> and commits immediately, before any of the slow work
+      starts — a concurrent <code>sleuth list</code> or <code>sleuth ask</code> against this repo sees
+      accurate state the whole time, not a stale <code>"pending"</code> or a state that only updates at
+      the very end.</li>
+      <li>A per-file <code>try/except Exception: continue</code> around <code>chunk_source</code> means one
+      malformed or unparseable file skips itself and doesn't abort indexing the other 500 files in the
+      repo.</li>
+      <li>A failed clone is caught, recorded as <code>status = "failed"</code> with git's own error message,
+      and returns normally — <code>ingest_repo</code> never raises for this specific failure mode.</li>
+    </ul>
+  </div>
+
+  <pre class="code"><code>        current_keys = {(c.file_path, c.symbol_name) for c in all_chunks}
+        existing_hashes = get_existing_hashes(conn, repo_id)
+
+        to_embed = [
+            c for c in all_chunks
+            if existing_hashes.get((c.file_path, c.symbol_name)) != c.content_hash
+        ]
+
+        if to_embed:
+            texts = [
+                format_chunk_context(c, EXTENSION_TO_LANGUAGE.get("." + c.file_path.rsplit(".", 1)[-1], ""))
+                for c in to_embed
+            ]
+            vectors = await embedder.embed_batch(texts)
+            upsert_chunks(conn, repo_id, list(zip(to_embed, vectors)))
+            conn.commit()
+
+        set_repo_embedding_info(conn, repo_id, embedder.model_name, embedder.dim)
+        conn.commit()
+
+        delete_stale_chunks(conn, repo_id, current_keys)
+        conn.commit()
+
+        update_repo_status(conn, repo_id, "ready")
+        conn.commit()
+        return repo_id
+    finally:
+        shutil.rmtree(workdir, ignore_errors=True)</code></pre>
+  <div class="explain">
+    <ul>
+      <li>The diff line — <code>existing_hashes.get(key) != c.content_hash</code> — is the entire
+      incremental-reindex mechanism in one comparison. A chunk whose hash already matches what's stored is
+      simply never added to <code>to_embed</code>, so it costs zero Voyage API calls on a repeat index.</li>
+      <li><code>if to_embed:</code> guards the whole embed-and-upsert block — if nothing changed since last
+      time, the embedder is never even called.</li>
+      <li>Each step commits as it goes, rather than wrapping the entire run in one giant transaction. If the
+      process crashes partway through, the database is left in a legible state — e.g.
+      <code>"indexing"</code> with some chunks already upserted — instead of silently rolling everything
+      back with no trace of what happened.</li>
+      <li><code>finally: shutil.rmtree(workdir, ...)</code> guarantees the temporary clone directory is
+      cleaned up whether the run succeeded, failed, or raised — so repeated or interrupted index attempts
+      don't leak disk space.</li>
+    </ul>
+    <div class="note">
+      <strong>Scope note carried through Tasks 7–11:</strong> the plan's original design called for a
+      pluggable Voyage/NIM embedder with separate per-dimension chunk tables. Implementation narrowed this
+      to Voyage-only — one <code>VoyageEmbedder</code>, one <code>chunks</code> table, no
+      <code>get_embedder(config)</code> factory. This function calls <code>VoyageEmbedder</code> directly
+      as a result. The narrower scope was a deliberate, confirmed decision, revisited only if/when NIM
+      embedding actually becomes necessary.
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section class="task" id="t10">
+  <h2>Task 10 — Vector search</h2>
+  <p class="task-files"><code>sleuth/retrieve/search.py</code></p>
+
+  <pre class="code"><code>@dataclass
+class SearchResult:
+    file_path: str
+    symbol_name: str | None
+    kind: str
+    start_line: int
+    end_line: int
+    code_text: str
+    distance: float
+
+
+def search_chunks(
+    conn: psycopg.Connection, repo_id: str, query_embedding: list[float], top_k: int = 8,
+) -> list[SearchResult]:
+    rows = conn.execute(
+        """
+        SELECT file_path, symbol_name, kind, start_line, end_line, code_text,
+               embedding &lt;=&gt; %(query)s::vector AS distance
+        FROM chunks
+        WHERE repo_id = %(repo_id)s
+        ORDER BY distance
+        LIMIT %(top_k)s
+        """,
+        {"query": query_embedding, "repo_id": repo_id, "top_k": top_k},
+    ).fetchall()
+    return [SearchResult(*row) for row in rows]</code></pre>
+  <div class="explain">
+    <ul>
+      <li><code>&lt;=&gt;</code> is pgvector's cosine-distance operator — smaller means "more similar."
+      Ordering by it and taking the first <code>top_k</code> rows is the entire similarity search; Postgres
+      does the ranking, and the HNSW index built in Task 2's schema is what keeps this fast without a full
+      table scan as the <code>chunks</code> table grows.</li>
+      <li><code>%(query)s::vector</code> — the explicit cast matters. The query embedding arrives as a
+      plain Python list, which psycopg would otherwise send as a <code>double precision[]</code> parameter;
+      Postgres refuses to compare that against a <code>vector</code> column without the cast.
+      (<code>register_vector</code>, from Task 2, handles conversion for values going in and out of a known
+      <code>vector</code> column — not for a bare parameter used inline in an expression like this one.)</li>
+      <li><code>WHERE repo_id = %(repo_id)s</code> scopes every search to one repo — asking a question
+      about repo A never returns chunks from repo B, even though they live in the same physical table.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section class="task" id="t11">
+  <h2>Task 11 — Generator &amp; answer generation</h2>
+  <p class="task-files"><code>sleuth/llm/generate.py</code> · <code>sleuth/retrieve/answer.py</code></p>
+
+  <pre class="code"><code>class Generator(ABC):
+    model_name: str
+    timeout: float = DEFAULT_TIMEOUT
+
+    def __init__(self, api_key: str, model_name: str | None = None):
+        self.api_key = api_key
+        if model_name:
+            self.model_name = model_name
+
+    @abstractmethod
+    def _url(self) -> str: ...
+
+    async def chat(self, messages: list[dict], stream: bool = True) -> AsyncIterator[str]:
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            if stream:
+                async for token in self._stream_chat(client, messages):
+                    yield token
+            else:
+                yield await self._chat_once(client, messages)</code></pre>
+  <div class="explain">
+    <p><code>Generator</code> is an abstract base wrapping one HTTP call shape shared by Groq and NIM —
+    both are OpenAI-compatible chat-completions endpoints, so the only thing a subclass has to supply is
+    its URL (and optionally a different <code>model_name</code>/<code>timeout</code>). <code>chat()</code>
+    is an async generator either way; for <code>stream=False</code> it just yields a single item so callers
+    don't need two different code paths depending on whether they want streaming.</p>
+  </div>
+
+  <pre class="code"><code>    async def _stream_chat(self, client: httpx.AsyncClient, messages: list[dict]) -> AsyncIterator[str]:
+        headers = {"Authorization": f"Bearer {self.api_key}"}
+        payload = {"model": self.model_name, "messages": messages, "stream": True}
+        async with client.stream("POST", self._url(), headers=headers, json=payload) as response:
+            response.raise_for_status()
+            async for line in response.aiter_lines():
+                if not line.startswith("data: "):
+                    continue
+                data = line[len("data: "):]
+                if data == "[DONE]":
+                    break
+                delta = json.loads(data)["choices"][0]["delta"].get("content")
+                if delta:
+                    yield delta</code></pre>
+  <div class="explain">
+    <p>This is hand-rolled Server-Sent-Events parsing — no SDK. Groq/NIM stream a chat completion as a
+    sequence of lines each starting with <code>data: </code>, ending with a literal
+    <code>data: [DONE]</code> sentinel. Every other line is a JSON chunk carrying one token's worth of
+    <code>delta.content</code>, which gets yielded immediately as it arrives — this is what makes the CLI's
+    <code>ask</code> command print tokens as they're generated instead of waiting for the whole answer.</p>
+  </div>
+
+  <pre class="code"><code>class GroqGenerator(Generator):
+    model_name = "openai/gpt-oss-120b"
+    def _url(self) -> str:
+        return GROQ_URL
+
+
+class NimGenerator(Generator):
+    model_name = "meta/llama-3.1-70b-instruct"
+    timeout = 120
+    def _url(self) -> str:
+        return NIM_URL
+
+
+def get_fallback_chain(config: Config) -> list[Generator]:
+    chain = [get_generator(config)]
+    if config.generation_provider == "groq" and config.nim_api_key:
+        chain.append(NimGenerator(api_key=config.nim_api_key))
+    return chain
+
+
+async def chat_with_fallback(
+    chain: list[Generator], messages: list[dict], stream: bool = True
+) -> AsyncIterator[str]:
+    last_error: Exception | None = None
+    for generator in chain:
+        try:
+            async for token in generator.chat(messages, stream=stream):
+                yield token
+            return
+        except (httpx.HTTPStatusError, httpx.TransportError) as exc:
+            last_error = exc
+            continue
+    raise RuntimeError(f"All generators in fallback chain failed: {last_error}")</code></pre>
+  <div class="explain">
+    <ul>
+      <li><code>get_fallback_chain</code> builds a chain that's Groq-primary, NIM-second — but only if an
+      NIM key is actually configured; otherwise the chain is just the one generator.</li>
+      <li><code>chat_with_fallback</code> walks that chain in order. If a generator's <code>chat()</code>
+      raises an HTTP-level or transport-level error, it moves to the next one; if <em>every</em> generator
+      in the chain fails, it raises one combined <code>RuntimeError</code> naming the last error. This
+      is a second, independent layer of retry on top of <code>post_with_retry</code>'s single in-request
+      retry — one retry lives at the HTTP layer per provider, provider-to-provider failover is the layer
+      above it.</li>
+      <li><code>NimGenerator.timeout = 120</code> (vs. the 60s default) — added after real-world testing
+      showed NIM's free-tier hosted inference has enough latency variance to occasionally exceed 60
+      seconds; see the <a href="#closing">closing notes</a>.</li>
+    </ul>
+  </div>
+
+  <h3>Putting it together — sleuth/retrieve/answer.py</h3>
+  <pre class="code"><code>def build_prompt(question: str, results: list[SearchResult]) -> str:
+    blocks = []
+    for r in results:
+        symbol = r.symbol_name or "(module level)"
+        blocks.append(
+            f"# File: {r.file_path}\n# {r.kind}: {symbol} (lines {r.start_line}-{r.end_line})\n\n{r.code_text}"
+        )
+    context = "\n\n---\n\n".join(blocks)
+    return f"Question: {question}\n\nRelevant code:\n\n{context}"
+
+
+async def stream_answer(question: str, repo_id: str, conn, config: Config) -> AsyncIterator[str]:
+    row = conn.execute("SELECT status FROM repos WHERE id = %s", (repo_id,)).fetchone()
+    if row is None or row[0] != "ready":
+        raise ValueError(f"Repo {repo_id} is not ready to query (status={row[0] if row else 'missing'})")
+
+    embedder = VoyageEmbedder(api_key=config.voyage_api_key)
+    query_vector = (await embedder.embed_batch([question]))[0]
+    results = search_chunks(conn, repo_id, query_vector)
+    prompt = build_prompt(question, results)
+
+    chain = get_fallback_chain(config)
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": prompt},
+    ]
+    async for token in chat_with_fallback(chain, messages, stream=True):
+        yield token</code></pre>
+  <div class="explain">
+    <p>This is the whole retrieval-augmented-generation loop for indexed mode, in one function: guard on
+    repo status, embed the question with the exact same embedder that indexed the code (so the question and
+    the chunks live in the same vector space), search, build a prompt out of the top-k results, then stream
+    the model's answer. Guarding on <code>status != "ready"</code> up front means a question against a repo
+    that's still indexing, or that failed, gets a clear error instead of a search over an empty or
+    half-populated <code>chunks</code> table.</p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section class="task" id="t12">
+  <h2>Task 12 — CLI</h2>
+  <p class="task-files"><code>sleuth/cli.py</code> · <code>sleuth/__main__.py</code></p>
+
+  <pre class="code"><code>async def main(argv: list[str] | None = None) -> None:
+    args = _build_parser().parse_args(argv)
+    config = load_config()
+
+    if args.command == "agentic":
+        async for chunk in run_agentic(args.question, args.path, config):
+            print(chunk, end="")
+        print()
+        return
+
+    conn = get_connection(config.database_url)
+    apply_schema(conn)
+    try:
+        if args.command == "add":
+            repo_id = await ingest_repo(args.github_url, conn, config)
+            status = conn.execute("SELECT status FROM repos WHERE id = %s", (repo_id,)).fetchone()[0]
+            print(f"{repo_id}\t{status}")
+        elif args.command == "list":
+            for repo_id, github_url, status in list_repos(conn):
+                print(f"{repo_id}\t{github_url}\t{status}")
+        elif args.command == "ask":
+            async for token in stream_answer(args.question, args.repo_id, conn, config):
+                print(token, end="")
+            print()
+        elif args.command == "eval":
+            table = await run_eval(args.golden_yaml_path, conn, config)
+            print(table)
+    finally:
+        conn.close()</code></pre>
+  <div class="explain">
+    <ul>
+      <li><code>agentic</code> returns before a database connection is ever opened — live mode never
+      touches Postgres at all (Task 13), so requiring a working DB connection just to answer a question
+      about the current directory would be a pointless dependency.</li>
+      <li>Every other branch opens one connection, applies the schema, does its one thing, and closes the
+      connection in a <code>finally</code> — the CLI is a one-shot process, not a long-running server, so
+      there's no connection pool, just "open, use, close, guaranteed."</li>
+      <li><code>run()</code> (in <code>__main__.py</code>, calling <code>asyncio.run(main(sys.argv[1:]))</code>)
+      is what makes <code>python -m sleuth ...</code> work as an entrypoint.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section class="task" id="t13">
+  <h2>Task 13 — Agentic / live retrieval mode</h2>
+  <p class="task-files"><code>sleuth/retrieve/agentic.py</code></p>
+
+  <p>The second retrieval mode: no clone, no index, no database — a bounded tool loop that reads a local
+  directory directly and answers from whatever it finds.</p>
+
+  <pre class="code"><code>MAX_ITERATIONS = 6
+GREP_MAX_MATCHES = 50
+READ_FILE_MAX_LINES = 400
+
+SYSTEM_PROMPT = (
+    "You are a code assistant investigating a local codebase to answer the user's "
+    "question. You have three tools:\n"
+    "  grep(pattern, glob=null) -- regex search across files, first 50 matches\n"
+    "  list_files(glob) -- list files matching a glob\n"
+    "  read_file(path, start_line=null, end_line=null) -- read up to 400 lines of a file\n"
+    "To call a tool, respond with EXACTLY one line in this form and nothing else:\n"
+    'TOOL: &lt;tool_name&gt; {"arg": "value", ...}\n'
+    "When you have enough information to answer, respond with your final answer as "
+    "plain prose (no TOOL: prefix)."
+)
+
+_TOOL_LINE_RE = re.compile(r"^TOOL:\s*(\w+)\s*(\{.*\})\s*$", re.MULTILINE)
+
+
+def _parse_tool_call(text: str) -> tuple[str, dict] | None:
+    match = _TOOL_LINE_RE.search(text.strip())
+    if not match:
+        return None
+    try:
+        args = json.loads(match.group(2))
+    except json.JSONDecodeError:
+        return None
+    return match.group(1), args</code></pre>
+  <div class="explain">
+    <p>The whole "protocol" is deliberately just text: the model either responds with exactly one line
+    matching <code>TOOL: name {json}</code>, or it responds with plain prose meant as the final answer.
+    No function-calling API, no <code>tools=[...]</code> schema — a plain chat-completions endpoint is
+    enough. <code>re.MULTILINE</code> plus <code>.search()</code> (rather than <code>.match()</code>
+    anchored to the very start) is a real fix made during testing: some models prepend visible reasoning
+    before the actual tool-call line, and the original anchored-to-start regex missed it entirely. Searching
+    for the pattern <em>anywhere</em>, on any line, tolerates that preamble while still requiring the tool
+    call itself to be one clean line.</p>
+  </div>
+
+  <pre class="code"><code>def _tool_grep(root: Path, pattern: str, glob: str | None = None) -> str:
+    regex = re.compile(pattern)
+    matches = []
+    paths = sorted(root.rglob(glob or "*"))
+    for path in paths:
+        if not path.is_file() or ".git" in path.parts:
+            continue
+        try:
+            text = path.read_text(errors="ignore")
+        except OSError:
+            continue
+        for lineno, line in enumerate(text.splitlines(), start=1):
+            if regex.search(line):
+                matches.append(f"{path.relative_to(root)}:{lineno}: {line.strip()}")
+                if len(matches) >= GREP_MAX_MATCHES:
+                    return "\n".join(matches) + "\n... (truncated at 50 matches)"
+    return "\n".join(matches) if matches else "(no matches)"
+
+
+def _tool_read_file(root: Path, path: str, start_line=None, end_line=None) -> str:
+    target = root / path
+    try:
+        lines = target.read_text(errors="ignore").splitlines()
+    except OSError as exc:
+        return f"(error reading {path}: {exc})"
+
+    start = max((start_line or 1) - 1, 0)
+    end = min(end_line or len(lines), start + READ_FILE_MAX_LINES, len(lines))
+    snippet = lines[start:end]
+    return "\n".join(f"{start + i + 1}: {line}" for i, line in enumerate(snippet))</code></pre>
+  <div class="explain">
+    <p>Both tools cap their own output — <code>grep</code> stops at 50 matches, <code>read_file</code> at
+    400 lines — for the same reason Task 7's embedder bounds its concurrency: an unbounded tool result
+    could blow the prompt budget on one large file or one very common pattern, so the tool protects itself
+    rather than trusting the model to ask for small enough slices. Both are read-only and resolve paths
+    relative to <code>root</code> only.</p>
+  </div>
+
+  <pre class="code"><code>async def run_agentic(question: str, path: str, config: Config, generator=None) -> AsyncIterator[str]:
+    generator = generator or get_generator(config)
+    root = Path(path)
+    messages = [
+        {"role": "system", "content": SYSTEM_PROMPT},
+        {"role": "user", "content": question},
+    ]
+
+    for _ in range(MAX_ITERATIONS):
+        response_text = await _call(generator, messages)
+        parsed = _parse_tool_call(response_text)
+
+        if parsed is None:
+            yield response_text
+            return
+
+        messages.append({"role": "assistant", "content": response_text})
+        name, args = parsed
+        result = _dispatch_tool(name, args, root)
+        messages.append({"role": "user", "content": f"Tool result: {result}"})
+
+    messages.append({
+        "role": "user",
+        "content": "Iteration limit reached. Answer the original question with what "
+        "you've gathered so far, as plain prose.",
+    })
+    response_text = await _call(generator, messages)
+    yield response_text + "\n\n(Note: search was cut short after reaching the iteration limit.)"</code></pre>
+  <div class="explain">
+    <ul>
+      <li>Each loop turn calls the generator with <code>stream=False</code> (inside <code>_call</code>) —
+      the loop needs to see the model's <em>complete</em> response before it can tell whether it's a tool
+      call or a final answer, so token-by-token streaming would be wasted work on every turn except
+      possibly the last. This means the agentic answer arrives at the CLI as one chunk, not real
+      token-by-token streaming the way indexed <code>ask</code> does — a deliberate simplicity trade-off,
+      not an oversight.</li>
+      <li>A non-tool response ends the loop immediately and becomes the answer. A tool response gets
+      dispatched, and its result is appended as the next user message — the model sees its own prior tool
+      call and the result in the growing conversation, exactly like a real back-and-forth.</li>
+      <li>Hitting <code>MAX_ITERATIONS</code> without a final answer doesn't error out — one last forced,
+      non-tool turn asks the model to answer with whatever it's gathered so far, and the returned text is
+      suffixed with an explicit note that the search was cut short. A partial answer beats a hard failure.</li>
+    </ul>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<section class="task" id="t14">
+  <h2>Task 14 — Eval harness</h2>
+  <p class="task-files"><code>sleuth/eval/runner.py</code></p>
+
+  <p>The regression suite: a golden set of questions with known-correct answers, scored automatically
+  against whatever the pipeline actually returns.</p>
+
+  <pre class="code"><code>@dataclass
+class GoldenCase:
+    question: str
+    expected_files: list[str]
+    expected_symbols: list[str] = field(default_factory=list)
+    reference_answer: str = ""
+
+
+def load_golden(path: str) -> tuple[str, list[GoldenCase]]:
+    data = yaml.safe_load(Path(path).read_text())
+    cases = [
+        GoldenCase(
+            question=c["question"],
+            expected_files=c.get("expected_files", []),
+            expected_symbols=c.get("expected_symbols", []),
+            reference_answer=c.get("reference_answer", ""),
+        )
+        for c in data.get("cases", [])
+    ]
+    return data["repo"], cases
+
+
+def _hit_and_rank(results, case: GoldenCase) -> tuple[bool, float]:
+    for rank, r in enumerate(results, start=1):
+        file_hit = r.file_path in case.expected_files
+        symbol_hit = bool(case.expected_symbols) and r.symbol_name in case.expected_symbols
+        if file_hit or symbol_hit:
+            return True, 1.0 / rank
+    return False, 0.0</code></pre>
+  <div class="explain">
+    <p>A golden case names the files/symbols a good retrieval should surface, plus a reference answer for
+    grading. <code>_hit_and_rank</code> walks the ranked search results and finds the first one that
+    matches the expected file or symbol — a "hit" — and its reciprocal rank (<code>1/rank</code>: a hit at
+    rank 1 scores 1.0, at rank 4 scores 0.25, no hit at all scores 0.0). This is retrieval quality,
+    completely independent of whether the generated answer is any good.</p>
+  </div>
+
+  <pre class="code"><code>async def run_eval(golden_yaml_path: str, conn, config: Config) -> str:
+    repo_id, cases = load_golden(golden_yaml_path)
+    row = conn.execute("SELECT id FROM repos WHERE id = %s", (repo_id,)).fetchone()
+    if row is None:
+        raise ValueError(f"Repo {repo_id} not found")
+
+    embedder = VoyageEmbedder(api_key=config.voyage_api_key)
+    chain = get_fallback_chain(config)
+    judge = get_generator(config)
+
+    results: list[CaseResult] = []
+    for case in cases:
+        query_vector = (await embedder.embed_batch([case.question]))[0]
+        search_results = search_chunks(conn, repo_id, query_vector, top_k=TOP_K)
+        hit, rr = _hit_and_rank(search_results, case)
+
+        prompt = build_prompt(case.question, search_results)
+        answer = "".join([t async for t in chat_with_fallback(chain, [{"role": "user", "content": prompt}], stream=False)])
+
+        judge_score = None
+        if case.reference_answer:
+            judge_text = "".join([t async for t in judge.chat(
+                [{"role": "user", "content": JUDGE_PROMPT.format(reference=case.reference_answer, produced=answer)}],
+                stream=False,
+            )])
+            judge_score = _parse_judge_score(judge_text)
+
+        results.append(CaseResult(case.question, hit, rr, judge_score, answer))
+
+    return _format_table(results)</code></pre>
+  <div class="explain">
+    <ul>
+      <li>Every case runs the <em>real</em> pipeline — the same <code>VoyageEmbedder</code>,
+      <code>search_chunks</code>, and <code>chat_with_fallback</code> that <code>ask</code> uses. This is
+      what makes it a true end-to-end regression check rather than a unit test with mocked internals.</li>
+      <li>The judge score is a second, independent metric on top of hit/MRR: the same generator is asked to
+      grade the produced answer against the case's <code>reference_answer</code> on a 1–5 scale. This
+      separates two different failure modes — a bad answer built from good retrieval (a generation problem)
+      versus a good answer that got lucky despite bad retrieval (a retrieval problem that generation
+      happened to paper over).</li>
+      <li><code>if case.reference_answer:</code> — judging is skipped entirely for a case with no reference
+      answer to grade against, rather than scoring against nothing.</li>
+    </ul>
+    <div class="note">
+      <strong>Scope note:</strong> like Task 9, this was adapted from the plan's pluggable-embedder design
+      down to the same Voyage-only scope established in Tasks 7–11 — no
+      <code>_EMBEDDER_BY_MODEL</code> lookup, no <code>dim</code> parameter threaded through
+      <code>search_chunks</code>. <code>run_eval</code> calls <code>VoyageEmbedder</code> directly, exactly
+      like <code>pipeline.py</code> and <code>answer.py</code> do.
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<footer class="closing" id="closing">
+  <h2>Real-world findings</h2>
+  <p>Every test above is green against mocked HTTP calls. Running the actual CLI against real Voyage,
+  Groq, and NIM APIs (and a real Supabase Postgres instance) surfaced things no mock could catch:</p>
+
+  <h4>Supabase's direct host is IPv6-only</h4>
+  <p><code>db.&lt;project-ref&gt;.supabase.co</code> resolves to an IPv6 address with no IPv4 fallback;
+  many networks (including the one this was built on) can't route to it at all. Fix: use Supabase's
+  <strong>Session pooler</strong> connection string instead (still port 5432, still supports the
+  session-level <code>SET</code>/DDL this app needs) — <em>not</em> the Transaction pooler on 6543, which
+  doesn't reliably support session-scoped statements.</p>
+
+  <h4>Voyage's trial tier: 3 RPM, 10K TPM</h4>
+  <p>No payment method on file caps a Voyage key hard. <code>VoyageEmbedder</code>'s default
+  <code>batch_size=128</code> can trivially exceed 10K tokens in a single request against real code chunks
+  — an instant 429, unrelated to request frequency. Fix (for this trial key): a smaller
+  <code>batch_size</code> and a smaller target repo, not a code change — production use with a funded
+  account wouldn't hit this at all.</p>
+
+  <h4><code>llama-3.3-70b-versatile</code> is dead on Groq</h4>
+  <p>The model this whole design was built and documented against — including the plan's own default —
+  has been deprecated and removed from Groq's catalog; requesting it now returns a plain 404. Fixed by
+  moving <code>DEFAULT_GROQ_MODEL</code> and <code>GroqGenerator.model_name</code> to
+  <code>openai/gpt-oss-120b</code>, currently live and working well for indexed <code>ask</code>/
+  <code>eval</code>.</p>
+
+  <h4>gpt-oss-120b breaks the agentic text protocol</h4>
+  <p>This is the interesting one. Groq's <code>openai/gpt-oss-120b</code> does its own native tool-call
+  detection <em>server-side</em>, even though the request never declares any <code>tools=[...]</code>. It
+  sees the model's own output land on a <code>TOOL: name {json}</code>-shaped line, decides that's a tool
+  call, and rejects it with <code>400 tool_use_failed</code> / <code>output_parse_failed</code> — because
+  no tool schema was ever declared for it to validate against. Task 13's plain-text protocol was designed
+  against a model with no native tool-calling behavior at all (the now-dead
+  <code>llama-3.3-70b-versatile</code>); a reasoning/tool-tuned model doesn't fit that assumption. Tried
+  two live alternatives on Groq: <code>qwen/qwen3.6-27b</code> wraps its answer in a visible
+  <code>&lt;think&gt;...&lt;/think&gt;</code> block before the tool line (fixed by relaxing
+  <code>_parse_tool_call</code>'s regex to search anywhere, not just the start of the string — a genuine,
+  now-tested robustness improvement); <code>allam-2-7b</code> is simply too weak to follow the exact
+  format. NIM's plain (non-reasoning-tuned) <code>meta/llama-3.1-70b-instruct</code> followed the protocol
+  correctly across multiple real tool-call iterations with zero deviation.</p>
+
+  <h4>NIM's free tier is just slow, sometimes</h4>
+  <p>Individual calls ranged from ~4s to over 60s on the same model, same prompt shape, no payment method
+  on that key either. Not an error — just latency variance under shared, on-demand hosted inference. Fixed
+  by making <code>Generator.timeout</code> overridable per subclass and setting
+  <code>NimGenerator.timeout = 120</code> instead of hardcoding 60s everywhere.</p>
+
+  <h4>apply_schema's own lock, and the fix that generalized</h4>
+  <p><code>apply_schema()</code> re-running <code>schema.sql</code> — including an
+  <code>ALTER TABLE ... ADD COLUMN</code>, which always needs an ACCESS EXCLUSIVE lock even when the column
+  already exists — on <em>every single CLI invocation</em> meant any other long-lived connection touching
+  <code>repos</code> could freeze the next command indefinitely, with zero feedback. First caught by a test
+  fixture accidentally leaving an uncommitted read open. Fixed at the root with
+  <code>SET lock_timeout = '5s'</code> on every connection (Task 2) — not by caching "schema already
+  applied," since this project has no migration framework and unconditional idempotent re-apply is the only
+  mechanism by which a future <code>schema.sql</code> edit ever reaches an already-provisioned database.</p>
+</footer>
+
+</main>
+</body>
+</html>

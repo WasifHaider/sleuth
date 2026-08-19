@@ -48,7 +48,7 @@ def test_load_config_defaults_groq_model(monkeypatch):
 
     config = load_config()
 
-    assert config.groq_model == "llama-3.3-70b-versatile"
+    assert config.groq_model == "openai/gpt-oss-120b"
 
 
 def test_load_config_raises_on_missing_required_var(monkeypatch):

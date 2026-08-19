@@ -43,6 +43,25 @@ async def test_run_agentic_dispatches_list_files_tool_then_answers(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_run_agentic_finds_tool_call_after_leading_reasoning_text(tmp_path):
+    (tmp_path / "main.py").write_text("def foo():\n    return 1\n")
+
+    fake = FakeGenerator(
+        [
+            '<think>\nI should look for foo.\n</think>\nTOOL: list_files {"glob": "*.py"}',
+            "Found main.py, it defines foo.",
+        ]
+    )
+
+    result = "".join([t async for t in run_agentic("where is foo?", str(tmp_path), config=None, generator=fake)])
+
+    assert result == "Found main.py, it defines foo."
+    assert len(fake.calls) == 2
+    tool_result_message = fake.calls[1][-1]["content"]
+    assert "main.py" in tool_result_message
+
+
+@pytest.mark.asyncio
 async def test_run_agentic_enforces_grep_match_cap(tmp_path):
     (tmp_path / "big.py").write_text("\n".join(f"# match {i}" for i in range(100)))
 

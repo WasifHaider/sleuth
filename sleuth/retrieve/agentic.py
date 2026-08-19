@@ -22,11 +22,11 @@ SYSTEM_PROMPT = (
     "plain prose (no TOOL: prefix)."
 )
 
-_TOOL_LINE_RE = re.compile(r"^TOOL:\s*(\w+)\s*(\{.*\})\s*$", re.DOTALL)
+_TOOL_LINE_RE = re.compile(r"^TOOL:\s*(\w+)\s*(\{.*\})\s*$", re.MULTILINE)
 
 
 def _parse_tool_call(text: str) -> tuple[str, dict] | None:
-    match = _TOOL_LINE_RE.match(text.strip())
+    match = _TOOL_LINE_RE.search(text.strip())
     if not match:
         return None
     try:

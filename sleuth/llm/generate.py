@@ -10,9 +10,12 @@ from sleuth.http_retry import post_with_retry
 GROQ_URL = "https://api.groq.com/openai/v1/chat/completions"
 NIM_URL = "https://integrate.api.nvidia.com/v1/chat/completions"
 
+DEFAULT_TIMEOUT = 60
+
 
 class Generator(ABC):
     model_name: str
+    timeout: float = DEFAULT_TIMEOUT
 
     def __init__(self, api_key: str, model_name: str | None = None):
         self.api_key = api_key
@@ -23,7 +26,7 @@ class Generator(ABC):
     def _url(self) -> str: ...
 
     async def chat(self, messages: list[dict], stream: bool = True) -> AsyncIterator[str]:
-        async with httpx.AsyncClient(timeout=60) as client:
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
             if stream:
                 async for token in self._stream_chat(client, messages):
                     yield token
@@ -56,7 +59,7 @@ class Generator(ABC):
 
 
 class GroqGenerator(Generator):
-    model_name = "llama-3.3-70b-versatile"
+    model_name = "openai/gpt-oss-120b"
 
     def _url(self) -> str:
         return GROQ_URL
@@ -64,6 +67,7 @@ class GroqGenerator(Generator):
 
 class NimGenerator(Generator):
     model_name = "meta/llama-3.1-70b-instruct"
+    timeout = 120
 
     def _url(self) -> str:
         return NIM_URL
