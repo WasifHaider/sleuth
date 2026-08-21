@@ -1,7 +1,16 @@
-tree-sitter>=0.23,<0.24
+tree-sitter>=0.25,<0.26
 tree-sitter-python>=0.23,<0.24
 tree-sitter-javascript>=0.23,<0.24
 tree-sitter-typescript>=0.23,<0.24
+tree-sitter-css>=0.23,<0.24
+tree-sitter-html>=0.23,<0.24
+# tree-sitter-vue has no PyPI release, and upstream's published pyproject.toml
+# fails to build on modern setuptools (bad Funding/Homepage URL fields) — see
+# vendor/tree-sitter-vue/NOTICE.md for the exact provenance and the two-line
+# fix applied. Installed from the local vendored+patched copy, not upstream git,
+# so `pip install -r requirements.txt` is reproducible without network access
+# to GitHub failing partway through a build. Needs core tree-sitter>=0.25 (ABI 15).
+./vendor/tree-sitter-vue
 httpx>=0.27,<0.28
 psycopg[binary]>=3.1,<4
 pgvector>=0.3,<0.4

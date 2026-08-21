@@ -1,4 +1,4 @@
-from tree_sitter import Node, Query
+from tree_sitter import Node, Query, QueryCursor
 
 from sleuth.chunking import Chunk
 
@@ -12,7 +12,12 @@ def _span_key(node: Node) -> tuple[int, int]:
 
 
 def run_query(query: Query, root: Node, source_bytes: bytes, file_path: str) -> list[Chunk]:
-    matches = query.matches(root)
+    # tree-sitter>=0.25 moved match execution off Query itself onto a separate
+    # QueryCursor object (Query.matches(root) was removed) — construct one
+    # per call rather than caching, since a cursor also carries mutable
+    # per-run state (byte/point range limits, match-limit tracking) that
+    # should not leak between unrelated calls sharing the same cached Query.
+    matches = QueryCursor(query).matches(root)
 
     method_records = []
     for _, captures in matches:

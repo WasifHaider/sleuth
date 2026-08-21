@@ -4,11 +4,17 @@ from pathlib import Path
 from tree_sitter import Query
 
 from sleuth.chunking import Chunk
+from sleuth.ingest.css_chunker import chunk_css
+from sleuth.ingest.html_chunker import chunk_html
 from sleuth.ingest.parse import UnsupportedFileType, parse_source
 from sleuth.ingest.query_chunker import run_query
+from sleuth.ingest.vue_chunker import chunk_vue
 
 QUERIES_DIR = Path(__file__).parent / "queries"
 MAX_CHUNK_CHARS = 4000
+# languages with no useful function/class/method shape — chunked structurally
+# instead of via a tree-sitter query (see css_chunker.py)
+STRUCTURAL_LANGUAGES = {"css"}
 
 
 @lru_cache(maxsize=None)
@@ -23,8 +29,25 @@ def chunk_source(source_bytes: bytes, file_path: str, extension: str) -> list[Ch
     except UnsupportedFileType:
         chunks = _fallback_chunk(source_bytes, file_path)
     else:
-        query = _load_query(spec.key, spec.ts_language)
-        chunks = run_query(query, tree.root_node, source_bytes, file_path)
+        if spec.key == "vue":
+            # Vue is neither query-based (no single function/class shape to
+            # match — a .vue file is template+script+style, three different
+            # sub-languages) nor purely structural like CSS's flat rule list —
+            # it recursively re-invokes chunk_source per <script>/<style>
+            # block, so it gets its own dedicated branch rather than being
+            # forced into STRUCTURAL_LANGUAGES.
+            chunks = chunk_vue(tree.root_node, source_bytes, file_path)
+        elif spec.key == "html":
+            # Same "recursively re-invokes chunk_source" shape as Vue, but
+            # HTML's script/style tags are scattered anywhere in the tree
+            # (not conveniently top-level like a Vue SFC), so it gets its own
+            # branch and its own tree-walking logic (html_chunker.py).
+            chunks = chunk_html(tree.root_node, source_bytes, file_path)
+        elif spec.key in STRUCTURAL_LANGUAGES:
+            chunks = chunk_css(tree.root_node, source_bytes, file_path)
+        else:
+            query = _load_query(spec.key, spec.ts_language)
+            chunks = run_query(query, tree.root_node, source_bytes, file_path)
 
     return _cap_chunk_sizes(chunks)
 
