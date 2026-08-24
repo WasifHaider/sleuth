@@ -91,53 +91,49 @@ def upsert_chunks(
 
 
 def _user_row_to_dict(row) -> dict:
-    user_id, github_id, email, name, avatar_url, theme_preference, created_at = row
+    user_id, email, password_hash, name, theme_preference, created_at = row
     return {
         "id": str(user_id),
-        "github_id": github_id,
         "email": email,
+        "password_hash": password_hash,
         "name": name,
-        "avatar_url": avatar_url,
         "theme_preference": theme_preference,
         "created_at": created_at.isoformat(),
     }
 
 
-def get_or_create_user_by_github(
-    conn: psycopg.Connection, github_id: int, email: str | None, name: str | None, avatar_url: str | None
-) -> dict:
+class EmailAlreadyRegistered(Exception):
+    pass
+
+
+def create_user(conn: psycopg.Connection, email: str, password_hash: str, name: str | None) -> dict:
+    existing = conn.execute("SELECT id FROM users WHERE email = %s", (email,)).fetchone()
+    if existing is not None:
+        raise EmailAlreadyRegistered(email)
     row = conn.execute(
         """
-        INSERT INTO users (github_id, email, name, avatar_url)
-        VALUES (%s, %s, %s, %s)
-        ON CONFLICT (github_id) DO UPDATE SET
-            email = EXCLUDED.email,
-            name = EXCLUDED.name,
-            avatar_url = EXCLUDED.avatar_url
-        RETURNING id, github_id, email, name, avatar_url, theme_preference, created_at
+        INSERT INTO users (email, password_hash, name)
+        VALUES (%s, %s, %s)
+        RETURNING id, email, password_hash, name, theme_preference, created_at
         """,
-        (github_id, email, name, avatar_url),
+        (email, password_hash, name),
     ).fetchone()
     return _user_row_to_dict(row)
 
 
-def get_or_create_user_by_email(conn: psycopg.Connection, email: str) -> dict:
+def get_user_by_email(conn: psycopg.Connection, email: str) -> dict | None:
     row = conn.execute(
-        """
-        INSERT INTO users (email)
-        VALUES (%s)
-        ON CONFLICT (email) DO UPDATE SET email = EXCLUDED.email
-        RETURNING id, github_id, email, name, avatar_url, theme_preference, created_at
-        """,
+        "SELECT id, email, password_hash, name, theme_preference, created_at FROM users WHERE email = %s",
         (email,),
     ).fetchone()
+    if row is None:
+        return None
     return _user_row_to_dict(row)
 
 
 def get_user(conn: psycopg.Connection, user_id: str) -> dict | None:
     row = conn.execute(
-        "SELECT id, github_id, email, name, avatar_url, theme_preference, created_at "
-        "FROM users WHERE id = %s",
+        "SELECT id, email, password_hash, name, theme_preference, created_at FROM users WHERE id = %s",
         (user_id,),
     ).fetchone()
     if row is None:

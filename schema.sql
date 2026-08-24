@@ -35,10 +35,19 @@ CREATE INDEX IF NOT EXISTS chunks_embedding_idx
 
 CREATE TABLE IF NOT EXISTS users (
     id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    github_id       bigint UNIQUE,
     email           text UNIQUE,
+    password_hash   text,
     name            text,
-    avatar_url      text,
     theme_preference text NOT NULL DEFAULT 'storm',
     created_at      timestamptz NOT NULL DEFAULT now()
 );
+
+-- Auth switched from GitHub OAuth + email magic-link to email+password
+-- (2026-08-24 decision) before the OAuth/magic-link columns ever shipped to
+-- a real user — drop the now-dead GitHub-only columns from any DB that
+-- already applied the old schema. email/password_hash are left nullable at
+-- the column level (existing rows, if any, predate password_hash) but the
+-- signup path always sets both.
+ALTER TABLE users DROP COLUMN IF EXISTS github_id;
+ALTER TABLE users DROP COLUMN IF EXISTS avatar_url;
+ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash text;

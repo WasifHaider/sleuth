@@ -495,6 +495,59 @@ tests/test_api_auth.py::test_email_magic_link_round_trip PASSED
 99 passed, 8 skipped in 242.54s (full suite, against Supabase dev/test project)</div>
   </section>
 
+  <section class="task">
+    <div class="task-header">
+      <h2>Plan 2 — Task 1 — Store helper + repo endpoints (behind auth)</h2>
+    </div>
+    <p><em>Every route added from here on takes Task 0's <code>require_session</code> dependency — <code>/repos</code> is the first protected resource route.</em></p>
+
+    <h3>Files touched</h3>
+    <p><code>sleuth/api/routes/repos.py</code> (new), <code>sleuth/api/schemas.py</code> (added <code>RepoOut</code>, <code>AddRepoIn</code>), <code>sleuth/api/main.py</code> (registered the repos router), <code>tests/test_api_repos.py</code> (new). <code>sleuth/store.py::get_repo</code> already existed from Plan 1's pipeline work, so no change needed there beyond what Task 0 already relied on.</p>
+
+    <h3>What it does</h3>
+    <p><code>POST /repos</code> creates a <code>repos</code> row (<code>status='pending'</code>) and schedules the real <code>ingest_repo(...)</code> pipeline call as a FastAPI <code>BackgroundTasks</code> job on its own DB connection, then returns immediately. <code>GET /repos</code> lists all repos; <code>GET /repos/{id}</code> returns one (404 if missing). All three sit behind <code>require_session</code> via a router-level dependency, so an unauthenticated request gets 401 before touching the DB.</p>
+
+    <h3>Why it's built this way</h3>
+    <p><code>router = APIRouter(dependencies=[Depends(require_session)])</code> gates every route on this router in one place, rather than repeating <code>user=Depends(require_session)</code> on each handler — same effect, less repetition, and a new route added to this router can't accidentally forget the check. Indexing runs as a <code>BackgroundTasks</code> job on a fresh connection (not the request's own <code>request.state.conn</code>) because it must keep running after the response is sent and the request connection is closed by the <code>attach_conn</code> middleware — no queue/worker infra needed for a single-process local tool.</p>
+    <p><strong>Real bug caught by this task's own test:</strong> <code>sleuth/ingest/clone.py::clone_repo</code> shells out to <code>git clone</code> with no timeout. The plan's own test posts a fake <code>https://github.com/example/repo</code> URL — a real GitHub host, nonexistent repo — and Starlette's <code>TestClient</code> runs <code>BackgroundTasks</code> <em>synchronously</em> as part of handling the request (not truly backgrounded, since there's no real ASGI server loop under the test client). So the <code>git clone</code> subprocess actually ran, hit GitHub's credential prompt for a repo it can't see, and hung the test indefinitely instead of failing fast. Fixed by stubbing <code>ingest_repo</code> in that one test — this task is only about routing/wiring (pending → background task fires → terminal status), and real clone/embed behavior against real repos is already covered by <code>tests/test_pipeline.py</code>'s local-git-repo fixtures. The underlying <code>clone_repo</code> timeout gap is still real and worth a follow-up task, just out of scope here.</p>
+
+    <h3>Tests</h3>
+    <div class="test-result">tests/test_api_repos.py::test_add_repo_requires_session PASSED
+tests/test_api_repos.py::test_get_unknown_repo_returns_404 PASSED
+tests/test_api_repos.py::test_add_list_get_repo_round_trip PASSED
+
+110 passed (full suite, against Supabase dev/test project)</div>
+  </section>
+
+  <section class="task">
+    <div class="task-header">
+      <h2>Plan 2 — Task 0 (revised) — Auth switched to email+password</h2>
+    </div>
+    <p><em>Scope-narrowing decision, same day as Task 0's original build: drop GitHub OAuth + email magic link, replace with plain signup/login. Session cookie mechanism from the original Task 0 is untouched — only how a session gets created changed.</em></p>
+
+    <h3>Files touched</h3>
+    <p>Deleted: <code>sleuth/api/auth/github.py</code>, <code>sleuth/api/auth/email_link.py</code>. Modified: <code>sleuth/api/routes/auth.py</code> (rewritten: <code>POST /auth/signup</code>, <code>POST /auth/login</code>, <code>POST /auth/logout</code>, replacing the GitHub/magic-link routes), <code>sleuth/api/schemas.py</code> (<code>SignupIn</code>/<code>LoginIn</code> replace <code>EmailIn</code>; <code>UserOut</code> drops <code>github_id</code>/<code>avatar_url</code>), <code>sleuth/store.py</code> (<code>create_user</code>/<code>get_user_by_email</code> replace <code>get_or_create_user_by_github</code>/<code>get_or_create_user_by_email</code>), <code>sleuth/config.py</code> (removed <code>github_client_id/secret</code>, <code>smtp_*</code>, <code>frontend_url</code>), <code>schema.sql</code> (<code>users</code> drops <code>github_id</code>/<code>avatar_url</code> via <code>ALTER TABLE ... DROP COLUMN IF EXISTS</code>, adds <code>password_hash</code>), <code>requirements.txt</code> (+ <code>bcrypt</code>), <code>tests/test_api_auth.py</code> (rewritten), <code>tests/test_api_repos.py</code> (login helper updated to sign up instead of faking a GitHub callback), <code>tests/conftest.py</code> (<code>pg_conn</code> fixture now truncates <code>users</code> too, not just <code>repos</code> — see below).</p>
+
+    <h3>What it does</h3>
+    <p><code>POST /auth/signup</code> hashes the password with <code>bcrypt.hashpw</code>, inserts a <code>users</code> row (409 if the email's taken, 400 if the password's under 8 characters), sets the same signed session cookie as before, returns the user. <code>POST /auth/login</code> looks the user up by email and checks the password with <code>bcrypt.checkpw</code> — wrong email and wrong password both come back as a plain 401, no hint which one was wrong. <code>POST /auth/logout</code> is unchanged. <code>require_session</code>, <code>GET</code>/<code>PATCH /me</code>, and the whole "gate, not multi-tenancy" model are exactly as Task 0 built them.</p>
+
+    <h3>Why it's built this way</h3>
+    <p>Pure scope call: GitHub OAuth needs a registered OAuth App and TS/TSX-shaped setup ceremony; email magic link needs a working SMTP endpoint (SES or a local catcher) before login even works end to end. Neither is needed to prove out the rest of the web app (repos, indexing, chat), and this is still a single-expected-user tool — so the user chose to cut both in favor of the simplest thing that's still real auth: hashed passwords, not plaintext, not a fake login. <code>bcrypt</code> is the one new dependency, for the same reason <code>itsdangerous</code> was accepted in Task 0 — hand-rolling password hashing is a correctness *and* security risk, not just busywork, so it's an explicit exception to the project's no-vendor-library default rather than a quiet one.</p>
+    <p><strong>Real bug caught by this task's own tests:</strong> <code>tests/conftest.py</code>'s <code>pg_conn</code> fixture only ran <code>TRUNCATE repos CASCADE</code> between tests — it never touched <code>users</code>, because nothing in it has a foreign key back to <code>repos</code>. That was invisible under Task 0's GitHub/magic-link flows because both were upserts (<code>ON CONFLICT ... DO UPDATE</code>) — re-running with the same fake GitHub id or email just updated the same row forever. Signup's reject-on-duplicate semantics (a real signup form must refuse an already-registered email) exposed the gap immediately: running the full suite after running <code>test_api_auth.py</code> alone failed with a 409 the test didn't expect, because the earlier run's <code>new@example.com</code> row was still sitting in the shared Supabase dev/test database. Fixed by truncating <code>users</code> alongside <code>repos</code> in the fixture.</p>
+
+    <h3>Tests</h3>
+    <div class="test-result">tests/test_api_auth.py::test_me_requires_session PASSED
+tests/test_api_auth.py::test_signup_creates_user_and_sets_session PASSED
+tests/test_api_auth.py::test_signup_rejects_duplicate_email PASSED
+tests/test_api_auth.py::test_signup_rejects_short_password PASSED
+tests/test_api_auth.py::test_login_with_correct_password_sets_session PASSED
+tests/test_api_auth.py::test_login_with_wrong_password_rejected PASSED
+tests/test_api_auth.py::test_login_with_unknown_email_rejected PASSED
+tests/test_api_auth.py::test_logout_clears_session PASSED
+
+115 passed (full suite, against Supabase dev/test project)</div>
+  </section>
+
 </main>
 </body>
 </html>

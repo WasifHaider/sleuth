@@ -13,7 +13,7 @@ TEST_DATABASE_URL = os.environ.get(
 def pg_conn():
     conn = get_connection(TEST_DATABASE_URL)
     apply_schema(conn)
-    conn.execute("TRUNCATE repos CASCADE")
+    conn.execute("TRUNCATE repos, users CASCADE")
     conn.commit()
     yield conn
     conn.close()

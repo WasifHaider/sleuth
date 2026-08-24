@@ -22,3 +22,4 @@ respx>=0.21,<0.22
 fastapi>=0.115,<0.116
 uvicorn[standard]>=0.30,<0.31
 itsdangerous>=2.2,<2.3
+bcrypt>=4.2,<4.3

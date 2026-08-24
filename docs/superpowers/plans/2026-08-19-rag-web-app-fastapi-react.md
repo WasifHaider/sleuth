@@ -57,6 +57,21 @@ against AWS SES's SMTP interface for magic-link email delivery.
 
 ## Auth (added 2026-08-24, was previously explicitly out of scope)
 
+> **Superseded 2026-08-24 (later same day):** GitHub OAuth + email magic
+> link, as built in Task 0, was replaced with plain **email + password**
+> signup/login to avoid the GitHub OAuth App registration and SMTP setup
+> for what's still a single-expected-user tool — the user's own call,
+> prioritizing shipping speed over the login-method breadth. `bcrypt` for
+> password hashing (same "don't hand-roll crypto" exception already made
+> for `itsdangerous`). The section below is kept as-written for history;
+> read `users` table shape, `Config` fields, and `/auth/*` routes as
+> **historical**, not current — current shape: `users(id, email UNIQUE,
+> password_hash, name, theme_preference, created_at)`, no `github_id`/
+> `avatar_url`, no `smtp_*`/`github_client_*`/`frontend_url` Config fields.
+> Routes are `POST /auth/signup`, `POST /auth/login`, `POST /auth/logout`.
+> Session cookie mechanism (`itsdangerous`, `require_session`, gate-not-
+> multi-tenancy model) is **unchanged** by this.
+
 Two login methods, both shown on `Sleuth Login.dc.html`: **GitHub OAuth**
 (primary) and **email magic link** (fallback). GitLab/Bitbucket buttons in
 the design are dropped — GitHub only, per user decision.
