@@ -4,91 +4,150 @@
 >
 > **Project-specific override:** this repo's `CLAUDE.md` "Execution mode" section takes precedence over the sub-skill's default flow — work one full task at a time (not step-by-step with per-step confirmation), explain the concept after each task, log it to `docs/progress.html`, and wait for the user's "okay" before starting the next task. Git commits are done by the user, not Claude — the "Commit" step in each task below documents what *would* be committed; do not run it yourself unless asked.
 
-**Goal:** Expose the existing pipeline (ingest/retrieve/eval, all done in Plan 1)
-through a FastAPI backend and a React (Vite) app implementing the five-screen
-design already built in Claude Design (landing page + Repos/Indexing/Chat/Eval
-app screens) — add repo by URL, watch indexing progress live, chat against a
-ready repo with streamed answers and persisted history, review eval results.
+**Goal:** Expose the existing pipeline (ingest/retrieve, done in Plan 1)
+through a FastAPI backend and a React (Vite) app implementing the design
+built in Claude Design (landing page, GitHub+email login, connect-repo flow,
+dashboard, indexing status, chat, repo settings) — log in, add a repo by URL,
+watch indexing progress live, chat against a ready repo with streamed
+answers and persisted history. Eval stays CLI-only for this plan (see below).
 
-**Design source:** Claude Design project `SLEUTH chatbot design direction`
-(project id `bbe0f14c-4656-4fc8-9f02-dee2c0bdb312`), files `Sleuth.dc.html`,
-`Repos.dc.html`, `Indexing.dc.html`, `Chat.dc.html`, `Eval.dc.html`,
-`support.js`. Pulled in full via the `claude_design` MCP on 2026-08-19; exact
-palette/typography/copy/layout below is transcribed from those files, not
-reconstructed from memory.
+**Design source (revised 2026-08-24):** local Claude Design export
+`Sleuth code intelligence landing page.zip`, 9 files: `Sleuth Landing.dc.html`,
+`Sleuth Login.dc.html`, `Sleuth Connect Repo.dc.html`, `Sleuth Dashboard.dc.html`,
+`Sleuth Indexing Status.dc.html`, `Sleuth Chat.dc.html`, `Sleuth Repo Settings.dc.html`,
+plus two shared components reused via `dc-import` across the logged-in screens:
+`Sleuth Nav.dc.html` (mobile-responsive variant) and `Sleuth Rail.dc.html`
+(the one actually imported by Dashboard/Indexing/Chat/Settings).
+This **replaces** the 2026-08-19 design source and its 5-screen scope
+(Landing/Repos/Indexing/Chat/Eval, no auth) — superseded, do not build against
+the palette/screens described further down in old task bodies without
+cross-checking this section first.
 
 **Design doc:** `docs/superpowers/specs/2026-08-13-rag-code-chatbot-design-v2.md`
-(`api/main.py`, `web/` sections; Non-Goals: no prod hosting, no auth/multi-user).
+(`api/main.py`, `web/` sections) — its Non-Goal of "no auth/multi-user" is
+now superseded per the 2026-08-24 decision below; still no multi-user data
+separation (see Auth section).
 
 **Architecture:** `sleuth/api/` is a FastAPI app calling the same `sleuth/`
 modules the CLI already calls (`store.py`, `ingest/pipeline.py`,
-`retrieve/answer.py`, `eval/runner.py`) — no logic duplicated. Indexing runs
-as a FastAPI `BackgroundTasks` job (same process, no queue/worker infra).
-Chat answers stream to the browser via Server-Sent Events (SSE), reusing the
-existing token-generator from `retrieve/answer.py::stream_answer`. Three
-existing pipeline functions (`ingest_repo`, `VoyageEmbedder.embed_batch`,
+`retrieve/answer.py`) — no logic duplicated. Indexing runs as a FastAPI
+`BackgroundTasks` job (same process, no queue/worker infra). Chat answers
+stream to the browser via Server-Sent Events (SSE), reusing the existing
+token-generator from `retrieve/answer.py::stream_answer`. Three existing
+pipeline functions (`ingest_repo`, `VoyageEmbedder.embed_batch`,
 `stream_answer`) get one small additive change each: an optional callback
 parameter (default `None`, fully backward compatible with every existing call
 site and test) so the API layer can observe progress/sources without
 duplicating any pipeline logic. React talks to the API over plain `fetch` +
-`react-router-dom` for the five screens — no Redux/React Query, no
-TypeScript, kept simple since this is the user's first React project.
+`react-router-dom` — no Redux/React Query, no TypeScript, kept simple since
+this is the user's first React project.
 
 **Tech stack additions:** FastAPI, uvicorn, `httpx`'s `TestClient`
-(`fastapi.testclient`) for backend tests. React 18 + Vite, `react-router-dom`
-(one added dependency, for the five URL-addressable screens), plain `fetch` +
-`ReadableStream` for SSE consumption (`EventSource` can't send a POST body).
-IBM Plex Mono (Google Fonts) for labels/data/code, system sans-serif for
-prose — both already specified by the design files, loaded via a `<link>` in
-`index.html`.
+(`fastapi.testclient`) for backend tests. React 18 + Vite, `react-router-dom`,
+plain `fetch` + `ReadableStream` for SSE consumption (`EventSource` can't
+send a POST body). Fonts per the new design: `Big Shoulders Display` (headers,
+Type A only — see Design System), `Space Grotesk` (body/UI), `JetBrains Mono`
+(data/labels/code) — loaded via Google Fonts `<link>` in `index.html`.
+Auth additions: `authlib` (or a hand-rolled OAuth2 code-exchange via `httpx`
+— **decide in Task 0**, prefer hand-rolled per the project's no-vendor-SDK
+philosophy since GitHub's OAuth flow is a handful of REST calls, not a whole
+SDK's worth) for the GitHub OAuth code exchange, `itsdangerous` for signed
+session cookies, and an SMTP client (stdlib `smtplib`/`email`, no vendor SDK)
+against AWS SES's SMTP interface for magic-link email delivery.
 
-## Design System (transcribed from the `.dc.html` files)
+## Auth (added 2026-08-24, was previously explicitly out of scope)
 
-All values are exact `oklch()` strings taken from the design files' inline
-`<style>` blocks — implemented as CSS custom properties in
-`web/src/theme.css` (Task 6):
+Two login methods, both shown on `Sleuth Login.dc.html`: **GitHub OAuth**
+(primary) and **email magic link** (fallback). GitLab/Bitbucket buttons in
+the design are dropped — GitHub only, per user decision.
+
+- **GitHub OAuth App** (not Device Flow, not a pasted PAT): standard
+  authorization-code flow. Register a GitHub OAuth App (user does this
+  manually in GitHub settings, same pattern as the project's existing
+  "user sets up their own accounts/keys" convention for Voyage/Groq).
+  Callback exchanges `code` for an access token via a direct POST to
+  `https://github.com/login/oauth/access_token` (raw `httpx`, no SDK,
+  consistent with the rest of the project's Voyage/NIM/Groq calls) then
+  `GET https://api.github.com/user` for the profile (id, login, email,
+  avatar).
+- **Email magic link**: user submits an email, backend generates a
+  signed, time-limited token (`itsdangerous.URLSafeTimedSerializer`,
+  ~15 min expiry), emails a login link via SMTP. Dev/local: point at a
+  throwaway SMTP catcher (e.g. Mailpit/MailHog) or a real AWS SES SMTP
+  endpoint in sandbox mode. Prod (when the user deploys to AWS): AWS SES
+  SMTP credentials via `config.py`/env vars, same pattern as
+  `VOYAGE_API_KEY`/`GROQ_API_KEY`. New `Config` fields: `smtp_host`,
+  `smtp_port`, `smtp_username`, `smtp_password`, `smtp_from_address`.
+- **Sessions**: no per-user data separation is needed (single expected
+  user), so auth is a gate, not a multi-tenancy boundary — but it's still a
+  real login: a signed session cookie (`itsdangerous`, `httponly`,
+  `samesite=lax`) issued on successful GitHub callback or magic-link click,
+  validated by FastAPI middleware on every request. New `users` table
+  (`id, github_id NULLABLE, email NULLABLE UNIQUE, name, avatar_url,
+  created_at`) — one row is the expected common case, but the schema doesn't
+  hardcode a single-user assumption. No repo/chat rows gain a `user_id` FK
+  in this plan (per decision: gatekeeping only, not data separation) — that
+  is a clearly-flagged future task if multi-user is ever needed.
+- All `/repos`, `/chats`, `/eval`-style routes require a valid session;
+  unauthenticated requests get 401. `/auth/*` routes (github redirect,
+  github callback, magic-link request, magic-link verify, logout) are the
+  only unauthenticated routes besides static assets.
+- This becomes **Task 0** (before the old Task 1), since every other route
+  now sits behind it.
+
+## Design System (transcribed from the new `.dc.html` files)
+
+Theme is **not** a single hardcoded palette this time — the design ships 5
+color themes (Storm/Midnight/Ivory/Leaf/Edition) via a `data-theme` attribute
+and CSS custom properties per theme. Per user decision 2026-08-24, the color
+theme switcher **is a real shipped feature** (persisted per user, stored on
+the `users` row as `theme_preference`, defaulting to `storm`) — unlike the
+old design's accent-color-picker, which stayed an authoring-only control.
+The **Type A/B font toggle is not shipped** — hardcode Type A
+(`Big Shoulders Display` headers / `Space Grotesk` body) only; drop the
+`data-type="b"` CSS branch (`Alfa Slab One`/`Sacramento`) entirely from the
+ported components.
+
+Reference palette (`storm`, the default) as CSS custom properties for
+`web/src/theme.css`:
 
 ```css
---bg: oklch(0.17 0.014 250);              /* page background */
---panel: oklch(0.14 0.012 250);           /* cards, sidebar, icon rail, nav */
---panel-alt: oklch(0.155 0.012 250);      /* browser-chrome header strips */
---text: oklch(0.95 0.006 250);            /* primary text */
---text-secondary: oklch(0.75 0.01 250);
---text-muted: oklch(0.6 0.012 250);
---text-faint: oklch(0.55 0.01 250);
---border: oklch(1 0 0 / 0.07);
---border-strong: oklch(1 0 0 / 0.14);
---accent: oklch(0.62 0.10 148);           /* brand green, ~#4FA377 */
---accent-hover: oklch(0.68 0.10 148);
---accent-wash: oklch(0.62 0.10 148 / 0.14);
---accent-on: oklch(0.15 0.02 148);        /* text on accent-filled buttons */
---status-ready: oklch(0.75 0.16 150);     /* separate, warmer/brighter semantic green */
---status-ready-wash: oklch(0.72 0.16 150 / 0.14);
---status-neutral: oklch(0.65 0.01 250);   /* failed/inactive pills */
---status-neutral-wash: oklch(0.6 0.01 250 / 0.14);
---compare-secondary: oklch(0.72 0.19 275); /* violet — second embedding-model bar in Eval */
---font-mono: 'IBM Plex Mono', monospace;
---font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+[data-theme] {
+  --bg:#0F372F; --deep:#0A2621; --surface:#143F36; --text:#F2F5F2;
+  --muted:rgba(242,245,242,0.58); --faint:rgba(242,245,242,0.30);
+  --accent:#ECBC6B; --on-accent:#0F372F;
+  --line:rgba(242,245,242,0.13); --line-strong:rgba(242,245,242,0.26);
+  --glow:rgba(236,188,107,0.16);
+  --warn:#C89B6A; --warn-bg:rgba(200,155,106,0.14); --warn-border:rgba(200,155,106,0.42);
+  --font-head:'Big Shoulders Display',sans-serif;
+  --font-body:'Space Grotesk',system-ui,sans-serif;
+  --font-mono:'JetBrains Mono',monospace;
+}
 ```
 
-Dark-only (the design commits to one look; no light-mode variant exists in
-the source files). Icon rail is a fixed 72px column, shared verbatim across
-Repos/Indexing/Chat/Eval (logo link to `/`, then Repos/Indexing/Chat/Eval
-icons, active route gets `background: var(--accent-wash)` on a 40×40 9px
-rounded box).
+The other 4 themes (`midnight`/`ivory`/`leaf`/`edition`) are the same
+variable set with different values — copy verbatim from the `[data-theme=...]`
+blocks in any of the 9 `.dc.html` files (they're duplicated identically
+across all of them). `ivory`/`leaf` are light themes; the rest are dark.
 
-The Chat screen's "Accent Color" swatch picker (`data-props` on the `.dc.html`
-file) is a Claude Design authoring control, not a shipped feature — per user
-decision 2026-08-19, the real app always uses `--accent` above, no in-app
-color picker.
+Two reusable nav components exist in the source and do the same job —
+**use `Sleuth Rail.dc.html`** as the ported `NavRail.jsx`/`AppShell.jsx`
+basis (it's the one actually wired via `dc-import` into
+Dashboard/Indexing/Chat/Settings; `Sleuth Nav.dc.html` looks like an earlier
+standalone draft of the same rail and is not imported anywhere — skip it).
+The rail is collapsible (272px ↔ 72px), holds the repo switcher, nav items
+(Chat/Repos/Indexing status/Settings — GH-only means the repo-switcher's
+provider abbreviation badge always reads "GH", so simplify or drop that
+badge rather than keeping a dead multi-provider affordance), recent-chat
+history (chat page only), and the account menu (theme switcher + log out).
 
 ## Global Constraints
 
 - No new pipeline *business* logic. `sleuth/api/` only calls existing
-  `store.py`, `ingest/pipeline.py::ingest_repo`, `retrieve/answer.py::stream_answer`,
-  `eval/runner.py::run_eval`. The three optional instrumentation callbacks
-  added in Tasks 2/4/5 are additive (default `None`, no behavior change for
-  any existing caller) — not new pipeline logic, just observability hooks.
+  `store.py`, `ingest/pipeline.py::ingest_repo`, `retrieve/answer.py::stream_answer`.
+  The instrumentation callbacks added in Tasks 2/4 are additive (default
+  `None`, no behavior change for any existing caller) — not new pipeline
+  logic, just observability hooks.
 - Indexing progress is kept in an in-process dict (`sleuth/api/progress_store.py`),
   not persisted — resets on backend restart. Acceptable for a local dev tool
   (per design doc Non-Goals: no prod hosting); avoids a queue/worker or a new
@@ -96,35 +155,30 @@ color picker.
 - Chat history **is** persisted (`chats`/`messages` tables, Task 3) — decided
   2026-08-19 in favor of surviving page reload, over the simpler ephemeral
   client-state option.
-- Eval runs are persisted (`eval_runs` table, Task 5) so the Eval screen shows
-  real history, not fixture data.
-- The Eval screen's provider-comparison bar chart renders one bar per
-  embedding model that has completed eval runs for the repo. Today that's
-  Voyage only (Plan 1 scope note: no NIM embedder was built) — so it renders
-  a single bar per metric. The component takes a list, not two fixed slots,
-  so a second (violet) bar appears automatically if NIM embedding is ever
-  added — no rework needed later. Decided 2026-08-19.
+- **Eval stays CLI-only for this plan** (decided 2026-08-24) — no `/eval`
+  routes, no Eval screen, no `eval_runs` persistence in the web app. The
+  existing `sleuth eval` CLI command and `sleuth/eval/runner.py` are
+  untouched. Revisit as its own task if a web Eval screen is wanted later.
 - Indexing screen shows **elapsed time**, not the design mockup's fabricated
   "ETA" — there's no reliable way to estimate remaining time from current
   pipeline signals, and inventing one would just be a fake number with a
   precise-looking label. Decided 2026-08-19.
-- The `hit-rate@5` label in `Eval.dc.html` is a design placeholder; the real
-  eval harness uses `TOP_K = 8` (`sleuth/eval/runner.py`). The Eval screen
-  must read the real top-k value from the eval run's stored result, not
-  hardcode `@5`.
 - A chat request against a repo whose `status != 'ready'` is rejected with a
   clear 409, never run against a partial/absent index.
-- CORS enabled for the Vite dev server origin only (`http://localhost:5173`).
-- No auth — single-user local app.
+- CORS enabled for the Vite dev server origin only (`http://localhost:5173`),
+  `allow_credentials=True` (needed for the session cookie).
+- **Auth is real** (see Auth section above) — gatekeeping login via GitHub
+  OAuth or email magic link, signed session cookie, no per-user data
+  separation (single expected user, schema allows more later).
 - No global state library (Redux/Zustand/React Query) and no TypeScript —
   plain `useState`/`useEffect` + `fetch`. `react-router-dom` is the one
   added frontend dependency (routing, not state management).
 - Every backend endpoint gets a test using FastAPI's `TestClient` against the
   real test Postgres (existing `tests/conftest.py::pg_conn` fixture), not
-  mocked DB calls. External HTTP (Voyage/Groq) is mocked at the transport
-  level with `respx`, exactly as `tests/test_answer.py` and
-  `tests/test_eval_runner.py` already do — not by mocking `Generator`/`Embedder`
-  objects.
+  mocked DB calls. External HTTP (Voyage/Groq/GitHub OAuth) is mocked at the
+  transport level with `respx`, exactly as `tests/test_answer.py` already
+  does — not by mocking client objects. SMTP sending is mocked by monkeypatching
+  the send function, not by hitting a real mail server in tests.
 
 ---
 
@@ -134,27 +188,31 @@ color picker.
 sleuth/
   api/
     __init__.py
-    main.py                # FastAPI() app, CORS, router includes
+    main.py                # FastAPI() app, CORS, router includes, auth middleware
     schemas.py              # Pydantic request/response models
     progress_store.py       # in-memory per-repo indexing progress
+    auth/
+      __init__.py
+      session.py             # itsdangerous sign/verify, cookie helpers, require_session dep
+      github.py               # OAuth code-exchange + profile fetch (raw httpx)
+      email_link.py            # magic-link token generation/verification + SMTP send
     routes/
       __init__.py
+      auth.py                 # GET /auth/github, GET /auth/github/callback, POST /auth/email, GET /auth/email/verify, POST /auth/logout
       repos.py               # POST/GET /repos, GET /repos/{id}, GET /repos/{id}/progress
       chat.py                 # POST /chats, GET /chats, GET /chats/{id}/messages, POST /chat (SSE)
-      eval.py                 # POST /eval, GET /eval/{id}, GET /eval
+      users.py                 # GET /me, PATCH /me (theme_preference)
 sleuth/ingest/pipeline.py   # modify: ingest_repo(..., on_event=None)
 sleuth/ingest/embed.py      # modify: embed_batch(..., on_batch_done=None)
 sleuth/retrieve/answer.py   # modify: stream_answer(..., on_sources=None)
-sleuth/eval/runner.py       # modify: run_eval returns EvalSummary; format_table(summary) added
-sleuth/store.py             # add: get_repo, chat/message CRUD, eval_run CRUD
-sleuth/cli.py                # update eval command for EvalSummary
-schema.sql                   # add: chats, messages, eval_runs tables
-requirements.txt             # + fastapi, uvicorn[standard]
+sleuth/store.py             # add: get_repo, chat/message CRUD, user CRUD
+schema.sql                   # add: users, chats, messages tables
+requirements.txt             # + fastapi, uvicorn[standard], itsdangerous
 tests/
+  test_api_auth.py
   test_api_repos.py
   test_api_chat.py
-  test_api_eval.py
-  (test_pipeline.py, test_embed.py, test_answer.py, test_eval_runner.py — extended, not replaced)
+  (test_pipeline.py, test_embed.py, test_answer.py — extended, not replaced)
 
 web/                      # new Vite React project
   package.json
@@ -163,13 +221,15 @@ web/                      # new Vite React project
   .env.example             # VITE_API_URL
   src/
     main.jsx
-    App.jsx                 # react-router-dom routes
-    theme.css                # design tokens (see Design System above)
-    api.js                    # fetch wrappers
+    App.jsx                 # react-router-dom routes, RequireAuth wrapper
+    theme.css                # design tokens, all 5 themes (see Design System above)
+    api.js                    # fetch wrappers (credentials:'include' for session cookie)
     components/
-      NavRail.jsx
-      AppShell.jsx             # icon rail + <Outlet/>, shared by Repos/Indexing/Chat/Eval
+      NavRail.jsx              # ported from Sleuth Rail.dc.html
+      AppShell.jsx             # rail + <Outlet/>, shared by Dashboard/Indexing/Chat/Settings
       LandingPage.jsx
+      LoginPage.jsx             # GitHub button + email form, ported from Sleuth Login.dc.html
+      ConnectRepoScreen.jsx      # ported from Sleuth Connect Repo.dc.html (GitHub-only)
       RepoList.jsx
       AddRepoForm.jsx
       RepoStatusBadge.jsx
@@ -178,13 +238,213 @@ web/                      # new Vite React project
       ChatSidebar.jsx
       MessageList.jsx
       Composer.jsx
-      EvalScreen.jsx
-      EvalBarChart.jsx
+      RepoSettingsScreen.jsx
+      ThemeSwitcher.jsx
 ```
 
 ---
 
-## Task 1: Store helper + FastAPI scaffolding + repo endpoints
+## Task 0: Auth — users table, session cookies, GitHub OAuth, email magic link
+
+**Files:**
+- Create: `sleuth/api/__init__.py`, `sleuth/api/main.py`, `sleuth/api/schemas.py`,
+  `sleuth/api/auth/__init__.py`, `sleuth/api/auth/session.py`,
+  `sleuth/api/auth/github.py`, `sleuth/api/auth/email_link.py`,
+  `sleuth/api/routes/__init__.py`, `sleuth/api/routes/auth.py`,
+  `sleuth/api/routes/users.py`
+- Modify: `schema.sql` (add `users` table), `sleuth/store.py` (add user CRUD),
+  `sleuth/config.py` (add `github_client_id`, `github_client_secret`,
+  `session_secret`, `smtp_host`, `smtp_port`, `smtp_username`, `smtp_password`,
+  `smtp_from_address`), `requirements.txt` (+ `fastapi`, `uvicorn[standard]`,
+  `itsdangerous`)
+- Test: `tests/test_api_auth.py`
+
+**Interfaces:**
+- Produces: `sleuth.store.get_or_create_user_by_github(conn, github_id, email, name, avatar_url) -> dict`,
+  `sleuth.store.get_or_create_user_by_email(conn, email) -> dict`,
+  `sleuth.store.get_user(conn, user_id) -> dict | None`,
+  `sleuth.store.set_user_theme(conn, user_id, theme) -> None`.
+  `sleuth.api.auth.session.create_session_cookie(user_id) -> str`,
+  `sleuth.api.auth.session.read_session_cookie(cookie_value) -> str | None` (returns
+  user_id or None if missing/expired/tampered), FastAPI dependency
+  `require_session(request) -> dict` (raises 401, used by every protected route
+  in later tasks). `sleuth.api.auth.github.build_authorize_url(state) -> str`,
+  `sleuth.api.auth.github.exchange_code(code) -> dict` (raw `httpx` POST to
+  `github.com/login/oauth/access_token` + `GET api.github.com/user`).
+  `sleuth.api.auth.email_link.send_magic_link(email, base_url) -> None`,
+  `sleuth.api.auth.email_link.verify_magic_link_token(token) -> str | None`
+  (returns email or None). Routes: `GET /auth/github`, `GET /auth/github/callback`,
+  `POST /auth/email`, `GET /auth/email/verify`, `POST /auth/logout`, `GET /me`,
+  `PATCH /me`.
+
+- [ ] **Step 1: Write the failing tests**
+
+```python
+# tests/test_api_auth.py
+import httpx
+import respx
+from fastapi.testclient import TestClient
+
+from sleuth.api.main import create_app
+from sleuth.config import Config
+from tests.conftest import TEST_DATABASE_URL
+
+
+def _config():
+    return Config(
+        voyage_api_key="k", groq_api_key="k", groq_model="m",
+        database_url=TEST_DATABASE_URL,
+        github_client_id="gh_id", github_client_secret="gh_secret",
+        session_secret="test-secret-not-for-prod",
+        smtp_host="localhost", smtp_port=1025, smtp_username="u",
+        smtp_password="p", smtp_from_address="noreply@example.com",
+    )
+
+
+def test_me_requires_session(pg_conn):
+    client = TestClient(create_app(_config()))
+    resp = client.get("/me")
+    assert resp.status_code == 401
+
+
+@respx.mock
+def test_github_callback_creates_user_and_sets_session(pg_conn):
+    respx.post("https://github.com/login/oauth/access_token").mock(
+        return_value=httpx.Response(200, json={"access_token": "gh_token"})
+    )
+    respx.get("https://api.github.com/user").mock(
+        return_value=httpx.Response(200, json={
+            "id": 12345, "login": "octocat", "name": "The Octocat",
+            "email": "octocat@example.com", "avatar_url": "https://avatars/o.png",
+        })
+    )
+    client = TestClient(create_app(_config()))
+    resp = client.get("/auth/github/callback", params={"code": "abc", "state": "xyz"})
+    assert resp.status_code in (302, 307)
+    me = client.get("/me")
+    assert me.status_code == 200
+    assert me.json()["name"] == "The Octocat"
+
+
+def test_email_magic_link_round_trip(pg_conn, monkeypatch):
+    sent = {}
+    def fake_send(email, base_url):
+        sent["email"] = email
+        sent["base_url"] = base_url
+    monkeypatch.setattr("sleuth.api.auth.email_link.send_magic_link", fake_send)
+
+    client = TestClient(create_app(_config()))
+    resp = client.post("/auth/email", json={"email": "person@example.com"})
+    assert resp.status_code == 200
+    assert sent["email"] == "person@example.com"
+
+    from sleuth.api.auth.email_link import _serializer  # test-only reach-in to mint a token
+    token = _serializer(client.app.state.config).dumps("person@example.com")
+    verify = client.get("/auth/email/verify", params={"token": token})
+    assert verify.status_code in (302, 307)
+    me = client.get("/me")
+    assert me.status_code == 200
+    assert me.json()["email"] == "person@example.com"
+```
+
+- [ ] **Step 2: Run to verify it fails**
+
+Run: `pytest tests/test_api_auth.py -v`
+Expected: FAIL — nothing under `sleuth/api/` exists yet.
+
+- [ ] **Step 3: Add `users` table to `schema.sql`**
+
+```sql
+CREATE TABLE IF NOT EXISTS users (
+    id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    github_id       bigint UNIQUE,
+    email           text UNIQUE,
+    name            text,
+    avatar_url      text,
+    theme_preference text NOT NULL DEFAULT 'storm',
+    created_at      timestamptz NOT NULL DEFAULT now()
+);
+```
+
+- [ ] **Step 4: Add user CRUD to `sleuth/store.py`, config fields to `sleuth/config.py`**
+
+Straightforward `INSERT ... ON CONFLICT DO UPDATE` upserts keyed on
+`github_id` / `email` respectively — same raw-SQL style as `create_repo`.
+Config fields are plain dataclass fields with `os.environ` fallbacks, same
+pattern as the existing `voyage_api_key`/`groq_api_key`.
+
+- [ ] **Step 5: Write `sleuth/api/auth/session.py`**
+
+`itsdangerous.URLSafeTimedSerializer(config.session_secret)` wraps a
+`{"user_id": ...}` payload into a signed cookie value, ~30 day max_age on
+read. `require_session` is a FastAPI dependency: reads the `sleuth_session`
+cookie, verifies it, loads the user via `store.get_user`, raises
+`HTTPException(401)` on anything missing/invalid/expired, else returns the
+user dict on `request.state`.
+
+- [ ] **Step 6: Write `sleuth/api/auth/github.py`**
+
+`build_authorize_url(state)` builds the `github.com/login/oauth/authorize`
+URL with `client_id`, `redirect_uri`, `scope=read:user user:email`, `state`
+(CSRF token, stored in a short-lived signed cookie, checked on callback).
+`exchange_code(code, config)` does the two raw `httpx` calls described above
+and returns the normalized profile dict.
+
+- [ ] **Step 7: Write `sleuth/api/auth/email_link.py`**
+
+`send_magic_link(email, base_url, config)` mints a signed token via
+`itsdangerous.URLSafeTimedSerializer(config.session_secret, salt="magic-link")`,
+builds `{base_url}/auth/email/verify?token=...`, sends via `smtplib.SMTP`
+against `config.smtp_host`/`smtp_port` with STARTTLS + login (AWS SES SMTP
+credentials in prod, a local Mailpit/MailHog catcher in dev — same env-var
+switch as everything else in `config.py`). `verify_magic_link_token(token,
+config, max_age=900)` decodes and returns the email, or `None` on
+expiry/tamper.
+
+- [ ] **Step 8: Write `sleuth/api/routes/auth.py`, `sleuth/api/routes/users.py`**
+
+`GET /auth/github` redirects to `build_authorize_url`. `GET /auth/github/callback`
+validates `state`, calls `exchange_code`, upserts the user via
+`store.get_or_create_user_by_github`, sets the session cookie, redirects to
+the frontend's post-login route (`{FRONTEND_URL}/repos` or similar — new
+`Config.frontend_url` field). `POST /auth/email` body `{email}`, calls
+`send_magic_link`, always returns 200 (don't leak whether an email exists —
+not that it matters much for a personal tool, but it's the correct shape).
+`GET /auth/email/verify?token=...` verifies, upserts via
+`store.get_or_create_user_by_email`, sets session cookie, redirects.
+`POST /auth/logout` clears the cookie. `GET /me` returns the current user
+(via `require_session`). `PATCH /me` body `{theme_preference}` calls
+`store.set_user_theme`.
+
+- [ ] **Step 9: Write `sleuth/api/main.py`**
+
+`create_app(config)` wires `CORSMiddleware` (`allow_credentials=True`,
+origin `http://localhost:5173`), includes the `auth` and `users` routers
+(unprotected), stores `config` on `app.state`, and — same
+`get_connection`/`apply_schema`-per-request middleware pattern as the old
+Task 1 draft below, kept as-is since it already works and every later task's
+routes build on it.
+
+- [ ] **Step 10: Run to verify it passes**
+
+Run: `pytest tests/test_api_auth.py -v`
+Expected: PASS
+
+- [ ] **Step 11: Commit**
+
+```bash
+git add schema.sql sleuth/store.py sleuth/config.py sleuth/api requirements.txt tests/test_api_auth.py
+git commit -m "feat: add GitHub OAuth + email magic-link auth"
+```
+
+---
+
+## Task 1: Store helper + repo endpoints (behind auth)
+
+> Everything below inherits Task 0's `require_session` dependency — every
+> route added from here on takes `user=Depends(require_session)` (or the
+> project's equivalent pattern) unless explicitly noted otherwise. The route
+> bodies/tests below are otherwise unchanged from the original draft.
 
 **Files:**
 - Modify: `sleuth/store.py` (add `get_repo`)
@@ -1113,378 +1373,17 @@ git commit -m "feat: add SSE chat endpoint with source citations and persistence
 
 ---
 
-## Task 5: Eval persistence schema + eval endpoints
-
-**Files:**
-- Modify: `schema.sql` (add `eval_runs` table)
-- Modify: `sleuth/eval/runner.py` (`run_eval` returns `EvalSummary`; add `format_table`)
-- Modify: `sleuth/cli.py` (update `eval` command for the new return type)
-- Modify: `tests/test_eval_runner.py` (update assertions for `EvalSummary`)
-- Modify: `sleuth/store.py` (add eval_run CRUD)
-- Modify: `sleuth/api/schemas.py` (add `EvalRunOut`, `TriggerEvalIn`)
-- Create: `sleuth/api/routes/eval.py`
-- Modify: `sleuth/api/main.py` (include router)
-- Test: `tests/test_api_eval.py`
-
-**Interfaces:**
-- Consumes: Task 1's `get_repo` pattern.
-- Produces: `sleuth.eval.runner.EvalSummary` (fields `hit_rate: float, mrr: float, avg_judge: float | None, results: list[CaseResult]`), `sleuth.eval.runner.format_table(summary) -> str`, `store.create_eval_run(conn, repo_id, golden_yaml_path) -> str`, `store.update_eval_run_result(conn, eval_run_id, *, status, embedding_model=None, hit_rate=None, mrr=None, avg_judge=None, error_message=None) -> None`, `store.get_eval_run(conn, eval_run_id) -> dict | None`, `store.list_eval_runs(conn, repo_id) -> list[dict]`. Routes `POST /eval`, `GET /eval/{id}`, `GET /eval?repo_id=` — consumed by Task 11 (Eval screen).
-
-- [ ] **Step 1: Write the failing tests**
-
-Update `tests/test_eval_runner.py`'s existing assertion (the only breaking change in this task):
-
-```python
-    summary = await run_eval(str(golden_path), pg_conn, config)
-
-    assert summary.hit_rate == 1.0
-    assert summary.mrr == 1.0
-    assert summary.avg_judge == 5.0
-    table = format_table(summary)
-    assert "hit-rate@8: 1.00" in table
-```
-
-And update the import line: `from sleuth.eval.runner import format_table, load_golden, run_eval`.
-
-```python
-# tests/test_api_eval.py
-import httpx
-import respx
-from fastapi.testclient import TestClient
-
-from sleuth.api.main import create_app
-from sleuth.chunking import Chunk
-from sleuth.config import Config
-from sleuth.store import create_repo, update_repo_status, upsert_chunks
-from tests.conftest import TEST_DATABASE_URL
-
-GOLDEN_YAML = """
-repo: {repo_id}
-cases:
-  - question: "Where is foo defined?"
-    expected_files: ["f.py"]
-    expected_symbols: ["foo"]
-    reference_answer: "foo is defined in f.py."
-"""
-
-
-def _client():
-    config = Config(voyage_api_key="k", groq_api_key="k", groq_model="m", database_url=TEST_DATABASE_URL)
-    return TestClient(create_app(config))
-
-
-@respx.mock
-def test_trigger_and_poll_eval_run(pg_conn, tmp_path):
-    repo_id = create_repo(pg_conn, "https://github.com/example/repo")
-    update_repo_status(pg_conn, repo_id, "ready")
-    upsert_chunks(
-        pg_conn, repo_id,
-        [(Chunk("f.py", "foo", "function", 1, 2, "def foo():\n    return 1\n"), [0.1] * 1024)],
-    )
-    pg_conn.commit()
-
-    golden_path = tmp_path / "golden.yaml"
-    golden_path.write_text(GOLDEN_YAML.format(repo_id=repo_id))
-
-    respx.post("https://api.voyageai.com/v1/embeddings").mock(
-        return_value=httpx.Response(200, json={"data": [{"embedding": [0.1] * 1024, "index": 0}]})
-    )
-    respx.post("https://api.groq.com/openai/v1/chat/completions").mock(
-        return_value=httpx.Response(200, json={"choices": [{"message": {"content": "5"}}]})
-    )
-
-    client = _client()
-    created = client.post("/eval", json={"repo_id": repo_id, "golden_yaml_path": str(golden_path)}).json()
-    assert created["status"] == "running"
-
-    import time
-    for _ in range(50):
-        got = client.get(f"/eval/{created['id']}").json()
-        if got["status"] in ("complete", "failed"):
-            break
-        time.sleep(0.1)
-
-    assert got["status"] == "complete"
-    assert got["hit_rate"] == 1.0
-
-    listed = client.get(f"/eval?repo_id={repo_id}").json()
-    assert listed[0]["id"] == created["id"]
-```
-
-- [ ] **Step 2: Run to verify it fails**
-
-Run: `pytest tests/test_eval_runner.py tests/test_api_eval.py -v`
-Expected: FAIL
-
-- [ ] **Step 3: Refactor `sleuth/eval/runner.py`**
-
-```python
-@dataclass
-class EvalSummary:
-    hit_rate: float
-    mrr: float
-    avg_judge: float | None
-    results: list[CaseResult]
-
-
-async def run_eval(golden_yaml_path: str, conn, config: Config) -> EvalSummary:
-    repo_id, cases = load_golden(golden_yaml_path)
-    row = conn.execute("SELECT id FROM repos WHERE id = %s", (repo_id,)).fetchone()
-    if row is None:
-        raise ValueError(f"Repo {repo_id} not found")
-
-    embedder = VoyageEmbedder(api_key=config.voyage_api_key)
-    chain = get_fallback_chain(config)
-    judge = get_generator(config)
-
-    results: list[CaseResult] = []
-    for case in cases:
-        query_vector = (await embedder.embed_batch([case.question]))[0]
-        search_results = search_chunks(conn, repo_id, query_vector, top_k=TOP_K)
-        hit, rr = _hit_and_rank(search_results, case)
-
-        prompt = build_prompt(case.question, search_results)
-        answer = "".join(
-            [t async for t in chat_with_fallback(chain, [{"role": "user", "content": prompt}], stream=False)]
-        )
-
-        judge_score = None
-        if case.reference_answer:
-            judge_text = "".join(
-                [
-                    t async for t in judge.chat(
-                        [{"role": "user", "content": JUDGE_PROMPT.format(reference=case.reference_answer, produced=answer)}],
-                        stream=False,
-                    )
-                ]
-            )
-            judge_score = _parse_judge_score(judge_text)
-
-        results.append(CaseResult(case.question, hit, rr, judge_score, answer))
-
-    return _summarize(results)
-
-
-def _summarize(results: list[CaseResult]) -> EvalSummary:
-    if not results:
-        return EvalSummary(0.0, 0.0, None, [])
-    hit_rate = sum(1 for r in results if r.hit) / len(results)
-    mrr = sum(r.reciprocal_rank for r in results) / len(results)
-    scored = [r.judge_score for r in results if r.judge_score is not None]
-    avg_judge = sum(scored) / len(scored) if scored else None
-    return EvalSummary(hit_rate, mrr, avg_judge, results)
-
-
-def format_table(summary: EvalSummary) -> str:
-    if not summary.results:
-        return "No cases to evaluate."
-    lines = [f"{'question':50s}  {'hit':5s}  {'rr':5s}  {'judge':5s}"]
-    for r in summary.results:
-        judge_str = str(r.judge_score) if r.judge_score is not None else "-"
-        lines.append(f"{r.question[:50]:50s}  {str(r.hit):5s}  {r.reciprocal_rank:.2f}  {judge_str:5s}")
-    lines.append("")
-    avg_judge_str = summary.avg_judge if summary.avg_judge is not None else "n/a"
-    lines.append(f"hit-rate@{TOP_K}: {summary.hit_rate:.2f}   MRR: {summary.mrr:.2f}   avg judge: {avg_judge_str}")
-    return "\n".join(lines)
-```
-
-Remove the old `_format_table` function (replaced by the two functions above).
-
-- [ ] **Step 4: Update `sleuth/cli.py`**
-
-```python
-from sleuth.eval.runner import format_table, run_eval
-...
-        elif args.command == "eval":
-            summary = await run_eval(args.golden_yaml_path, conn, config)
-            print(format_table(summary))
-```
-
-- [ ] **Step 5: Add schema table**
-
-Append to `schema.sql`:
-
-```sql
-CREATE TABLE IF NOT EXISTS eval_runs (
-    id               uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-    repo_id          uuid NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
-    golden_yaml_path text NOT NULL,
-    status           text NOT NULL DEFAULT 'running',
-    embedding_model  text,
-    hit_rate         double precision,
-    mrr              double precision,
-    avg_judge        double precision,
-    error_message    text,
-    created_at       timestamptz NOT NULL DEFAULT now(),
-    completed_at     timestamptz
-);
-```
-
-- [ ] **Step 6: Add CRUD to `sleuth/store.py`**
-
-```python
-def create_eval_run(conn: psycopg.Connection, repo_id: str, golden_yaml_path: str) -> str:
-    row = conn.execute(
-        "INSERT INTO eval_runs (repo_id, golden_yaml_path) VALUES (%s, %s) RETURNING id",
-        (repo_id, golden_yaml_path),
-    ).fetchone()
-    return str(row[0])
-
-
-def update_eval_run_result(
-    conn: psycopg.Connection, eval_run_id: str, *, status: str, embedding_model: str | None = None,
-    hit_rate: float | None = None, mrr: float | None = None, avg_judge: float | None = None,
-    error_message: str | None = None,
-) -> None:
-    conn.execute(
-        """
-        UPDATE eval_runs
-        SET status = %s, embedding_model = %s, hit_rate = %s, mrr = %s, avg_judge = %s,
-            error_message = %s, completed_at = now()
-        WHERE id = %s
-        """,
-        (status, embedding_model, hit_rate, mrr, avg_judge, error_message, eval_run_id),
-    )
-
-
-def get_eval_run(conn: psycopg.Connection, eval_run_id: str) -> dict | None:
-    row = conn.execute(
-        "SELECT id, repo_id, golden_yaml_path, status, embedding_model, hit_rate, mrr, avg_judge, "
-        "error_message, created_at, completed_at FROM eval_runs WHERE id = %s",
-        (eval_run_id,),
-    ).fetchone()
-    if row is None:
-        return None
-    keys = ["id", "repo_id", "golden_yaml_path", "status", "embedding_model", "hit_rate", "mrr",
-            "avg_judge", "error_message", "created_at", "completed_at"]
-    values = [str(row[0]), str(row[1]), row[2], row[3], row[4], row[5], row[6], row[7], row[8],
-              row[9].isoformat(), row[10].isoformat() if row[10] else None]
-    return dict(zip(keys, values))
-
-
-def list_eval_runs(conn: psycopg.Connection, repo_id: str) -> list[dict]:
-    rows = conn.execute("SELECT id FROM eval_runs WHERE repo_id = %s ORDER BY created_at DESC", (repo_id,)).fetchall()
-    return [get_eval_run(conn, str(row[0])) for row in rows]
-```
-
-- [ ] **Step 7: Add schemas**
-
-Append to `sleuth/api/schemas.py`:
-
-```python
-class TriggerEvalIn(BaseModel):
-    repo_id: str
-    golden_yaml_path: str
-
-
-class EvalRunOut(BaseModel):
-    id: str
-    repo_id: str
-    golden_yaml_path: str
-    status: str
-    embedding_model: str | None = None
-    hit_rate: float | None = None
-    mrr: float | None = None
-    avg_judge: float | None = None
-    error_message: str | None = None
-    created_at: str
-    completed_at: str | None = None
-```
-
-- [ ] **Step 8: Write `sleuth/api/routes/eval.py`**
-
-```python
-from fastapi import APIRouter, BackgroundTasks, HTTPException, Request
-
-from sleuth.api.schemas import EvalRunOut, TriggerEvalIn
-from sleuth.db import get_connection
-from sleuth.eval.runner import run_eval
-from sleuth.store import create_eval_run, get_eval_run, get_repo, list_eval_runs, update_eval_run_result
-
-router = APIRouter()
-
-
-async def _run_eval_job(eval_run_id: str, golden_yaml_path: str, database_url: str, config) -> None:
-    conn = get_connection(database_url)
-    try:
-        try:
-            summary = await run_eval(golden_yaml_path, conn, config)
-            update_eval_run_result(
-                conn, eval_run_id, status="complete", embedding_model="voyage-code-3",
-                hit_rate=summary.hit_rate, mrr=summary.mrr, avg_judge=summary.avg_judge,
-            )
-        except Exception as exc:
-            update_eval_run_result(conn, eval_run_id, status="failed", error_message=str(exc))
-        conn.commit()
-    finally:
-        conn.close()
-
-
-@router.post("/eval", response_model=EvalRunOut)
-def trigger_eval(body: TriggerEvalIn, request: Request, background_tasks: BackgroundTasks) -> EvalRunOut:
-    conn = request.state.conn
-    config = request.state.config
-    if get_repo(conn, body.repo_id) is None:
-        raise HTTPException(status_code=404, detail="repo not found")
-    eval_run_id = create_eval_run(conn, body.repo_id, body.golden_yaml_path)
-    conn.commit()
-    background_tasks.add_task(_run_eval_job, eval_run_id, body.golden_yaml_path, config.database_url, config)
-    return EvalRunOut(**get_eval_run(conn, eval_run_id))
-
-
-@router.get("/eval/{eval_run_id}", response_model=EvalRunOut)
-def get_eval_run_route(eval_run_id: str, request: Request) -> EvalRunOut:
-    run = get_eval_run(request.state.conn, eval_run_id)
-    if run is None:
-        raise HTTPException(status_code=404, detail="eval run not found")
-    return EvalRunOut(**run)
-
-
-@router.get("/eval", response_model=list[EvalRunOut])
-def list_eval_runs_route(repo_id: str, request: Request) -> list[EvalRunOut]:
-    return [EvalRunOut(**r) for r in list_eval_runs(request.state.conn, repo_id)]
-```
-
-`embedding_model="voyage-code-3"` is hardcoded here rather than read off the
-repo, because the eval harness always uses `VoyageEmbedder` directly
-(Tasks 7-8 scope note — no `get_embedder()` factory exists). If NIM embedding
-is ever added, this line is exactly where a second provider's eval runs would
-get tagged, feeding the Task 11 comparison chart's second bar.
-
-- [ ] **Step 9: Register the router**
-
-In `sleuth/api/main.py`:
-
-```python
-from sleuth.api.routes import chat, eval as eval_routes, repos
-...
-    app.include_router(eval_routes.router)
-```
-
-- [ ] **Step 10: Run to verify it passes**
-
-Run: `pytest tests/test_eval_runner.py tests/test_api_eval.py tests/test_cli.py -v`
-Expected: PASS (re-run `test_cli.py` too since `cli.py`'s eval command changed).
-
-- [ ] **Step 11: Commit**
-
-```bash
-git add schema.sql sleuth/eval/runner.py sleuth/cli.py sleuth/store.py sleuth/api tests/test_eval_runner.py tests/test_api_eval.py
-git commit -m "feat: add eval run persistence and endpoints"
-```
-
----
-
-## Task 6: Vite scaffold + design tokens + routing shell
+## Task 5: Vite scaffold + design tokens + routing shell
 
 **Files:**
 - Create: `web/` (Vite React scaffold via `npm create vite@latest web -- --template react`)
 - Create: `web/src/theme.css`, `web/src/api.js`, `web/src/App.jsx`, `web/src/components/NavRail.jsx`, `web/src/components/AppShell.jsx`
+- Create (stub placeholders, filled in by Tasks 6/8/9/10 + a later Repo Settings task): `web/src/components/LandingPage.jsx`, `RepoList.jsx`, `IndexingScreen.jsx`, `ChatScreen.jsx`, `RepoSettingsScreen.jsx`
 - Create: `web/.env.example`
 
 **Interfaces:**
 - Consumes: nothing from `sleuth/` yet (backend only reached via `fetch` in Task 8+).
-- Produces: CSS custom properties from the Design System section above, importable by every later component. `AppShell` renders `<NavRail/>` + `<Outlet/>` — every app screen (Tasks 9-11) renders inside it. `api.js` exports the base `fetch` wrapper (`apiUrl(path)`) other tasks build on.
+- Produces: CSS custom properties from the Design System section above, importable by every later component. `AppShell` renders `<NavRail/>` + `<Outlet/>` — every app screen (Tasks 6, 8-10, and the follow-on Repo Settings task) renders inside it. `api.js` exports the base `fetch` wrapper (`apiUrl(path)`) other tasks build on.
 
 - [ ] **Step 1: Scaffold Vite**
 
@@ -1502,29 +1401,44 @@ VITE_API_URL=http://localhost:8000
 
 - [ ] **Step 3: Write `web/src/theme.css`**
 
+Semantic variable names (`--panel`, `--text-secondary`, `--status-ready`,
+etc.) are kept stable from the original draft below — every downstream
+component in Tasks 8-10 references them — but retargeted to the real
+`storm` theme's palette from the Design System section, with the other 4
+themes (`midnight`/`ivory`/`leaf`/`edition`, added for real in Task 11)
+as `[data-theme="..."]` override blocks layered on top of the same
+variable names. This is the mapping from the new design's raw tokens
+(`--bg`, `--deep`, `--surface`, `--accent`, `--line`, `--warn`, ...) onto
+the semantic names the components already use:
+
 ```css
-:root {
-  --bg: oklch(0.17 0.014 250);
-  --panel: oklch(0.14 0.012 250);
-  --panel-alt: oklch(0.155 0.012 250);
-  --text: oklch(0.95 0.006 250);
-  --text-secondary: oklch(0.75 0.01 250);
-  --text-muted: oklch(0.6 0.012 250);
-  --text-faint: oklch(0.55 0.01 250);
-  --border: oklch(1 0 0 / 0.07);
-  --border-strong: oklch(1 0 0 / 0.14);
-  --accent: oklch(0.62 0.10 148);
-  --accent-hover: oklch(0.68 0.10 148);
-  --accent-wash: oklch(0.62 0.10 148 / 0.14);
-  --accent-on: oklch(0.15 0.02 148);
-  --status-ready: oklch(0.75 0.16 150);
-  --status-ready-wash: oklch(0.72 0.16 150 / 0.14);
-  --status-neutral: oklch(0.65 0.01 250);
-  --status-neutral-wash: oklch(0.6 0.01 250 / 0.14);
-  --compare-secondary: oklch(0.72 0.19 275);
-  --font-mono: 'IBM Plex Mono', monospace;
-  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+:root, [data-theme="storm"] {
+  --bg: #0F372F;
+  --panel: #143F36;            /* was --surface */
+  --panel-alt: #0A2621;        /* was --deep */
+  --text: #F2F5F2;
+  --text-secondary: rgba(242,245,242,0.75);
+  --text-muted: rgba(242,245,242,0.58);
+  --text-faint: rgba(242,245,242,0.30);
+  --border: rgba(242,245,242,0.13);       /* was --line */
+  --border-strong: rgba(242,245,242,0.26); /* was --line-strong */
+  --accent: #ECBC6B;
+  --accent-hover: #F0C97E;
+  --accent-wash: rgba(236,188,107,0.16);  /* was --glow */
+  --accent-on: #0F372F;                    /* was --on-accent */
+  --status-ready: #ECBC6B;
+  --status-ready-wash: rgba(236,188,107,0.16);
+  --status-neutral: #C89B6A;               /* was --warn */
+  --status-neutral-wash: rgba(200,155,106,0.14); /* was --warn-bg */
+  --font-mono: 'JetBrains Mono', monospace;
+  --font-sans: 'Space Grotesk', system-ui, sans-serif;
+  --font-head: 'Big Shoulders Display', sans-serif;
 }
+
+/* midnight/ivory/leaf/edition blocks: same variable names, new values —
+   copied from the corresponding [data-theme="..."] block in any .dc.html
+   source file, filled in for real in Task 11 (theme switcher). Stub with
+   just storm here so Tasks 6-10 have a working default to build against. */
 
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font-sans); }
@@ -1534,17 +1448,19 @@ a:hover { color: var(--accent-hover); }
 @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
 @keyframes blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
 
-.icon-rail { width: 72px; height: 100%; background: var(--panel); border-right: 1px solid var(--border);
-  display: flex; flex-direction: column; align-items: center; padding: 20px 0; gap: 28px; flex-shrink: 0; }
-.icon-rail a { width: 40px; height: 40px; border-radius: 9px; display: flex; align-items: center;
-  justify-content: center; }
-.icon-rail a:hover { background: oklch(1 0 0 / 0.06); }
-.icon-rail a.active { background: var(--accent-wash); }
+.sleuth-rail { width: 272px; height: 100%; background: var(--panel-alt); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; flex-shrink: 0; transition: width .32s cubic-bezier(.2,.7,.2,1); }
+.rail-nav { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; }
+.rail-nav .navitem { display: flex; align-items: center; padding: 10px; border-left: 2px solid transparent;
+  color: var(--text-muted); font-size: 14px; }
+.rail-nav .navitem.active { border-left-color: var(--accent); color: var(--text); font-weight: 600; }
+.rail-nav .navitem:hover { background: var(--panel); }
+.rail-account { margin-top: auto; border-top: 1px solid var(--border); padding: 10px; }
 
 .app-shell { display: flex; height: 100vh; overflow: hidden; }
 .app-content { flex: 1; overflow-y: auto; padding: 48px 56px; }
 
-.card { background: var(--panel); border: 1px solid var(--border-strong); border-radius: 12px; }
+.card { background: var(--panel); border: 1px solid var(--border-strong); border-radius: 2px; }
 .pill { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 100px;
   font-size: 12px; font-weight: 600; }
 .pill-ready { background: var(--status-ready-wash); color: var(--status-ready); }
@@ -1553,12 +1469,12 @@ a:hover { color: var(--accent-hover); }
 .dot { width: 6px; height: 6px; border-radius: 50%; }
 .dot-pulse { animation: pulse 1.4s ease-in-out infinite; }
 
-.btn-primary { padding: 12px 22px; background: var(--accent); color: var(--accent-on); border-radius: 8px;
+.btn-primary { padding: 12px 22px; background: var(--accent); color: var(--accent-on); border-radius: 2px;
   font-weight: 600; font-size: 13.5px; cursor: pointer; border: none; white-space: nowrap; }
 .btn-primary:hover { background: var(--accent-hover); }
 .input-mono { flex: 1; padding: 12px 16px; background: var(--panel); border: 1px solid var(--border-strong);
-  border-radius: 8px; font-family: var(--font-mono); font-size: 13.5px; color: var(--text); outline: none; }
-.input-mono:focus { border-color: oklch(0.62 0.10 148 / 0.6); }
+  border-radius: 2px; font-family: var(--font-mono); font-size: 13.5px; color: var(--text); outline: none; }
+.input-mono:focus { border-color: var(--accent); }
 ```
 
 - [ ] **Step 4: Write `web/src/api.js`**
@@ -1594,34 +1510,43 @@ export async function apiPost(path, body) {
 
 - [ ] **Step 5: Write `web/src/components/NavRail.jsx`**
 
+Ported from `Sleuth Rail.dc.html` (see Design System section) — collapsible
+272px↔72px rail with logo, repo switcher (GH badge hardcoded, no
+multi-provider abbreviation logic since GitHub is the only provider), nav
+items (Chat/Repos/Indexing status/Settings — **no Eval item**, eval stays
+CLI-only), and an account menu (theme swatches wired up in Task 11, log out
+wired here via `logout()`).
+
 ```jsx
 import { NavLink } from 'react-router-dom';
+import { logout } from '../api';
+
+const NAV_ITEMS = [
+  { to: '/app/chat', label: 'Chat' },
+  { to: '/app/repos', label: 'Repos' },
+  { to: '/app/indexing', label: 'Indexing status' },
+  { to: '/app/settings', label: 'Settings' },
+];
 
 export default function NavRail() {
   return (
-    <div className="icon-rail">
-      <NavLink to="/">
-        <svg width="24" height="24" viewBox="0 0 26 26" fill="none">
-          <circle cx="11" cy="11" r="7.5" stroke="var(--accent)" strokeWidth="2" />
-          <line x1="16.3" y1="16.3" x2="23" y2="23" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" />
-          <circle cx="11" cy="11" r="2" fill="var(--accent)" />
-        </svg>
+    <nav className="sleuth-rail">
+      <NavLink to="/app/repos" className="rail-logo" title="Sleuth dashboard">
+        <span className="logo-mark" />
       </NavLink>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14, marginTop: 8 }}>
-        <NavLink to="/app/repos" title="Repos" className={({ isActive }) => (isActive ? 'active' : '')}>
-          <span aria-hidden style={{ fontFamily: 'var(--font-mono)', fontSize: 16 }}>≡</span>
-        </NavLink>
-        <NavLink to="/app/indexing" title="Indexing" className={({ isActive }) => (isActive ? 'active' : '')}>
-          <span aria-hidden style={{ fontFamily: 'var(--font-mono)', fontSize: 16 }}>◐</span>
-        </NavLink>
-        <NavLink to="/app/chat" title="Chat" className={({ isActive }) => (isActive ? 'active' : '')}>
-          <span aria-hidden style={{ fontFamily: 'var(--font-mono)', fontSize: 16 }}>💬</span>
-        </NavLink>
-        <NavLink to="/app/eval" title="Eval" className={({ isActive }) => (isActive ? 'active' : '')}>
-          <span aria-hidden style={{ fontFamily: 'var(--font-mono)', fontSize: 16 }}>▁▄▂</span>
-        </NavLink>
+      <div className="rail-nav">
+        {NAV_ITEMS.map((item) => (
+          <NavLink key={item.to} to={item.to} className={({ isActive }) => (isActive ? 'navitem active' : 'navitem')}>
+            {item.label}
+          </NavLink>
+        ))}
       </div>
-    </div>
+      <div className="rail-account">
+        <button type="button" onClick={() => logout().then(() => window.location.assign('/login'))}>
+          Log out
+        </button>
+      </div>
+    </nav>
   );
 }
 ```
@@ -1644,7 +1569,9 @@ export default function AppShell() {
 }
 ```
 
-- [ ] **Step 7: Write `web/src/App.jsx`** (screens are stubs until Tasks 7-11 fill them in)
+- [ ] **Step 7: Write `web/src/App.jsx`** (screens are stubs until Tasks 6-11 fill them in;
+`RequireAuth` itself is added in Task 6 alongside `LoginPage` — sketch the shape here so
+routing compiles, replace the inline stub with the real thing in Task 6)
 
 ```jsx
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
@@ -1653,7 +1580,7 @@ import LandingPage from './components/LandingPage';
 import RepoList from './components/RepoList';
 import IndexingScreen from './components/IndexingScreen';
 import ChatScreen from './components/ChatScreen';
-import EvalScreen from './components/EvalScreen';
+import RepoSettingsScreen from './components/RepoSettingsScreen';
 import './theme.css';
 
 export default function App() {
@@ -1661,12 +1588,13 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/" element={<LandingPage />} />
+        {/* /login route added in Task 6 */}
         <Route path="/app" element={<AppShell />}>
           <Route index element={<Navigate to="repos" replace />} />
           <Route path="repos" element={<RepoList />} />
           <Route path="indexing/:repoId?" element={<IndexingScreen />} />
           <Route path="chat/:repoId?" element={<ChatScreen />} />
-          <Route path="eval/:repoId?" element={<EvalScreen />} />
+          <Route path="settings/:repoId?" element={<RepoSettingsScreen />} />
         </Route>
       </Routes>
     </BrowserRouter>
@@ -1674,17 +1602,21 @@ export default function App() {
 }
 ```
 
-- [ ] **Step 8: Add IBM Plex Mono to `web/index.html`**
+- [ ] **Step 8: Add design fonts to `web/index.html`**
+
+Per the Design System section — `Big Shoulders Display` (headers, Type A
+only), `Space Grotesk` (body/UI), `JetBrains Mono` (data/labels/code):
 
 ```html
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@400;600;700;800;900&family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 ```
 
 - [ ] **Step 9: Manual test**
 
 Run: `cd web && npm run dev`
-Expected: blank dark page at `/`, navigating to `/app/repos` shows the icon rail with no crash (screens are stubs — filled in next tasks).
+Expected: blank dark page at `/`, navigating to `/app/repos` shows the rail with no crash (screens are stubs — filled in next tasks; auth isn't wired until Task 6 so this is a pre-auth sanity check only).
 
 - [ ] **Step 10: Commit**
 
@@ -1695,44 +1627,208 @@ git commit -m "feat: scaffold Vite React app with design tokens and routing shel
 
 ---
 
+## Task 6: Login screen + auth-aware routing
+
+**Files:**
+- Create: `web/src/components/LoginPage.jsx`
+- Modify: `web/src/App.jsx` (add `/login` route, `RequireAuth` wrapper around
+  the authenticated routes, redirect-to-login-on-401 handling)
+- Modify: `web/src/api.js` (add `getMe`, `updateMe`, all `fetch` calls get
+  `credentials: 'include'` so the session cookie is sent)
+
+**Interfaces:**
+- Consumes: Task 0's `GET /auth/github`, `GET /me`, `POST /auth/email`,
+  `POST /auth/logout`.
+- Produces: `RequireAuth` wrapper used by every screen task from here on
+  (Task 7's `AppShell` sits inside it).
+
+- [ ] **Step 1: Add `credentials: 'include'` + auth calls to `web/src/api.js`**
+
+Every `apiGet`/`apiPost` helper's `fetch()` call gains
+`credentials: 'include'` so the browser sends the `sleuth_session` cookie
+cross-origin (dev: `localhost:5173` → `localhost:8000`). Add:
+
+```javascript
+export function getMe() {
+  return apiGet('/me');
+}
+
+export function updateMe(patch) {
+  return apiPatch('/me', patch);
+}
+
+export function requestMagicLink(email) {
+  return apiPost('/auth/email', { email });
+}
+
+export function githubLoginUrl() {
+  return `${API_BASE}/auth/github`;
+}
+
+export function logout() {
+  return apiPost('/auth/logout', {});
+}
+```
+
+- [ ] **Step 2: Write `web/src/components/LoginPage.jsx`**
+
+Ported from `Sleuth Login.dc.html`: a GitHub button (plain `<a href={githubLoginUrl()}>`,
+a full page navigation since OAuth is a redirect flow, not a fetch) and an
+email form that calls `requestMagicLink` and shows "check your email" on
+success. GitLab/Bitbucket buttons from the source design are dropped
+entirely — GitHub-only per project decision.
+
+```jsx
+import { useState } from 'react';
+import { githubLoginUrl, requestMagicLink } from '../api';
+
+export default function LoginPage() {
+  const [email, setEmail] = useState('');
+  const [sent, setSent] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  async function handleEmailSubmit(e) {
+    e.preventDefault();
+    if (!email.trim() || busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await requestMagicLink(email.trim());
+      setSent(true);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="login-shell">
+      <div className="login-card">
+        <h1>Log in to Sleuth</h1>
+        {error && <div className="login-error">{error}</div>}
+        <a className="oauth-btn" href={githubLoginUrl()}>
+          Continue with GitHub
+        </a>
+        <div className="login-divider">or continue with email</div>
+        <form onSubmit={handleEmailSubmit}>
+          <input
+            type="email"
+            required
+            value={email}
+            disabled={busy}
+            onChange={(e) => setEmail(e.target.value)}
+            placeholder="you@company.com"
+          />
+          <button type="submit" disabled={busy || !email.trim()}>
+            {busy ? 'Sending…' : 'Send magic link'}
+          </button>
+          {sent && <div className="login-sent">Check your email for a link to log in.</div>}
+        </form>
+      </div>
+    </div>
+  );
+}
+```
+
+- [ ] **Step 3: Add `RequireAuth` + `/login` route to `web/src/App.jsx`**
+
+```jsx
+function RequireAuth({ children }) {
+  const [status, setStatus] = useState('loading'); // loading | ok | unauth
+  useEffect(() => {
+    getMe().then(() => setStatus('ok')).catch(() => setStatus('unauth'));
+  }, []);
+  if (status === 'loading') return null;
+  if (status === 'unauth') return <Navigate to="/login" replace />;
+  return children;
+}
+```
+
+Wrap the `AppShell`-rooted routes (Dashboard/Indexing/Chat/Settings) in
+`RequireAuth`; `/`, `/login`, and the auth callback redirects stay outside it.
+
+- [ ] **Step 4: Manual test**
+
+Visit the app logged out, confirm redirect to `/login`. Click "Continue with
+GitHub", complete the OAuth flow against a real registered GitHub OAuth App,
+confirm redirect back into the app and `GET /me` succeeds. Log out, confirm
+redirect back to `/login`. Request a magic link against a local SMTP catcher
+(Mailpit/MailHog), open the link, confirm login succeeds.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add web/src/components/LoginPage.jsx web/src/App.jsx web/src/api.js
+git commit -m "feat: add Login screen and auth-aware routing"
+```
+
+---
+
 ## Task 7: Landing page
 
 **Files:**
 - Create: `web/src/components/LandingPage.jsx`
 
 **Interfaces:**
-- Consumes: `theme.css` tokens only. No backend calls — this is the marketing page from `Sleuth.dc.html`, its Repos/Indexing/Chat panels are illustrative mockups (matching the source design), not live data.
+- Consumes: `theme.css` tokens only. No backend calls — this is the marketing
+  page from `Sleuth Landing.dc.html`, not live data.
 - Produces: nothing consumed by later tasks.
 
 - [ ] **Step 1: Write `web/src/components/LandingPage.jsx`**
 
-Translate `Sleuth.dc.html` section-by-section into JSX using `theme.css` classes plus
-targeted inline styles for one-off layout (grid columns, gaps) — matching the
-source's copy, structure, and animation beats:
-- Sticky nav (logo/wordmark, "How it works" / "Eval results" links, GitHub pill) — add
-  a scroll listener (`useEffect` + `window.addEventListener('scroll', ...)`) that
-  toggles a `scrolled` class applying the blurred/bordered background, mirroring
-  `Sleuth.dc.html`'s `navStyle`.
-- Hero: headline "Point it at a repo.<br/>Ask it anything.", CTA buttons ("Try Sleuth"
-  → `/app/repos`, "Read the spec" → link to the design doc's GitHub path or a no-op
-  for now), and the autotyping terminal panel — implement the typing effect with a
-  `useEffect` + `setInterval` reproducing `Sleuth.dc.html`'s `tickHero()` logic against
-  the same four `HERO_LINES` strings.
-- "How it works": 5-step Clone→Parse→Chunk→Embed→Store row with the connecting line,
-  same copy as the source.
-- Repo list mock, indexing status mock, chat mock (with the same autotyping +
-  fade-in-citations behavor as `tickChat()`) — reuse the exact copy/values from
-  `Sleuth.dc.html` (e.g. `facebook/react`, `1,842 chunks`, the React re-render Q&A).
-- Footer with the tech-stack tags (`Python`, `tree-sitter`, `pgvector`, `Groq`, `React`).
+Translate `Sleuth Landing.dc.html` section-by-section into JSX, matching the
+source's copy, structure, and animation beats exactly (this is a from-scratch
+rewrite against the *new* design source — do not reuse copy/section-order
+from any earlier draft of this task):
+- Header: logo mark + "SLEUTH" wordmark, nav links (`#problem` "Why it's
+  hard", `#features` "Features", `#how` "How it works", `#preview`
+  "Product"), "Connect a repo" pill button → `/login` (not a raw anchor —
+  connecting a repo requires being logged in, so route unauthenticated
+  visitors through login first; Task 6 delivers `RequireAuth`, so this link
+  just goes to `/login` and post-login routing lands them on `/app/repos`).
+- Hero (`section` no id): eyebrow "Code intelligence, grounded", headline
+  "Understand any codebase without reading every file.", subhead paragraph,
+  two CTAs ("Connect a repo" → `/login`, "See how it works" → `#how`), and
+  the four-tag strip (AST-LEVEL INDEXING / TOOL-LOOP RETRIEVAL / FILE:LINE
+  CITATIONS / REPO-SCOPED CONTEXT). Animated SVG line/node background is a
+  decorative `<svg>` — port as static JSX (the CSS `@keyframes drift1/drift2/
+  pulseNode/traverse` in `theme.css` handle the animation, no JS needed).
+- `#problem` section ("01 / THE PROBLEM"): "Text chunking breaks code."
+  headline + 3-row numbered list (functions cut mid-body / call
+  relationships disappear / "what calls this?" is unanswerable) — exact
+  copy from the source.
+- `#features` section ("02 / WHAT SLEUTH DOES"): "Built for the shape of a
+  repository." + 3 cards (STRUCTURE-AWARE CHUNKING / AGENTIC RETRIEVAL /
+  REPO-SCOPED & CITED), each with a monospace code-like detail block —
+  exact copy from the source.
+- `#how` section ("03 / HOW IT WORKS"): "Three steps, then ask anything." +
+  3-column numbered steps (Connect a repo / Sleuth indexes structurally /
+  Ask, get cited answers). Step 1's copy in the source says "Point Sleuth
+  at GitHub, GitLab or a local clone" — **correct this to GitHub-only** when
+  porting, since GitLab/Bitbucket support was dropped project-wide.
+- `#preview` section: "Answers you can check in one click." + a static
+  browser-chrome mock showing a real Q&A exchange (refresh-token
+  invalidation example) with a code citation block — reproduce as static
+  JSX, no live data, no autotyping (the source's underlying animation here
+  is just the `data-reveal` fade-in, not a typing effect — simpler than the
+  old draft of this task assumed).
+- `#cta` section: "Stop guessing. Start reading the code." + "Connect a
+  repo" button → `/login`.
+- Footer: wordmark, copyright, 4 anchor links (Product/Docs/Security/Contact
+  → `#features`/`#how`/`#problem`/`#cta`).
 
-Use `IntersectionObserver` for the fade/slide-in-on-scroll behavior on each section,
-matching the source's `data-reveal` + `reveal(id)` helper.
+Use `IntersectionObserver` for the fade/slide-in-on-scroll behavior on every
+`data-reveal` section, matching the source's `componentDidMount` logic
+(unobserve after first reveal, 2.6s fallback timeout in case the observer
+never fires).
 
 - [ ] **Step 2: Manual test**
 
 Run: `npm run dev`, open `/`.
-Expected: nav blurs on scroll, hero terminal autotypes and loops, sections fade in as
-you scroll past them, chat mock's answer types out with citations fading in after.
+Expected: sections fade/slide in as you scroll past them, all nav anchors
+scroll to the right section, both "Connect a repo" CTAs route to `/login`.
 
 - [ ] **Step 3: Commit**
 
@@ -1751,7 +1847,7 @@ git commit -m "feat: add landing page"
 
 **Interfaces:**
 - Consumes: Task 1's `GET /repos`, `POST /repos` (via `web/src/api.js`).
-- Produces: nothing consumed by later tasks (Chat/Eval screens fetch repos independently via the same `listRepos` helper).
+- Produces: nothing consumed by later tasks (Chat screen fetches repos independently via the same `listRepos` helper).
 
 - [ ] **Step 1: Add repo calls to `web/src/api.js`**
 
@@ -2387,193 +2483,43 @@ git commit -m "feat: add Chat screen wired to SSE streaming and persisted histor
 
 ---
 
-## Task 11: Eval screen (real data)
+## Task 11: Theme switcher (account menu)
 
 **Files:**
-- Create: `web/src/components/EvalScreen.jsx`, `web/src/components/EvalBarChart.jsx`
-- Modify: `web/src/api.js` (add `listEvalRuns`, `triggerEval`)
+- Modify: `web/src/components/NavRail.jsx` (account menu theme swatches)
+- Modify: `web/src/api.js` (`updateMe` already added in Task 6, wire it here)
+- Modify: `web/src/theme.css` (all 5 `[data-theme="..."]` blocks, copied
+  verbatim from the `.dc.html` source files per the Design System section)
 
 **Interfaces:**
-- Consumes: Task 5's `POST /eval`, `GET /eval?repo_id=`.
+- Consumes: Task 6's `getMe`/`updateMe`, Task 0's `theme_preference` field.
 
-- [ ] **Step 1: Add calls to `web/src/api.js`**
+- [ ] **Step 1: Copy all 5 theme blocks into `web/src/theme.css`**
 
-```javascript
-export function listEvalRuns(repoId) {
-  return apiGet(`/eval?repo_id=${repoId}`);
-}
+`storm` (default), `midnight`, `edition` (dark); `ivory`, `leaf` (light) —
+exact hex/rgba values from any `.dc.html` file's `[data-theme="..."]` CSS
+custom property block (identical across all 9 source files). Root element
+gets `data-theme={user.theme_preference}` set from React state, driving
+which block's custom properties apply.
 
-export function triggerEval(repoId, goldenYamlPath) {
-  return apiPost('/eval', { repo_id: repoId, golden_yaml_path: goldenYamlPath });
-}
-```
+- [ ] **Step 2: Add the theme swatch row to the account menu in `NavRail.jsx`**
 
-- [ ] **Step 2: Write `web/src/components/EvalBarChart.jsx`**
+Five small pill buttons (Storm/Midnight/Ivory/Leaf/Edition), active one
+highlighted, `onClick` calls `updateMe({ theme_preference: name })` then
+updates local state immediately (optimistic) so the switch feels instant
+rather than waiting on the round-trip.
 
-Takes a list of `{ label, providers: [{ name, value, color }] }` rows — currently
-`providers` has one entry (Voyage) per Task 5's decision; a second entry (e.g.
-NIM/Nemotron) renders automatically as an extra bar + legend swatch, no code
-change needed here if/when that eval data exists.
+- [ ] **Step 3: Manual test**
 
-```jsx
-export default function EvalBarChart({ rows }) {
-  return (
-    <div className="card" style={{ padding: 28, marginBottom: 32 }}>
-      <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 20 }}>Embedding model comparison</div>
-      {rows.map((row) => (
-        <div key={row.label} style={{ marginBottom: 20 }}>
-          <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 8 }}>{row.label}</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {row.providers.map((p) => (
-              <div key={p.name} style={{ height: 22, background: 'oklch(1 0 0 / 0.06)', borderRadius: 5, overflow: 'hidden' }}>
-                <div style={{ height: '100%', width: `${p.value}%`, background: p.color, borderRadius: 5, display: 'flex', alignItems: 'center', justifyContent: 'flex-end', padding: '0 10px', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
-                  {p.rawLabel}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      ))}
-      <div style={{ display: 'flex', gap: 20, fontSize: 12.5, color: 'var(--text-faint)', marginTop: 8 }}>
-        {[...new Map(rows.flatMap((r) => r.providers).map((p) => [p.name, p])).values()].map((p) => (
-          <div key={p.name} style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
-            <span style={{ width: 9, height: 9, borderRadius: 2, background: p.color }} />
-            {p.name}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-```
+Switch each of the 5 themes, confirm the whole app (rail, cards, buttons)
+re-themes live, confirm the choice survives a page reload (persisted via
+`GET /me` on load).
 
-- [ ] **Step 3: Write `web/src/components/EvalScreen.jsx`**
-
-```jsx
-import { useEffect, useState } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
-import { listEvalRuns, listRepos, triggerEval } from '../api';
-import EvalBarChart from './EvalBarChart';
-
-const TOP_K = 8; // matches sleuth/eval/runner.py::TOP_K — keep in sync if that constant changes
-
-export default function EvalScreen() {
-  const { repoId } = useParams();
-  const navigate = useNavigate();
-  const [repos, setRepos] = useState([]);
-  const [runs, setRuns] = useState([]);
-  const [goldenPath, setGoldenPath] = useState('');
-
-  useEffect(() => {
-    listRepos().then((all) => {
-      const ready = all.filter((r) => r.status === 'ready');
-      setRepos(ready);
-      if (!repoId && ready.length > 0) navigate(`/app/eval/${ready[0].id}`, { replace: true });
-    });
-  }, []);
-
-  useEffect(() => {
-    if (!repoId) return;
-    const interval = setInterval(() => listEvalRuns(repoId).then(setRuns), 2000);
-    listEvalRuns(repoId).then(setRuns);
-    return () => clearInterval(interval);
-  }, [repoId]);
-
-  if (repos.length === 0) {
-    return <p style={{ color: 'var(--text-muted)' }}>No indexed repos yet — add one from the Repos screen first.</p>;
-  }
-
-  const latest = runs.find((r) => r.status === 'complete');
-  const byModel = {};
-  for (const run of runs) {
-    if (run.status === 'complete' && !(run.embedding_model in byModel)) byModel[run.embedding_model] = run;
-  }
-  const colors = { 'voyage-code-3': 'var(--accent)', 'nemotron-3-embed-1b': 'var(--compare-secondary)' };
-  const rows = [
-    { key: 'hit_rate', label: `hit-rate@${TOP_K}` },
-    { key: 'mrr', label: 'MRR' },
-    { key: 'avg_judge', label: 'answer quality (1–5)' },
-  ].map(({ key, label }) => ({
-    label,
-    providers: Object.values(byModel).map((run) => ({
-      name: run.embedding_model,
-      color: colors[run.embedding_model] || 'var(--accent)',
-      value: key === 'avg_judge' ? (run[key] / 5) * 100 : run[key] * 100,
-      rawLabel: run[key]?.toFixed(2),
-    })),
-  }));
-
-  return (
-    <div style={{ maxWidth: 1020, margin: '0 auto' }}>
-      <h1 style={{ fontSize: 28, fontWeight: 600, margin: '0 0 6px' }}>Eval harness</h1>
-      <p style={{ fontSize: 14, color: 'var(--text-muted)', marginBottom: 32 }}>
-        sleuth eval — every retrieval-affecting change re-runs against the golden sets before merge.
-      </p>
-
-      <div style={{ display: 'flex', gap: 10, marginBottom: 32 }}>
-        <input
-          className="input-mono"
-          placeholder="path/to/golden.yaml"
-          value={goldenPath}
-          onChange={(e) => setGoldenPath(e.target.value)}
-        />
-        <button className="btn-primary" onClick={() => goldenPath.trim() && triggerEval(repoId, goldenPath.trim())}>
-          Run eval
-        </button>
-      </div>
-
-      {latest && (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 32 }}>
-          <StatTile label={`hit-rate@${TOP_K}`} value={latest.hit_rate.toFixed(2)} />
-          <StatTile label="MRR" value={latest.mrr.toFixed(2)} />
-          <StatTile label="answer quality" value={latest.avg_judge != null ? `${latest.avg_judge.toFixed(1)}/5` : '—'} />
-        </div>
-      )}
-
-      {Object.keys(byModel).length > 0 && <EvalBarChart rows={rows} />}
-
-      <div style={{ fontWeight: 600, fontSize: 15, marginBottom: 14 }}>Runs</div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 1, background: 'var(--border)', borderRadius: 10, overflow: 'hidden', border: '1px solid var(--border)' }}>
-        {runs.map((r) => (
-          <div key={r.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', background: 'var(--panel)' }}>
-            <div>
-              <div style={{ fontSize: 13.5, fontWeight: 500, marginBottom: 3 }}>{r.golden_yaml_path}</div>
-              <div style={{ fontSize: 12, color: 'var(--text-faint)' }}>{new Date(r.created_at).toLocaleString()}</div>
-            </div>
-            <div className={r.status === 'complete' ? 'pill pill-ready' : r.status === 'failed' ? 'pill pill-failed' : 'pill pill-indexing'}>
-              {r.status}
-            </div>
-          </div>
-        ))}
-        {runs.length === 0 && <div style={{ padding: 20, color: 'var(--text-faint)', background: 'var(--panel)' }}>No eval runs yet.</div>}
-      </div>
-    </div>
-  );
-}
-
-function StatTile({ label, value }) {
-  return (
-    <div className="card" style={{ padding: 22 }}>
-      <div style={{ fontSize: 12.5, color: 'var(--text-faint)', marginBottom: 8 }}>{label}</div>
-      <div style={{ fontFamily: 'var(--font-mono)', fontSize: 28, fontWeight: 600, color: 'var(--accent-hover)' }}>{value}</div>
-    </div>
-  );
-}
-```
-
-- [ ] **Step 4: Manual test**
-
-Run `sleuth eval eval/sample_repo.yaml`-style golden file's path through the "Run
-eval" input against a real indexed repo, confirm status flips `running` → `complete`
-within the poll interval, stat tiles populate, and the run appears in the Runs list.
-Confirm the bar chart renders a single Voyage bar per metric (no fabricated second
-provider).
-
-- [ ] **Step 5: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add web/src/components/EvalScreen.jsx web/src/components/EvalBarChart.jsx web/src/api.js
-git commit -m "feat: add Eval screen wired to real eval runs"
+git add web/src/components/NavRail.jsx web/src/theme.css
+git commit -m "feat: add persisted theme switcher"
 ```
 
 ---
@@ -2642,21 +2588,34 @@ git commit -m "feat: polish error states and add README"
 
 ---
 
+---
+
 ## Self-Review Notes
 
-- **Spec coverage:** all five design screens (Landing/Repos/Indexing/Chat/Eval) map
-  to Tasks 7-11; every design-doc endpoint (`POST /repos`, `GET /repos`,
-  `GET /repos/{id}`, `POST /chat`) is covered, plus the extensions the design forced
-  (progress endpoint, chat CRUD, eval endpoints) that weren't in the original design
-  doc's endpoint list but are required to back the screens faithfully.
-- **Known design-to-reality deltas** (all decided with the user on 2026-08-19, not
-  silent downgrades): Eval chart shows one provider (Voyage) not two; Indexing shows
-  elapsed time not a fabricated ETA; Eval's `@5` label is corrected to the real
-  `TOP_K=8`; the Chat screen's accent-color picker isn't shipped; chat history is
-  persisted (schema addition) rather than kept ephemeral.
-- **Backward compatibility:** `ingest_repo`, `embed_batch`, `stream_answer` all gain
-  one optional keyword-only-by-convention parameter each, defaulting to `None` —
-  every existing call site (CLI, existing tests) is unaffected. `run_eval`'s return
-  type changes from `str` to `EvalSummary`, which *does* break its one existing
-  caller (`cli.py`) and its one existing test — both are explicitly updated in
-  Task 5, Steps 1 and 4.
+- **Spec coverage:** the new 9-file design (Login/Landing/Connect Repo/
+  Dashboard/Indexing Status/Chat/Repo Settings + shared Rail) maps to Tasks
+  6-11; every route needed to back those screens is covered (auth, repos,
+  progress, chat CRUD + SSE, theme preference). Repo Settings screen itself
+  (branch switch, re-index trigger, disconnect) is deliberately left as a
+  follow-on task, not detailed step-by-step here — same shape as the other
+  screen tasks, add when picked up.
+- **Known design-to-reality deltas** (decided with the user 2026-08-19 and
+  2026-08-24, not silent downgrades): Indexing shows elapsed time not a
+  fabricated ETA; GitLab/Bitbucket OAuth buttons dropped, GitHub-only;
+  Type A/B font toggle not shipped (Type A hardcoded); the 5-theme color
+  switcher *is* shipped (unlike the old design's accent-picker, which
+  stayed authoring-only); chat history is persisted (schema addition)
+  rather than kept ephemeral; **Eval has no web screen in this plan** —
+  stays CLI-only (`sleuth eval`), a clean candidate for its own future plan
+  now that the design doesn't include an Eval mockup to build against.
+- **Auth is new scope** (2026-08-24) — the 2026-08-19 draft explicitly
+  excluded it. Task 0 adds it as a prerequisite gate (GitHub OAuth + email
+  magic link via AWS SES SMTP), not a multi-tenancy system: no `user_id`
+  FK on repos/chats, single expected user, schema allows more later without
+  a rework.
+- **Backward compatibility:** `ingest_repo`, `embed_batch`, `stream_answer`
+  all gain one optional keyword-only-by-convention parameter each,
+  defaulting to `None` — every existing call site (CLI, existing tests) is
+  unaffected. `sleuth/eval/runner.py` and `sleuth/cli.py`'s `eval` command
+  are untouched by this plan (no `EvalSummary` return-type change needed,
+  since no web Eval screen consumes it).

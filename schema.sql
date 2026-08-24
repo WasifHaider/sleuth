@@ -32,3 +32,13 @@ CREATE UNIQUE INDEX IF NOT EXISTS chunks_identity_idx
 
 CREATE INDEX IF NOT EXISTS chunks_embedding_idx
     ON chunks USING hnsw (embedding vector_cosine_ops);
+
+CREATE TABLE IF NOT EXISTS users (
+    id              uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    github_id       bigint UNIQUE,
+    email           text UNIQUE,
+    name            text,
+    avatar_url      text,
+    theme_preference text NOT NULL DEFAULT 'storm',
+    created_at      timestamptz NOT NULL DEFAULT now()
+);
