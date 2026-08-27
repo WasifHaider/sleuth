@@ -44,11 +44,9 @@ def test_add_list_get_repo_round_trip(pg_conn, monkeypatch):
     # behavior is already covered by tests/test_pipeline.py. Stub ingest_repo
     # so this doesn't shell out to a real `git clone` against a fake GitHub URL,
     # which just hangs waiting on network/credentials.
-    async def fake_ingest_repo(github_url, conn, config, on_event=None):
+    async def fake_ingest_repo(github_url, conn, config, on_event=None, repo_id=None):
         from sleuth.store import update_repo_status
 
-        rows = conn.execute("SELECT id FROM repos WHERE github_url = %s", (github_url,)).fetchall()
-        repo_id = str(rows[-1][0])
         update_repo_status(conn, repo_id, "ready")
         conn.commit()
         return repo_id
@@ -85,11 +83,9 @@ def test_progress_endpoint_returns_404_for_unknown_repo(pg_conn):
 
 @respx.mock
 def test_progress_endpoint_reports_step(pg_conn, monkeypatch):
-    async def fake_ingest_repo(github_url, conn, config, on_event=None):
+    async def fake_ingest_repo(github_url, conn, config, on_event=None, repo_id=None):
         from sleuth.store import update_repo_status
 
-        rows = conn.execute("SELECT id FROM repos WHERE github_url = %s", (github_url,)).fetchall()
-        repo_id = str(rows[-1][0])
         if on_event:
             on_event("cloned", {"files": 2})
         update_repo_status(conn, repo_id, "ready")

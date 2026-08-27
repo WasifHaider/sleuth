@@ -15,7 +15,7 @@ async def _run_ingest(repo_id: str, github_url: str, database_url: str, config) 
     progress_store.start(repo_id)
     try:
         await ingest_repo(
-            github_url, conn, config,
+            github_url, conn, config, repo_id=repo_id,
             on_event=lambda step, detail: progress_store.record(repo_id, step, **detail),
         )
     finally:

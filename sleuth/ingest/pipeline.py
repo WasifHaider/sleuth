@@ -29,12 +29,13 @@ def _find_or_create_repo(conn, github_url: str) -> str:
     return repo_id
 
 
-async def ingest_repo(github_url: str, conn, config: Config, on_event=None) -> str:
+async def ingest_repo(github_url: str, conn, config: Config, on_event=None, repo_id: str | None = None) -> str:
     def emit(step: str, **detail) -> None:
         if on_event:
             on_event(step, detail)
 
-    repo_id = _find_or_create_repo(conn, github_url)
+    if repo_id is None:
+        repo_id = _find_or_create_repo(conn, github_url)
     update_repo_status(conn, repo_id, "indexing")
     conn.commit()
     emit("cloning")
