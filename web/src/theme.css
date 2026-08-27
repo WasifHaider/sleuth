@@ -1,0 +1,62 @@
+:root, [data-theme="storm"] {
+  --bg: #0F372F;
+  --panel: #143F36;
+  --panel-alt: #0A2621;
+  --text: #F2F5F2;
+  --text-secondary: rgba(242,245,242,0.75);
+  --text-muted: rgba(242,245,242,0.58);
+  --text-faint: rgba(242,245,242,0.30);
+  --border: rgba(242,245,242,0.13);
+  --border-strong: rgba(242,245,242,0.26);
+  --accent: #ECBC6B;
+  --accent-hover: #F0C97E;
+  --accent-wash: rgba(236,188,107,0.16);
+  --accent-on: #0F372F;
+  --status-ready: #ECBC6B;
+  --status-ready-wash: rgba(236,188,107,0.16);
+  --status-neutral: #C89B6A;
+  --status-neutral-wash: rgba(200,155,106,0.14);
+  --font-mono: 'JetBrains Mono', monospace;
+  --font-sans: 'Space Grotesk', system-ui, sans-serif;
+  --font-head: 'Big Shoulders Display', sans-serif;
+}
+
+/* midnight/ivory/leaf/edition blocks: same variable names, new values —
+   filled in for real in Task 11 (theme switcher). Stub with just storm
+   here so Tasks 6-10 have a working default to build against. */
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font-sans); }
+a { color: var(--accent); text-decoration: none; }
+a:hover { color: var(--accent-hover); }
+
+@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
+@keyframes blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+
+.sleuth-rail { width: 272px; height: 100%; background: var(--panel-alt); border-right: 1px solid var(--border);
+  display: flex; flex-direction: column; flex-shrink: 0; transition: width .32s cubic-bezier(.2,.7,.2,1); }
+.rail-nav { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; }
+.rail-nav .navitem { display: flex; align-items: center; padding: 10px; border-left: 2px solid transparent;
+  color: var(--text-muted); font-size: 14px; }
+.rail-nav .navitem.active { border-left-color: var(--accent); color: var(--text); font-weight: 600; }
+.rail-nav .navitem:hover { background: var(--panel); }
+.rail-account { margin-top: auto; border-top: 1px solid var(--border); padding: 10px; }
+
+.app-shell { display: flex; height: 100vh; overflow: hidden; }
+.app-content { flex: 1; overflow-y: auto; padding: 48px 56px; }
+
+.card { background: var(--panel); border: 1px solid var(--border-strong); border-radius: 2px; }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 5px 12px; border-radius: 100px;
+  font-size: 12px; font-weight: 600; }
+.pill-ready { background: var(--status-ready-wash); color: var(--status-ready); }
+.pill-indexing { background: var(--accent-wash); color: var(--accent-hover); }
+.pill-failed { background: var(--status-neutral-wash); color: var(--status-neutral); opacity: 0.85; }
+.dot { width: 6px; height: 6px; border-radius: 50%; }
+.dot-pulse { animation: pulse 1.4s ease-in-out infinite; }
+
+.btn-primary { padding: 12px 22px; background: var(--accent); color: var(--accent-on); border-radius: 2px;
+  font-weight: 600; font-size: 13.5px; cursor: pointer; border: none; white-space: nowrap; }
+.btn-primary:hover { background: var(--accent-hover); }
+.input-mono { flex: 1; padding: 12px 16px; background: var(--panel); border: 1px solid var(--border-strong);
+  border-radius: 2px; font-family: var(--font-mono); font-size: 13.5px; color: var(--text); outline: none; }
+.input-mono:focus { border-color: var(--accent); }

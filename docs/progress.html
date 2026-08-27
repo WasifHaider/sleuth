@@ -576,6 +576,80 @@ tests/test_api_repos.py::test_progress_endpoint_reports_step PASSED
 119 passed in 47.30s (full suite, local Docker Postgres, localhost:5433)</div>
   </section>
 
+  <section class="task">
+    <div class="task-header">
+      <h2>Plan 2 — Task 3 — Chat persistence schema + chat CRUD endpoints</h2>
+      <span class="status">done</span>
+    </div>
+    <div class="files">
+      <code>schema.sql</code> · <code>sleuth/store.py</code> · <code>sleuth/api/schemas.py</code> · <code>sleuth/api/routes/chat.py</code> (new) · <code>sleuth/api/main.py</code> · <code>tests/test_api_chat.py</code> (new)
+    </div>
+
+    <h3>What it does</h3>
+    <p>Two new tables, <code>chats</code> (id, repo_id, title, created_at) and <code>messages</code> (id, chat_id, role, content, <code>sources jsonb</code>, created_at), both cascading on delete from their parent. <code>sleuth/store.py</code> gained plain CRUD over them: <code>create_chat</code>, <code>list_chats</code> (joins message count per chat), <code>get_chat</code>, <code>create_message</code>, <code>list_messages</code>. <code>sleuth/api/routes/chat.py</code> exposes three routes behind the same router-level <code>Depends(require_session)</code> pattern Task 1 used for <code>repos.router</code>: <code>POST /chats</code> (404 if the repo doesn't exist, 409 if it's not yet <code>ready</code>), <code>GET /chats?repo_id=</code>, <code>GET /chats/{id}/messages</code> (404 if the chat doesn't exist).</p>
+
+    <h3>Why it's built this way</h3>
+    <p>The plan doc's Task 3 draft predates the email/password auth pattern that actually landed in the revised Task 0/1 — its sample test hits <code>/chats</code> with no session at all. Wrote the real test against the established convention instead (signup via <code>TestClient</code>, cookie carries the session) and added the router-level auth dependency the draft omitted, matching <code>repos.py</code> exactly rather than introducing a second way to gate a router.</p>
+    <p><code>create_message</code>/<code>list_messages</code> exist now even though nothing calls <code>create_message</code> yet — Task 4's SSE endpoint is the first real caller (writing the user's question and the streamed answer as they happen). Building the CRUD layer as its own task keeps Task 4 to just the streaming wire-up, no schema changes mixed in.</p>
+
+    <h3>Tests</h3>
+    <div class="test-result">tests/test_api_chat.py::test_create_chat_requires_session PASSED
+tests/test_api_chat.py::test_create_chat_requires_ready_repo PASSED
+tests/test_api_chat.py::test_create_list_chat_and_messages_round_trip PASSED
+tests/test_api_chat.py::test_get_messages_for_unknown_chat_returns_404 PASSED
+
+123 passed in 44.62s (full suite, local Docker Postgres, localhost:5433)</div>
+  </section>
+
+  <section class="task">
+    <div class="task-header">
+      <h2>Plan 2 — Task 4 — Chat SSE streaming endpoint</h2>
+      <span class="status">done</span>
+    </div>
+    <div class="files">
+      <code>sleuth/retrieve/answer.py</code> · <code>sleuth/api/routes/chat.py</code> · <code>sleuth/api/schemas.py</code> · <code>sleuth/api/main.py</code> (no code change, listed for context) · <code>tests/test_answer.py</code> · <code>tests/test_api_chat.py</code>
+    </div>
+
+    <h3>What it does</h3>
+    <p><code>stream_answer(..., on_sources=None)</code> gained one optional callback, fired once with the retrieved <code>SearchResult</code> list right after vector search runs, before the LLM call starts — same additive-callback shape as Task 2's <code>on_event</code>/<code>on_batch_done</code>. <code>POST /chat</code> (body <code>{chat_id, question}</code>) persists the user's question via <code>create_message</code>, then streams a Server-Sent Events response: an <code>event: sources</code> frame (JSON list of file/symbol/line-range per retrieved chunk) queued as soon as <code>on_sources</code> fires and flushed before the first token, then one <code>data:</code> frame per generated token, then <code>event: done</code>. The full assembled answer plus its sources get written back with a second <code>create_message</code> call once streaming finishes.</p>
+
+    <h3>Why it's built this way</h3>
+    <p>The sources frame can't be yielded directly from inside <code>on_sources</code> — it's a plain sync callback, not a generator, called from inside <code>stream_answer</code>'s async generator body. So it queues a formatted frame string into a list the outer <code>event_stream</code> generator flushes on its next loop turn (before that turn's token). Fires once per request in practice, but the queue drains before the first token either way.</p>
+
+    <h3>Real bug found and fixed (this task's code)</h3>
+    <p>First run of <code>test_post_chat_streams_tokens_and_persists_messages</code> failed with <code>psycopg.OperationalError: the connection is closed</code> raised from inside the SSE generator. Cause: <code>main.py</code>'s <code>attach_conn</code> middleware does <code>conn.close()</code> in a <code>finally</code> right after <code>call_next(request)</code> returns — but for a <code>StreamingResponse</code>, <code>call_next</code> returns the response object before its body generator actually runs; Starlette streams the body afterward, by which point the per-request connection is already closed. Exact same class of lifetime bug Task 2 sidestepped for the background ingest task (that one also opens its own connection rather than trusting the request-scoped one to still be alive). Fix: <code>event_stream()</code> opens its own connection via <code>get_connection(config.database_url)</code> and closes it in its own <code>finally</code>, independent of the middleware's connection. The pre-stream checks (<code>get_chat</code>, <code>get_repo</code>, the user-message insert) still use the request-scoped connection since they run before the response is returned.</p>
+
+    <h3>Tests</h3>
+    <div class="test-result">tests/test_answer.py::test_stream_answer_reports_sources_via_callback PASSED
+tests/test_api_chat.py::test_post_chat_requires_session PASSED
+tests/test_api_chat.py::test_post_chat_streams_tokens_and_persists_messages PASSED
+tests/test_api_chat.py::test_post_chat_rejects_unknown_chat PASSED
+
+127 passed in 54.22s (full suite, local Docker Postgres, localhost:5433)</div>
+  </section>
+
+  <section class="task">
+    <div class="task-header">
+      <h2>Plan 2 — Task 5 — Vite scaffold + design tokens + routing shell</h2>
+      <span class="status">done</span>
+    </div>
+    <div class="files">
+      <code>web/</code> (new — Vite React scaffold via <code>npm create vite@latest web -- --template react</code>) · <code>web/src/theme.css</code> · <code>web/src/api.js</code> · <code>web/src/App.jsx</code> · <code>web/src/components/{NavRail,AppShell}.jsx</code> · stub screens (<code>LandingPage</code>, <code>RepoList</code>, <code>IndexingScreen</code>, <code>ChatScreen</code>, <code>RepoSettingsScreen</code>) · <code>web/.env.example</code> · <code>web/index.html</code> (fonts)
+    </div>
+
+    <h3>What it does</h3>
+    <p>First frontend code in the project — a Vite + React 19 app with client-side routing (<code>react-router-dom</code> v7). <code>App.jsx</code> defines two route trees: a bare <code>/</code> (landing page, no shell) and <code>/app/*</code> nested under <code>AppShell</code> (nav rail + content pane via <code>&lt;Outlet/&gt;</code>), covering repos/chat/indexing/settings screens — all still stubs, filled in by Tasks 6-11. <code>theme.css</code> defines the whole design system as CSS custom properties (<code>--bg</code>, <code>--panel</code>, <code>--accent</code>, etc.) under the <code>storm</code> theme plus shared component classes (<code>.card</code>, <code>.pill-*</code>, <code>.btn-primary</code>) that every later screen reuses — no CSS-in-JS, no Tailwind, plain custom properties so swapping <code>[data-theme]</code> (Task 11) repaints everything for free. <code>api.js</code> is the one place that knows the backend's base URL and talks HTTP — <code>apiGet</code>/<code>apiPost</code>/<code>logout</code>, all with <code>credentials: 'include'</code> so the session cookie rides along.</p>
+
+    <h3>Why it's built this way</h3>
+    <p>Plain <code>fetch</code> + <code>react-router-dom</code>, no Redux/React Query/TypeScript — per the design doc, this is the user's first React project, and every extra library is one more thing to learn before the actual feature (chat) works. Design tokens are semantic names (<code>--text-secondary</code>, <code>--status-ready</code>) rather than raw hex values threaded through components, so Task 11's theme switcher only ever touches <code>theme.css</code>, never a component file.</p>
+
+    <h3>Real gaps found in the plan doc, fixed while implementing</h3>
+    <p>The plan doc's Step 4 draft of <code>api.js</code> exports only <code>apiUrl</code>/<code>apiGet</code>/<code>apiPost</code> — but Step 5's <code>NavRail.jsx</code> imports <code>logout</code> from the same file, which was never defined anywhere in the doc. Added <code>logout()</code> (posts to the real <code>POST /auth/logout</code> route built in Task 0) so the scaffold actually builds instead of failing at import time. Also added <code>credentials: 'include'</code> to every fetch in <code>api.js</code>, missing from the draft — without it the browser won't send the <code>sleuth_session</code> cookie cross-origin (frontend on :5173, API on :8000), and every authenticated call from Task 6 onward would silently 401.</p>
+
+    <h3>Verification</h3>
+    <p><code>npm run build</code> — clean, 32 modules transformed, zero errors. <code>npm run dev</code> — confirmed via <code>curl</code> that <code>/</code> and <code>/app/repos</code> both serve valid HTML (200) with no build/import errors in the module graph. Attempted a real headless-browser check with Playwright to catch runtime (not just build-time) errors, but Chromium's shared libraries (<code>libnspr4.so</code>, etc.) aren't installed in this WSL sandbox and installing them needs <code>sudo</code>, which isn't available here — so this task is verified at the build/serve level only, not a rendered-pixel check. Worth a real click-through once the dev server is run from an environment with a working browser (Windows side, most likely, per this project's existing WSL/Windows split for Docker).</p>
+  </section>
+
 </main>
 </body>
 </html>
