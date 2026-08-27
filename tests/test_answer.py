@@ -6,7 +6,7 @@ import respx
 
 from sleuth.chunking import Chunk
 from sleuth.config import Config
-from sleuth.retrieve.answer import build_prompt, get_answer
+from sleuth.retrieve.answer import build_prompt, get_answer, stream_answer
 from sleuth.retrieve.search import SearchResult
 from sleuth.store import create_repo, set_repo_embedding_info, update_repo_status, upsert_chunks
 
@@ -76,3 +76,34 @@ async def test_get_answer_embeds_question_and_streams_generated_answer(pg_conn):
     assert answer == "foo returns 1."
     voyage_calls = [c for c in respx.calls if "voyageai" in str(c.request.url)]
     assert len(voyage_calls) == 1
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_stream_answer_reports_sources_via_callback(pg_conn):
+    repo_id = create_repo(pg_conn, "https://github.com/example/repo")
+    update_repo_status(pg_conn, repo_id, "ready")
+    upsert_chunks(
+        pg_conn, repo_id,
+        [(Chunk("f.py", "foo", "function", 1, 2, "def foo():\n    return 1\n"), [0.1] * 1024)],
+    )
+    pg_conn.commit()
+
+    respx.post("https://api.voyageai.com/v1/embeddings").mock(
+        return_value=httpx.Response(200, json={"data": [{"embedding": [0.1] * 1024, "index": 0}]})
+    )
+    respx.post("https://api.groq.com/openai/v1/chat/completions").mock(
+        return_value=httpx.Response(200, content=b'data: {"choices":[{"delta":{"content":"hi"}}]}\n\ndata: [DONE]\n\n')
+    )
+
+    config = Config(voyage_api_key="k", groq_api_key="k", groq_model="m", database_url="unused")
+    captured = []
+    tokens = [
+        t async for t in stream_answer(
+            "q?", repo_id, pg_conn, config, on_sources=lambda results: captured.append(results)
+        )
+    ]
+
+    assert "".join(tokens) == "hi"
+    assert len(captured) == 1
+    assert captured[0][0].file_path == "f.py"
