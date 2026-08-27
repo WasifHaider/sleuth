@@ -650,6 +650,25 @@ tests/test_api_chat.py::test_post_chat_rejects_unknown_chat PASSED
     <p><code>npm run build</code> — clean, 32 modules transformed, zero errors. <code>npm run dev</code> — confirmed via <code>curl</code> that <code>/</code> and <code>/app/repos</code> both serve valid HTML (200) with no build/import errors in the module graph. Attempted a real headless-browser check with Playwright to catch runtime (not just build-time) errors, but Chromium's shared libraries (<code>libnspr4.so</code>, etc.) aren't installed in this WSL sandbox and installing them needs <code>sudo</code>, which isn't available here — so this task is verified at the build/serve level only, not a rendered-pixel check. Worth a real click-through once the dev server is run from an environment with a working browser (Windows side, most likely, per this project's existing WSL/Windows split for Docker).</p>
   </section>
 
+  <section class="task">
+    <div class="task-header">
+      <h2>Plan 2 — Task 6 — Login screen + auth-aware routing</h2>
+      <span class="status">done</span>
+    </div>
+    <div class="files">
+      <code>web/src/components/LoginPage.jsx</code> (new) · <code>web/src/App.jsx</code> · <code>web/src/api.js</code> · <code>web/src/theme.css</code> (login layout classes)
+    </div>
+
+    <h3>What it does</h3>
+    <p><code>LoginPage</code> is one form with a login/signup mode toggle, calling the real <code>POST /auth/login</code> / <code>POST /auth/signup</code> — on success it navigates to <code>/app</code>. <code>App.jsx</code> gained a <code>RequireAuth</code> wrapper around the <code>/app</code> route tree: it calls <code>GET /me</code> on mount, renders nothing while that's in flight, and redirects to <code>/login</code> if it 401s. <code>api.js</code> gained <code>getMe</code>/<code>updateMe</code>/<code>login</code>/<code>signup</code>, all riding the same <code>apiGet</code>/<code>apiPost</code>/new <code>apiPatch</code> helpers with <code>credentials: 'include'</code> from Task 5.</p>
+
+    <h3>Why it's built this way</h3>
+    <p>The plan doc's Task 6 draft is entirely stale — written for the abandoned GitHub OAuth + email magic-link design (a `<a href={githubLoginUrl()}>` full-page redirect plus a "check your email" flow, neither of which exist anymore per Task 0's actual auth). Rebuilt the whole task against the real backend: one password-based form instead of two OAuth/magic-link buttons, `login`/`signup` instead of `githubLoginUrl`/`requestMagicLink`. `RequireAuth`'s shape (loading/ok/unauth state machine reading `GET /me`) is the one piece of the draft that was already provider-agnostic, so it carried over unchanged.</p>
+
+    <h3>Verification</h3>
+    <p><code>npm run build</code> clean (33 modules). Ran the actual FastAPI backend (<code>uvicorn</code>, local Docker Postgres) and Vite dev server side by side, then drove the exact HTTP sequence the React code makes — <code>curl</code> with a cookie jar and <code>Origin: http://localhost:5173</code> on every call, matching what a browser's <code>fetch(..., {credentials: 'include'})</code> sends: signup → <code>Set-Cookie: sleuth_session=...</code> + correct CORS headers (<code>access-control-allow-credentials: true</code>, echoed origin) → <code>GET /me</code> with that cookie succeeds → logout clears the cookie → <code>GET /me</code> now 401s → login re-establishes a working session. This confirms the exact wire behavior <code>LoginPage</code> and <code>RequireAuth</code> depend on. Did not get a rendered-browser click-through (same Playwright/Chromium sandbox limitation as Task 5 — missing shared libs, no <code>sudo</code>) — this verifies the network contract, not the actual pixels/interactions.</p>
+  </section>
+
 </main>
 </body>
 </html>

@@ -26,8 +26,40 @@ export async function apiPost(path, body) {
   return res.json();
 }
 
+export async function apiPatch(path, body) {
+  const res = await fetch(apiUrl(path), {
+    method: 'PATCH',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}));
+    const err = new Error(detail.detail || `PATCH ${path} failed: ${res.status}`);
+    err.status = res.status;
+    throw err;
+  }
+  return res.json();
+}
+
 export async function logout() {
   const res = await fetch(apiUrl('/auth/logout'), { method: 'POST', credentials: 'include' });
   if (!res.ok) throw new Error(`logout failed: ${res.status}`);
   return res.json();
+}
+
+export function getMe() {
+  return apiGet('/me');
+}
+
+export function updateMe(patch) {
+  return apiPatch('/me', patch);
+}
+
+export function login(email, password) {
+  return apiPost('/auth/login', { email, password });
+}
+
+export function signup(email, password, name) {
+  return apiPost('/auth/signup', { email, password, name });
 }

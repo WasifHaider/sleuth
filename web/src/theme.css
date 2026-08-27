@@ -60,3 +60,12 @@ a:hover { color: var(--accent-hover); }
 .input-mono { flex: 1; padding: 12px 16px; background: var(--panel); border: 1px solid var(--border-strong);
   border-radius: 2px; font-family: var(--font-mono); font-size: 13.5px; color: var(--text); outline: none; }
 .input-mono:focus { border-color: var(--accent); }
+
+.login-shell { min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 24px; }
+.login-card { width: 100%; max-width: 360px; padding: 32px; display: flex; flex-direction: column; gap: 12px; }
+.login-card h1 { font-family: var(--font-head); font-size: 24px; margin: 0 0 8px; }
+.login-card form { display: flex; flex-direction: column; gap: 10px; }
+.login-error { color: var(--status-neutral); font-size: 13px; }
+.login-switch { background: none; border: none; color: var(--text-muted); font-size: 13px; cursor: pointer;
+  padding: 0; text-align: left; }
+.login-switch:hover { color: var(--accent); }
