@@ -1,3 +1,5 @@
+import json
+
 import psycopg
 
 from sleuth.chunking import Chunk
@@ -143,6 +145,58 @@ def get_user(conn: psycopg.Connection, user_id: str) -> dict | None:
 
 def set_user_theme(conn: psycopg.Connection, user_id: str, theme: str) -> None:
     conn.execute("UPDATE users SET theme_preference = %s WHERE id = %s", (theme, user_id))
+
+
+def create_chat(conn: psycopg.Connection, repo_id: str, title: str = "New chat") -> str:
+    row = conn.execute(
+        "INSERT INTO chats (repo_id, title) VALUES (%s, %s) RETURNING id", (repo_id, title)
+    ).fetchone()
+    return str(row[0])
+
+
+def list_chats(conn: psycopg.Connection, repo_id: str) -> list[dict]:
+    rows = conn.execute(
+        """
+        SELECT c.id, c.title, c.created_at, COUNT(m.id)
+        FROM chats c LEFT JOIN messages m ON m.chat_id = c.id
+        WHERE c.repo_id = %s
+        GROUP BY c.id
+        ORDER BY c.created_at DESC
+        """,
+        (repo_id,),
+    ).fetchall()
+    return [
+        {"id": str(cid), "title": title, "created_at": created_at.isoformat(), "message_count": count}
+        for cid, title, created_at, count in rows
+    ]
+
+
+def get_chat(conn: psycopg.Connection, chat_id: str) -> dict | None:
+    row = conn.execute("SELECT id, repo_id, title FROM chats WHERE id = %s", (chat_id,)).fetchone()
+    if row is None:
+        return None
+    return {"id": str(row[0]), "repo_id": str(row[1]), "title": row[2]}
+
+
+def create_message(
+    conn: psycopg.Connection, chat_id: str, role: str, content: str, sources: list[dict] | None = None
+) -> str:
+    row = conn.execute(
+        "INSERT INTO messages (chat_id, role, content, sources) VALUES (%s, %s, %s, %s) RETURNING id",
+        (chat_id, role, content, json.dumps(sources) if sources is not None else None),
+    ).fetchone()
+    return str(row[0])
+
+
+def list_messages(conn: psycopg.Connection, chat_id: str) -> list[dict]:
+    rows = conn.execute(
+        "SELECT id, role, content, sources, created_at FROM messages WHERE chat_id = %s ORDER BY created_at",
+        (chat_id,),
+    ).fetchall()
+    return [
+        {"id": str(mid), "role": role, "content": content, "sources": sources, "created_at": created_at.isoformat()}
+        for mid, role, content, sources, created_at in rows
+    ]
 
 
 def delete_stale_chunks(

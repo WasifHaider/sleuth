@@ -34,3 +34,27 @@ class RepoOut(BaseModel):
 
 class AddRepoIn(BaseModel):
     github_url: str
+
+
+class CreateChatIn(BaseModel):
+    repo_id: str
+
+
+class ChatOut(BaseModel):
+    id: str
+    title: str
+    created_at: str
+    message_count: int = 0
+
+
+class MessageOut(BaseModel):
+    id: str
+    role: str
+    content: str
+    sources: list[dict] | None = None
+    created_at: str
+
+
+class SendMessageIn(BaseModel):
+    chat_id: str
+    question: str

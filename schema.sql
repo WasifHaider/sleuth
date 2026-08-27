@@ -51,3 +51,21 @@ CREATE TABLE IF NOT EXISTS users (
 ALTER TABLE users DROP COLUMN IF EXISTS github_id;
 ALTER TABLE users DROP COLUMN IF EXISTS avatar_url;
 ALTER TABLE users ADD COLUMN IF NOT EXISTS password_hash text;
+
+CREATE TABLE IF NOT EXISTS chats (
+    id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    repo_id    uuid NOT NULL REFERENCES repos(id) ON DELETE CASCADE,
+    title      text NOT NULL DEFAULT 'New chat',
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS messages (
+    id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    chat_id    uuid NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+    role       text NOT NULL CHECK (role IN ('user', 'assistant')),
+    content    text NOT NULL,
+    sources    jsonb,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS messages_chat_idx ON messages (chat_id, created_at);
