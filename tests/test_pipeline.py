@@ -99,3 +99,20 @@ async def test_ingest_repo_marks_failed_on_clone_error(pg_conn, tmp_path):
     ).fetchone()
     assert row[0] == "failed"
     assert row[1] is not None
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_ingest_repo_emits_progress_events(pg_conn, local_git_repo):
+    _mock_voyage()
+    config = _config()
+    events = []
+
+    await ingest_repo(
+        str(local_git_repo), pg_conn, config,
+        on_event=lambda step, detail: events.append((step, detail)),
+    )
+
+    steps = [step for step, _detail in events]
+    assert "cloned" in steps
+    assert "ready" in steps

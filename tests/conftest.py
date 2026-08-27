@@ -1,8 +1,11 @@
 import os
 
 import pytest
+from dotenv import load_dotenv
 
 from sleuth.db import apply_schema, get_connection
+
+load_dotenv()
 
 TEST_DATABASE_URL = os.environ.get(
     "TEST_DATABASE_URL", "postgresql://postgres:postgres@localhost:5433/sleuth"

@@ -1,5 +1,6 @@
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 
+from sleuth.api import progress_store
 from sleuth.api.auth.session import require_session
 from sleuth.api.schemas import AddRepoIn, RepoOut
 from sleuth.db import get_connection
@@ -9,10 +10,14 @@ from sleuth.store import create_repo, get_repo, list_repos
 router = APIRouter(dependencies=[Depends(require_session)])
 
 
-async def _run_ingest(github_url: str, database_url: str, config) -> None:
+async def _run_ingest(repo_id: str, github_url: str, database_url: str, config) -> None:
     conn = get_connection(database_url)
+    progress_store.start(repo_id)
     try:
-        await ingest_repo(github_url, conn, config)
+        await ingest_repo(
+            github_url, conn, config,
+            on_event=lambda step, detail: progress_store.record(repo_id, step, **detail),
+        )
     finally:
         conn.close()
 
@@ -23,7 +28,7 @@ def add_repo(body: AddRepoIn, request: Request, background_tasks: BackgroundTask
     config = request.state.config
     repo_id = create_repo(conn, body.github_url)
     conn.commit()
-    background_tasks.add_task(_run_ingest, body.github_url, config.database_url, config)
+    background_tasks.add_task(_run_ingest, repo_id, body.github_url, config.database_url, config)
     return RepoOut(**get_repo(conn, repo_id))
 
 
@@ -42,3 +47,14 @@ def get_repo_by_id(repo_id: str, request: Request) -> RepoOut:
     if repo is None:
         raise HTTPException(status_code=404, detail="repo not found")
     return RepoOut(**repo)
+
+
+@router.get("/repos/{repo_id}/progress")
+def get_progress(repo_id: str, request: Request) -> dict:
+    repo = get_repo(request.state.conn, repo_id)
+    if repo is None:
+        raise HTTPException(status_code=404, detail="repo not found")
+    progress = progress_store.get(repo_id)
+    if progress is None:
+        return {"step": repo["status"], "detail": {}, "log": [], "elapsed_seconds": 0}
+    return progress

@@ -29,10 +29,15 @@ def _find_or_create_repo(conn, github_url: str) -> str:
     return repo_id
 
 
-async def ingest_repo(github_url: str, conn, config: Config) -> str:
+async def ingest_repo(github_url: str, conn, config: Config, on_event=None) -> str:
+    def emit(step: str, **detail) -> None:
+        if on_event:
+            on_event(step, detail)
+
     repo_id = _find_or_create_repo(conn, github_url)
     update_repo_status(conn, repo_id, "indexing")
     conn.commit()
+    emit("cloning")
 
     embedder = VoyageEmbedder(api_key=config.voyage_api_key)
 
@@ -43,19 +48,25 @@ async def ingest_repo(github_url: str, conn, config: Config) -> str:
         except CloneError as exc:
             update_repo_status(conn, repo_id, "failed", str(exc))
             conn.commit()
+            emit("failed", error=str(exc))
             return repo_id
 
         files = list_source_files(repo_path, SUPPORTED_EXTENSIONS)
+        emit("cloned", files=len(files))
 
         all_chunks = []
+        skipped = 0
         for file_path in files:
             relative_path = str(file_path.relative_to(repo_path))
             source_bytes = file_path.read_bytes()
             try:
                 chunks = chunk_source(source_bytes, relative_path, file_path.suffix)
             except Exception:
+                skipped += 1
                 continue  # skip files that fail to parse, don't abort the whole index
             all_chunks.extend(chunks)
+        emit("parsed", parsed=len(files) - skipped, skipped=skipped)
+        emit("chunked", chunks=len(all_chunks))
 
         current_keys = {(c.file_path, c.symbol_name) for c in all_chunks}
         existing_hashes = get_existing_hashes(conn, repo_id)
@@ -70,7 +81,11 @@ async def ingest_repo(github_url: str, conn, config: Config) -> str:
                 format_chunk_context(c, EXTENSION_TO_LANGUAGE.get("." + c.file_path.rsplit(".", 1)[-1], ""))
                 for c in to_embed
             ]
-            vectors = await embedder.embed_batch(texts)
+            emit("embedding_start", to_embed=len(to_embed))
+            vectors = await embedder.embed_batch(
+                texts,
+                on_batch_done=lambda done, total: emit("embedding_progress", done=done, total=total),
+            )
             upsert_chunks(conn, repo_id, list(zip(to_embed, vectors)))
             conn.commit()
 
@@ -79,9 +94,11 @@ async def ingest_repo(github_url: str, conn, config: Config) -> str:
 
         delete_stale_chunks(conn, repo_id, current_keys)
         conn.commit()
+        emit("stored", upserted=len(to_embed), skipped_unchanged=len(all_chunks) - len(to_embed))
 
         update_repo_status(conn, repo_id, "ready")
         conn.commit()
+        emit("ready")
         return repo_id
     finally:
         shutil.rmtree(workdir, ignore_errors=True)

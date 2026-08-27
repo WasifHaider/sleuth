@@ -14,8 +14,10 @@ Implementation plan (14 tasks, TDD, real code per step): `docs/superpowers/plans
 — plan since expanded to 14 tasks (agentic mode and eval harness split out as
 their own Tasks 13-14) and checked against v2 design for pluggable providers.
 
-This plan is **Plan 1**: core pipeline + CLI only. FastAPI + React web app is a
-separate Plan 2, not started, not yet designed in detail.
+Plan 1 (below) is core pipeline + CLI only, **done** (all 14 tasks). Plan 2
+(FastAPI + React web app) is now **in progress** — plan doc:
+`docs/superpowers/plans/2026-08-19-rag-web-app-fastapi-react.md`. See
+"Progress — Plan 2" below.
 
 ## Stack (per v2 design)
 
@@ -64,12 +66,23 @@ on their behalf unless they ask.
 - **Task 14 (eval harness)**: done. `sleuth/eval/runner.py` — `load_golden(path)`, `run_eval(golden_yaml_path, conn, config)` scores each golden case on hit (file/symbol match), reciprocal rank, and an LLM-judge 1-5 score, aggregates to hit-rate@8/MRR/avg judge. Voyage-only, same narrowed scope as Tasks 7-11 (no `_EMBEDDER_BY_MODEL`, no `dim` param). `eval/sample_repo.yaml` (template for real repos), `tests/fixtures/sample_golden.yaml` (test fixture), `tests/test_eval_runner.py`. Added `pyyaml` to `requirements.txt`.
 - **All 14 tasks done.** Full suite green: 64/64 passing as of last check.
 
+## Progress — Plan 2 (FastAPI + React web app)
+
+Plan doc: `docs/superpowers/plans/2026-08-19-rag-web-app-fastapi-react.md` (13 tasks, Task 0-12).
+
+- **Task 0 (auth)**: done, but **diverged from the plan doc**. Plan doc specifies GitHub OAuth + email magic-link. Actually built: email/password auth instead — `sleuth/api/routes/auth.py` (`POST /auth/signup`, `POST /auth/login`, `POST /auth/logout`) hashes/checks passwords with `bcrypt`, `sleuth/api/auth/session.py` signs a `sleuth_session` cookie via `itsdangerous.URLSafeTimedSerializer(config.session_secret)`, `require_session` FastAPI dependency reads it and loads the user via `store.get_user`. `sleuth/api/routes/users.py` — `GET /me`, `PATCH /me` (theme). `users` table added to `schema.sql` with `password_hash text` (nullable, `ALTER TABLE ADD COLUMN IF NOT EXISTS` for the pre-existing OAuth-shaped table). `Config` only gained `session_secret`; the `github_client_id`/`github_client_secret`/`smtp_*` fields the plan doc calls for were added then **removed** — GitHub OAuth (`sleuth/api/auth/github.py`) and email magic-link (`sleuth/api/auth/email_link.py`) were built first, then deleted in favor of the simpler password flow (commit "feat: Updated plan and simplified auth"). `docs/progress.html` has both the original and revised writeups. `tests/test_api_auth.py` covers the password flow. **The plan doc's Task 0 section (line ~262) is stale** — describes the abandoned OAuth/magic-link design; Tasks 1+ in that doc still apply.
+- **Task 1 (store helper + repo endpoints, behind auth)**: done. `sleuth/api/routes/repos.py` — `POST /repos` (creates a `pending` repo row, kicks off `ingest_repo` via FastAPI `BackgroundTasks`), `GET /repos`, `GET /repos/{id}` (404 if missing) — router-level `Depends(require_session)` gates all three. `sleuth/api/main.py` — `create_app(config)` wires CORS (`allow_credentials=True`, origin `http://localhost:5173`) and the same `get_connection`/`apply_schema`-per-request middleware pattern as the CLI. `tests/test_api_repos.py` (stubs `ingest_repo` so the round-trip test doesn't shell out to a real `git clone`).
+- **Tasks 2-12** (progress instrumentation, chat persistence + SSE streaming, Vite scaffold, login/landing/repos/indexing/chat screens, theme switcher, polish): not started yet.
+- Not yet run in this session: could not execute `pytest tests/test_api_auth.py tests/test_api_repos.py` end-to-end here — native-Windows Python (`.venv-win`) couldn't reach the Docker Postgres container on `localhost:5433` (connection timeout from PowerShell/`.venv-win`, but reachable from a Windows-side `python3` stub run through the Bash tool) — looks like a host-networking quirk specific to this check, not a code defect; verified Task 0/1 by reading code + `docs/progress.html` + `schema.sql` instead. Worth a clean re-run before Task 2.
+- Also present, not part of Plan 2, not started: `docs/superpowers/specs/2026-08-24-call-graph-extraction-design.md` + matching plan `docs/superpowers/plans/2026-08-24-call-graph-extraction.md` — a separate future feature, added same day as the auth simplification, no code written against it yet.
+
 ## Environment notes
 
 - Repo lives at `/mnt/d/Personal/SLEUTH` in WSL (`D:\Personal\SLEUTH` on Windows / `/d/Personal/SLEUTH` in Git Bash).
 - Docker is run from **Git Bash on Windows**, not from inside WSL (no WSL Docker integration enabled). Any `docker compose` command should be given to the user to run in Git Bash, not executed directly in this WSL session.
 - WSL2 forwards Windows `localhost` ports automatically, so containers started from Windows-side Docker are reachable at `localhost:<port>` from WSL — except where a native WSL-local service is already bound to that same port (see Task 2 note above).
-- Python venv at `.venv/` (created via `python3 -m venv .venv`), deps installed from `requirements.txt`.
+- Python venv at `.venv/` (created via `python3 -m venv .venv`), deps installed from `requirements.txt`. This is WSL-native — its `bin/python` symlinks are broken when accessed from Windows (Git Bash/PowerShell); use it only from actual WSL.
+- A second venv, `.venv-win/`, is a native-Windows Python 3.11 install for running things from PowerShell/Git-Bash-on-Windows directly. Kept separately from `requirements.txt` sync — `tree-sitter-vue`'s wheel needs a C++ build toolchain that isn't installed natively on Windows (`pip install -r requirements.txt` fails on it), so install packages there one at a time as needed instead of the full requirements file.
 - Global git config on this machine has an unrelated bug (`git config --global --list` fails with `fatal: cannot chdir to 'D:/'`) even with no `~/.gitconfig` present — worked around by using local (per-repo) git config only. Not investigated further, not blocking.
 - `docs/progress.html` — self-contained build log, one section per completed task, meant to be opened directly in a browser.
 - `Note.md` (repo root) — user's own understanding notes, written by them after each task, reviewed/corrected by Claude on request.

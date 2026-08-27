@@ -44,7 +44,7 @@ def test_add_list_get_repo_round_trip(pg_conn, monkeypatch):
     # behavior is already covered by tests/test_pipeline.py. Stub ingest_repo
     # so this doesn't shell out to a real `git clone` against a fake GitHub URL,
     # which just hangs waiting on network/credentials.
-    async def fake_ingest_repo(github_url, conn, config):
+    async def fake_ingest_repo(github_url, conn, config, on_event=None):
         from sleuth.store import update_repo_status
 
         rows = conn.execute("SELECT id FROM repos WHERE github_url = %s", (github_url,)).fetchall()
@@ -76,3 +76,41 @@ def test_add_list_get_repo_round_trip(pg_conn, monkeypatch):
             break
         time.sleep(0.1)
     assert got["status"] in ("ready", "failed")
+
+
+def test_progress_endpoint_returns_404_for_unknown_repo(pg_conn):
+    resp = _logged_in_client().get("/repos/00000000-0000-0000-0000-000000000000/progress")
+    assert resp.status_code == 404
+
+
+@respx.mock
+def test_progress_endpoint_reports_step(pg_conn, monkeypatch):
+    async def fake_ingest_repo(github_url, conn, config, on_event=None):
+        from sleuth.store import update_repo_status
+
+        rows = conn.execute("SELECT id FROM repos WHERE github_url = %s", (github_url,)).fetchall()
+        repo_id = str(rows[-1][0])
+        if on_event:
+            on_event("cloned", {"files": 2})
+        update_repo_status(conn, repo_id, "ready")
+        conn.commit()
+        return repo_id
+
+    monkeypatch.setattr("sleuth.api.routes.repos.ingest_repo", fake_ingest_repo)
+
+    respx.post("https://api.voyageai.com/v1/embeddings").mock(
+        return_value=httpx.Response(200, json={"data": []})
+    )
+    client = _logged_in_client()
+
+    repo_id = client.post("/repos", json={"github_url": "https://github.com/example/progress-repo"}).json()["id"]
+
+    progress = None
+    for _ in range(50):
+        progress = client.get(f"/repos/{repo_id}/progress").json()
+        if progress["step"] in ("cloned", "ready", "failed"):
+            break
+        time.sleep(0.1)
+    assert progress is not None
+    assert "log" in progress
+    assert "elapsed_seconds" in progress

@@ -13,7 +13,7 @@ class Embedder(ABC):
     dim: int
 
     @abstractmethod
-    async def embed_batch(self, texts: list[str]) -> list[list[float]]:
+    async def embed_batch(self, texts: list[str], on_batch_done=None) -> list[list[float]]:
         ...
 
 
@@ -26,14 +26,22 @@ class VoyageEmbedder(Embedder):
         self.batch_size = batch_size
         self.max_concurrency = max_concurrency
 
-    async def embed_batch(self, texts: list[str]) -> list[list[float]]:
+    async def embed_batch(self, texts: list[str], on_batch_done=None) -> list[list[float]]:
         batches = [texts[i : i + self.batch_size] for i in range(0, len(texts), self.batch_size)]
         semaphore = asyncio.Semaphore(self.max_concurrency)
+        total = len(batches)
+        completed = 0
+
+        async def run_one(client, batch):
+            nonlocal completed
+            vectors = await self._embed_one_batch(client, semaphore, batch)
+            completed += 1
+            if on_batch_done:
+                on_batch_done(completed, total)
+            return vectors
 
         async with httpx.AsyncClient() as client:
-            results = await asyncio.gather(
-                *(self._embed_one_batch(client, semaphore, batch) for batch in batches)
-            )
+            results = await asyncio.gather(*(run_one(client, batch) for batch in batches))
 
         vectors: list[list[float]] = []
         for batch_vectors in results:

@@ -548,6 +548,34 @@ tests/test_api_auth.py::test_logout_clears_session PASSED
 115 passed (full suite, against Supabase dev/test project)</div>
   </section>
 
+  <section class="task">
+    <div class="task-header">
+      <h2>Plan 2 — Task 2 — Ingest progress instrumentation</h2>
+      <span class="status">done</span>
+    </div>
+    <div class="files">
+      <code>sleuth/api/progress_store.py</code> (new) · <code>sleuth/ingest/pipeline.py</code> · <code>sleuth/ingest/embed.py</code> · <code>sleuth/api/routes/repos.py</code> · <code>tests/test_embed.py</code> · <code>tests/test_pipeline.py</code> · <code>tests/test_api_repos.py</code> · <code>tests/conftest.py</code>
+    </div>
+
+    <h3>What it does</h3>
+    <p><code>ingest_repo(..., on_event=None)</code> now emits a step through the run: <code>cloning</code> → <code>cloned</code> (file count) → <code>parsed</code>/<code>chunked</code> → <code>embedding_start</code> → <code>embedding_progress</code> (per-batch, <code>done</code>/<code>total</code>) → <code>stored</code> → <code>ready</code>, or <code>failed</code> with the error on a clone failure. <code>embed_batch(..., on_batch_done=None)</code> is the source of the embedding progress ticks — it fires once per completed batch inside the existing concurrent <code>asyncio.gather</code>, not after the whole embed call finishes. <code>sleuth/api/progress_store.py</code> is a small in-process, thread-safe dict keyed by <code>repo_id</code> (<code>start</code>/<code>record</code>/<code>get</code>), keeping the current step, last detail, a 20-entry rolling log, and elapsed seconds. The API's background ingest task wires <code>progress_store.record</code> in as the callback; a new <code>GET /repos/{id}/progress</code> route reads it back (falling back to the repo's DB <code>status</code> if nothing's been recorded yet, 404 if the repo itself doesn't exist).</p>
+
+    <h3>Why it's built this way</h3>
+    <p>The callback is threaded through as a plain function, not an event bus or queue — <code>ingest_repo</code> and <code>embed_batch</code> stay usable exactly as before with no callback (CLI's <code>add</code> command doesn't pass one), and the API layer is the only caller that cares about live progress. <code>progress_store</code> is in-process memory, not a DB table or Redis, because this is still a single-process local tool (same reasoning as Task 1's <code>BackgroundTasks</code> choice) — a page polling <code>GET /repos/{id}/progress</code> every second doesn't need durability across restarts, just a place to read the last-known step from a different request than the one running the ingest.</p>
+    <p>Embedding progress ticks per-batch rather than per-chunk because that's the real unit of work <code>embed_batch</code> already does — batches run concurrently under a semaphore (Task 7), so <code>on_batch_done</code> fires from whichever batch finishes first, in completion order, not submission order; the frontend gets an honest "6 of 40 batches done," not a fake linear progress bar.</p>
+
+    <h3>Real bug found and fixed (environment, not this task's code)</h3>
+    <p><code>.env</code>'s <code>TEST_DATABASE_URL</code> was byte-identical to prod <code>DATABASE_URL</code> — both pointed at the Supabase pooler, despite a comment above it claiming a "dedicated dev/test Supabase project." A prior session's Task 0 writeup (see above) explains switching test DB from local Docker to Supabase after a Docker Desktop port-forward went stale — but the URL that got pasted in was the prod one, not a separate project's. Every test run was going out over the network to Supabase instead of the local Docker container documented in CLAUDE.md, and this session's WSL environment sometimes couldn't even resolve that host (<code>Temporary failure in name resolution</code>) — tests were hanging for minutes instead of running in seconds. Confirmed the local Docker container (Task 2 of Plan 1) is up and reachable on <code>localhost:5433</code>, and repointed <code>TEST_DATABASE_URL</code> there. Test run time for the affected suite went from 163s (mostly DNS timeout) to 13.65s.</p>
+
+    <h3>Tests</h3>
+    <div class="test-result">tests/test_embed.py::test_embed_batch_reports_progress_via_callback PASSED
+tests/test_pipeline.py::test_ingest_repo_emits_progress_events PASSED
+tests/test_api_repos.py::test_progress_endpoint_returns_404_for_unknown_repo PASSED
+tests/test_api_repos.py::test_progress_endpoint_reports_step PASSED
+
+119 passed in 47.30s (full suite, local Docker Postgres, localhost:5433)</div>
+  </section>
+
 </main>
 </body>
 </html>
