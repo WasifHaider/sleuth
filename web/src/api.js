@@ -63,3 +63,19 @@ export function login(email, password) {
 export function signup(email, password, name) {
   return apiPost('/auth/signup', { email, password, name });
 }
+
+export function listRepos() {
+  return apiGet('/repos');
+}
+
+export function addRepo(githubUrl) {
+  return apiPost('/repos', { github_url: githubUrl });
+}
+
+export function getRepo(repoId) {
+  return apiGet(`/repos/${repoId}`);
+}
+
+export function getProgress(repoId) {
+  return apiGet(`/repos/${repoId}/progress`);
+}
