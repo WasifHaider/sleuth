@@ -669,6 +669,94 @@ tests/test_api_chat.py::test_post_chat_rejects_unknown_chat PASSED
     <p><code>npm run build</code> clean (33 modules). Ran the actual FastAPI backend (<code>uvicorn</code>, local Docker Postgres) and Vite dev server side by side, then drove the exact HTTP sequence the React code makes — <code>curl</code> with a cookie jar and <code>Origin: http://localhost:5173</code> on every call, matching what a browser's <code>fetch(..., {credentials: 'include'})</code> sends: signup → <code>Set-Cookie: sleuth_session=...</code> + correct CORS headers (<code>access-control-allow-credentials: true</code>, echoed origin) → <code>GET /me</code> with that cookie succeeds → logout clears the cookie → <code>GET /me</code> now 401s → login re-establishes a working session. This confirms the exact wire behavior <code>LoginPage</code> and <code>RequireAuth</code> depend on. Did not get a rendered-browser click-through (same Playwright/Chromium sandbox limitation as Task 5 — missing shared libs, no <code>sudo</code>) — this verifies the network contract, not the actual pixels/interactions.</p>
   </section>
 
+  <section class="task">
+    <div class="task-header">
+      <h2>Plan 2 — Task 7 — Landing page</h2>
+      <span class="status">done</span>
+    </div>
+    <div class="files">
+      <code>web/src/components/LandingPage.jsx</code> · <code>web/src/theme.css</code> (landing layout, hero SVG animation, scroll-reveal classes)
+    </div>
+
+    <h3>What it does</h3>
+    <p>The marketing page at bare <code>/</code> — header (logo + nav anchors + "Connect a repo" pill), hero with an animated decorative SVG (drifting lines, pulsing nodes, a traversal stroke — evokes the tree-sitter/graph theme without being literal), a "the problem" numbered list, a 3-card feature grid, a 3-step "how it works" grid, a static browser-chrome mock of a real Q&amp;A exchange with a file:line citation, a closing CTA, and a footer. Every section but the hero fades/slides in on scroll via <code>IntersectionObserver</code> (<code>data-reveal</code> → <code>.is-revealed</code>), unobserving after first reveal, with a 2.6s fallback timeout in case the observer never fires. Both "Connect a repo" CTAs and the header pill route to <code>/login</code>, not a raw external link — reaching the app requires a session, and <code>RequireAuth</code> (Task 6) already owns the post-login redirect to <code>/app/repos</code>.</p>
+
+    <h3>Why it's built this way</h3>
+    <p>The plan doc's Task 7 draft ports this section-by-section from a design source file, <code>Sleuth Landing.dc.html</code> — that file was never checked into this repo (same as the Login design source referenced in Task 6's stale draft), so there was nothing to port pixel-for-pixel. Built directly from the plan doc's detailed prose spec instead (exact section ids, headline copy, card/step copy, the GitHub-only correction to the "how it works" copy) using the existing <code>theme.css</code> tokens, matching Task 5/6's precedent of treating the design-source references as unavailable and building against the real project state. No new dependencies — the reveal-on-scroll behavior is plain <code>IntersectionObserver</code>, no animation library, consistent with the project's "no vendor SDK, hand-written" bias applied to the frontend too.</p>
+
+    <h3>Verification</h3>
+    <p><code>npm run build</code> and <code>npm run dev</code> only work from Windows-side npm in this session — the WSL-local <code>node_modules</code> only has the <code>win32-x64-msvc</code> native binding for <code>rolldown</code>/<code>oxlint</code>, so <code>vite build</code>/<code>oxlint</code> invoked from WSL bash fail with "Cannot find module" before even reading the new code; running the identical commands via <code>cmd.exe /c npm run build</code> builds clean (33 modules, no errors). Same split for the dev server: <code>vite</code> reports itself listening on <code>localhost:5717</code>, but WSL's <code>curl</code> against that port gets connection-refused while <code>cmd.exe /c curl</code> against the same URL succeeds — the dev server is only reachable from the Windows side, a new instance of this project's known WSL/Windows host-networking split (previously seen with Docker and the native-Postgres port). Verified with Windows-side <code>curl</code>: <code>/</code> serves the real HTML shell (title, Google Fonts links), and fetching <code>/src/components/LandingPage.jsx</code> through Vite's dev transform returns 200 with valid transformed JS (confirms no JSX/syntax error in the new component — Vite would 500 on a parse failure). Did not get a rendered-browser click-through — same Playwright/Chromium sandbox gap as Tasks 5-6 (missing shared libs, no <code>sudo</code>) — so the scroll-reveal animation and visual layout are unverified by eye; worth a real look once run from an environment with a working browser.</p>
+  </section>
+
+  <section class="task">
+    <div class="task-header">
+      <h2>Plan 2 — Task 7 (revised) — Landing page rebuilt against the real design source</h2>
+      <span class="status">done</span>
+    </div>
+    <div class="files">
+      <code>web/src/components/LandingPage.jsx</code> · <code>web/src/theme.css</code> (full landing rule set replaced) · <code>docs/design/</code> (new — all 9 <code>.dc.html</code> design canvases + <code>support.js</code> copied into the repo, so this gap doesn't recur for Tasks 8-12)
+    </div>
+
+    <h3>What changed</h3>
+    <p>The user opened the first build in a real browser and flagged two problems from a screenshot: the background line animation looked like it was stuttering, and the logo mark didn't match the design. Turned out the actual design source — <code>Sleuth Landing.dc.html</code> — existed all along, just on the user's Windows Downloads folder as a zip, never handed to Claude or checked into the repo (same file the original Task 7 writeup and Task 6 both correctly noted was "referenced but unavailable"). Extracted and copied the whole design bundle into <code>docs/design/</code>, read the real markup, and rebuilt the component and its CSS to match it exactly instead of the invented version.</p>
+
+    <h3>Root cause of the "stuck" animation</h3>
+    <p>Not a performance issue — a logic bug. The original background SVG animated the drifting <em>lines</em> (<code>translateX</code> on the path elements) but left the pulsing <em>node</em> circles at fixed coordinates, so on every drift cycle the nodes visually detached from the lines they sit on and snapped back — read as stutter. The real design's SVG groups each line bundle and its nodes together under one <code>&lt;g&gt;</code> and animates the whole group with a small <code>translate3d</code> (14-18px, not a big sweep), so everything drifts as one unit. Ported that structure exactly: five path/node groups (two "circuit" line families at different drift speeds, two accent-colored "signal traversal" paths that draw themselves via animated <code>stroke-dashoffset</code> with a fade in/out, and two faint dashed vertical guide lines) — no more mismatch, no more stutter.</p>
+
+    <h3>Logo</h3>
+    <p>Original was a solid accent-colored rounded square — a total guess, since there was no source to work from. The real mark is a small bordered square (not filled) containing three thin bars arranged to suggest a nested/tree glyph — ported as exact absolutely-positioned <code>&lt;span&gt;</code> elements matching the source's pixel offsets, reused in both header and footer.</p>
+
+    <h3>Responsiveness</h3>
+    <p>Also flagged as "not correct at all." The original used one hardcoded breakpoint (<code>@media max-width: 900px</code>) hiding the nav and switching two grids to a single column — coarse, and everything in between broke. The real design never uses breakpoints at all: every font size and padding is a <code>clamp(min, preferred-vw, max)</code>, and every multi-column layout is <code>grid-template-columns: repeat(auto-fit, minmax(Npx, 1fr))</code>, so columns collapse fluidly as space runs out instead of snapping at one width. Ported that approach wholesale — no media queries left in the landing CSS.</p>
+
+    <h3>Also corrected while porting</h3>
+    <p>Section copy (hero subhead, problem list, feature card bodies, how-it-works steps, the Q&amp;A preview mock) was replaced with the source's actual copy — the invented version was in the right shape but different words throughout. Kept the one deliberate deviation from the source that Task 7's original spec called for: CTAs go to <code>/login</code> instead of the source's in-page <code>#cta</code> anchor, since connecting a repo requires a session. Dropped the source's in-canvas theme/typeface toggle buttons (fixed top-right pills for switching between 5 themes and 2 type treatments) — those are <code>Sleuth Landing.dc.html</code>'s own preview tooling for the design canvas itself, not part of the shipped page; Task 11 builds the real theme switcher differently, in the account menu.</p>
+
+    <h3>Verification</h3>
+    <p><code>cmd.exe /c npm run build</code> clean (33 modules, no errors) after the rewrite. Same Playwright/Chromium sandbox gap as prior tasks means no local rendered check on this end — but the user's own screenshot of the previous version is what surfaced these bugs in the first place, so the fixes are aimed at their actual observed symptoms rather than a guess.</p>
+  </section>
+
+  <section class="task">
+    <div class="task-header">
+      <h2>Plan 2 — Task 7 (revised again) — headline font sizes too large at desktop width</h2>
+      <span class="status">done</span>
+    </div>
+    <div class="files">
+      <code>web/src/theme.css</code> (clamp() maxes on <code>.hero h1</code>, <code>.hero-sub</code>, <code>.section-inner h2</code>, <code>.preview-head h2</code>, <code>.cta-inner h2</code>)
+    </div>
+
+    <h3>What it does</h3>
+    <p>Two more screenshots (fullscreen desktop, ~1760px viewport) showed the hero headline and the closing CTA headline both overflowing their line boxes at a huge size. Ported straight from the design source, <code>.hero h1</code> was <code>clamp(56px, 10.5vw, 148px)</code> and <code>.cta-inner h2</code> was <code>clamp(48px, 9vw, 132px)</code> — the <code>vw</code> term scales off the full viewport width, not the 1440px-capped content container, so on any monitor wider than roughly 1400px the preferred value blows straight through toward the clamp's max and everything reads oversized. Halved the max end of every large-headline clamp roughly in proportion (hero h1 → <code>clamp(36px, 5.5vw, 84px)</code>, section h2s → <code>clamp(28px, 3vw, 48px)</code>, preview h2 → <code>clamp(26px, 2.8vw, 42px)</code>, CTA h2 → <code>clamp(30px, 5vw, 68px)</code>) and trimmed the hero subhead's clamp similarly.</p>
+
+    <h3>Why it's built this way</h3>
+    <p>The design source's literal clamp values are correct for whatever viewport the canvas tool previewed at, but this page renders in a real browser window, and prioritizing the user's actual screen over faithfully reproducing numbers that don't hold up there is the right call — a pixel-exact port isn't the goal if the pixels are wrong on a normal monitor. Kept the same clamp *shape* (min, vw-scaled preferred, max) everywhere, just recalibrated the numbers, so the fluid/responsive behavior from the previous revision is unchanged — headlines still scale smoothly with viewport width, just capped lower.</p>
+
+    <h3>Verification</h3>
+    <p><code>cmd.exe /c npm run build</code> clean (33 modules, no errors). Not independently re-screenshotted — waiting on the user to confirm the new sizes read correctly on their actual monitor.</p>
+  </section>
+
+  <section class="task">
+    <div class="task-header">
+      <h2>Plan 2 — Task 7 (revised again) — narrow-viewport responsiveness</h2>
+      <span class="status">done</span>
+    </div>
+    <div class="files">
+      <code>web/src/components/LandingPage.jsx</code> (nav links wrapped in <code>.nav-links</code>) · <code>web/src/theme.css</code> (grid overflow fix, fixed-px headings → <code>clamp()</code>, one small-screen media query)
+    </div>
+
+    <h3>What it does</h3>
+    <p>Three real gaps below the desktop widths already checked, none of them were "add a breakpoint for everything" — each is a different fix for a different narrow-width failure mode:</p>
+    <p><strong>Grid overflow.</strong> <code>repeat(auto-fit, minmax(320px, 1fr))</code> (and the 290px/260px variants for feature cards and how-steps) guarantees each track is at least 320px regardless of how narrow the viewport is — on a ~375px phone with padding already eating ~40px, that's wider than the space available, so the row overflows horizontally instead of collapsing to one column. Switched all three grids to <code>minmax(min(320px, 100%), 1fr)</code> — a standard fix: the track's minimum is now "320px, or 100% of the container, whichever is smaller," so it can never force overflow.</p>
+    <p><strong>Un-clamped fixed sizes.</strong> <code>.feature-card h3</code> (34px) and <code>.how-num</code> (64px) were the only two headline-scale rules in the whole component still using a flat pixel size instead of <code>clamp()</code> — everywhere else already scaled with viewport width per the previous revision, these two didn't and would sit oversized relative to their narrow-screen neighbors. Converted both to <code>clamp()</code> ranges consistent with the rest of the page.</p>
+    <p><strong>Header nav on small screens.</strong> Wrapped the four in-page anchor links in a <code>.nav-links</code> div (kept separate from the <code>/login</code> CTA) and hid that div under 640px — a header with five nav items plus a logo has no good wrapped layout on a phone-width screen; standard pattern is collapse to logo + primary CTA only. Also shrank header top padding, hid the redundant chrome-title in the browser mock, and stacked the problem-row grid to one column under the same breakpoint, all narrow-only adjustments that don't touch anything above 640px.</p>
+
+    <h3>Why it's built this way</h3>
+    <p>Kept the "no breakpoints, clamp/auto-fit does the work" philosophy from the previous revision everywhere it still holds — the grid and font-size fixes are breakpoint-free, matching the design source's actual approach. The one <code>@media</code> block that got added is for a layout decision (which nav items to show) that clamp/auto-fit fundamentally can't express — hiding elements isn't a sizing problem, so a breakpoint is the correct tool there, not a compromise.</p>
+
+    <h3>Verification</h3>
+    <p><code>cmd.exe /c npm run build</code> clean (33 modules, no errors). No rendered check at narrow widths on this end (same sandbox gap as every prior frontend task) — reasoned from the CSS mechanics (track minimums vs. available width, un-clamped vs. clamped rules) rather than an observed screenshot this time, since the user hadn't reported a specific narrow-width symptom, just asked for responsiveness generally. Worth the user resizing the browser or checking dev tools' device toolbar to confirm.</p>
+  </section>
+
 </main>
 </body>
 </html>

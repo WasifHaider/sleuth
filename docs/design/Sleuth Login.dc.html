@@ -1,0 +1,252 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+
+<helmet>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+<link href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Sacramento&family=Big+Shoulders+Display:wght@400;600;700;800;900&family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  body { margin: 0; padding: 0; }
+  * { box-sizing: border-box; }
+  [data-theme] { --bg:#0F372F; --deep:#0A2621; --surface:#143F36; --text:#F2F5F2; --muted:rgba(242,245,242,0.58); --faint:rgba(242,245,242,0.30); --accent:#ECBC6B; --onAccent:#0F372F; --line:rgba(242,245,242,0.13); --lineStrong:rgba(242,245,242,0.26); --glow:rgba(236,188,107,0.16); --accent2:var(--accent); --fHead:'Big Shoulders Display',sans-serif; --fBody:'Space Grotesk',system-ui,sans-serif; --fEyebrow:'Space Grotesk',sans-serif; }
+  [data-theme="midnight"] { --bg:#011423; --deep:#000A12; --surface:#07202F; --text:#E8F0F6; --muted:rgba(232,240,246,0.58); --faint:rgba(232,240,246,0.30); --accent:#E7D269; --onAccent:#011423; --line:rgba(232,240,246,0.13); --lineStrong:rgba(232,240,246,0.26); --glow:rgba(231,210,105,0.14); --accent2:var(--accent); }
+  [data-type="b"] { --fHead:'Alfa Slab One',Georgia,serif; --fEyebrow:'Sacramento',cursive; }
+  [data-type="b"] h1 { font-weight:400 !important; letter-spacing:-0.005em !important; }
+  [data-theme="edition"] { --bg:#071317; --deep:#040C0F; --surface:#0C1E23; --text:#E6F2F2; --muted:rgba(230,242,242,0.58); --faint:rgba(230,242,242,0.30); --accent:#02A0A0; --onAccent:#04191B; --line:rgba(230,242,242,0.13); --lineStrong:rgba(230,242,242,0.26); --glow:rgba(2,160,160,0.20); --accent2:#FFBD65; }
+  [data-theme="leaf"] { --bg:#CDFF9B; --deep:#BDF287; --surface:#D8FFB2; --text:#203D43; --muted:rgba(32,61,67,0.66); --faint:rgba(32,61,67,0.38); --accent:#203D43; --onAccent:#CDFF9B; --line:rgba(32,61,67,0.16); --lineStrong:rgba(32,61,67,0.32); --glow:rgba(32,61,67,0.16); --accent2:var(--accent); }
+  [data-theme="ivory"] { --bg:#F3EEE1; --deep:#E7E0CF; --surface:#FBF8F1; --text:#101E28; --muted:rgba(16,30,40,0.62); --faint:rgba(16,30,40,0.34); --accent:#0061A4; --onAccent:#F7F4EC; --line:rgba(16,30,40,0.14); --lineStrong:rgba(16,30,40,0.28); --glow:rgba(0,97,164,0.12); --accent2:var(--accent); }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { color: var(--text); }
+  [data-tbtn][data-active="true"] { background: var(--accent) !important; color: var(--onAccent) !important; }
+  [data-tbtn][data-active="false"]:hover { color: var(--text) !important; }
+  [data-fbtn][data-active="true"] { background: var(--accent) !important; color: var(--onAccent) !important; }
+  [data-fbtn][data-active="false"]:hover { color: var(--text) !important; }
+  input { font-family: inherit; outline: none; }
+  input::placeholder { color: var(--faint); }
+  input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  [data-oauth-btn]:not([data-disabled="true"]):hover { transform: translateY(-2px); box-shadow: 0 14px 30px rgba(0,0,0,0.16); border-color: var(--lineStrong); }
+  [data-cta]:not(:disabled):hover { transform: translateY(-2px); box-shadow: 0 14px 30px var(--glow); }
+  @keyframes drift1 { 0%{transform:translate3d(0,0,0)} 50%{transform:translate3d(12px,-16px,0)} 100%{transform:translate3d(0,0,0)} }
+  @keyframes drift2 { 0%{transform:translate3d(0,0,0)} 50%{transform:translate3d(-14px,10px,0)} 100%{transform:translate3d(0,0,0)} }
+  @keyframes pulseNodeSlow { 0%,100%{opacity:.22} 50%{opacity:.6} }
+  @keyframes traverseSlow { 0%{stroke-dashoffset:600; opacity:0} 12%{opacity:.7} 88%{opacity:.7} 100%{stroke-dashoffset:0; opacity:0} }
+  @keyframes connectPulse { 0%,100%{opacity:1} 50%{opacity:.5} }
+  @keyframes cardIn { from{ opacity:0; transform:translateY(8px); } to{ opacity:1; transform:none; } }
+</style>
+</helmet>
+
+<div data-theme="{{ theme }}" data-type="{{ typeOpt }}" style="background:var(--bg); color:var(--text); font-family:var(--fBody); min-height:100vh; overflow-y:auto; -webkit-font-smoothing:antialiased; position:relative; display:flex; align-items:center; justify-content:center; padding:24px; opacity:{{ shellOpacity }}; transition:opacity .5s ease;">
+
+  <div style="position:fixed; top:18px; right:18px; z-index:60; display:flex; align-items:center; gap:6px; padding:5px; border:1px solid var(--line); border-radius:999px; background:color-mix(in srgb, var(--bg) 78%, transparent); backdrop-filter:blur(14px);">
+    <button type="button" data-tbtn="1" data-active="{{ isStorm }}" onClick="{{ setStorm }}" style="font-family:'Space Grotesk',sans-serif; font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Storm</button>
+    <button type="button" data-tbtn="2" data-active="{{ isMidnight }}" onClick="{{ setMidnight }}" style="font-family:'Space Grotesk',sans-serif; font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Midnight</button>
+    <button type="button" data-tbtn="3" data-active="{{ isIvory }}" onClick="{{ setIvory }}" style="font-family:'Space Grotesk',sans-serif; font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Ivory</button>
+    <button type="button" data-tbtn="4" data-active="{{ isLeaf }}" onClick="{{ setLeaf }}" style="font-family:'Space Grotesk',sans-serif; font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Leaf</button>
+    <button type="button" data-tbtn="5" data-active="{{ isEdition }}" onClick="{{ setEdition }}" style="font-family:'Space Grotesk',sans-serif; font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Edition</button>
+  </div>
+  <div style="position:fixed; top:70px; right:18px; z-index:60; display:flex; align-items:center; gap:6px; padding:5px; border:1px solid var(--line); border-radius:999px; background:color-mix(in srgb, var(--bg) 78%, transparent); backdrop-filter:blur(14px);">
+    <button type="button" data-tbtn="A" data-active="{{ isTypeA }}" onClick="{{ setTypeA }}" style="font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Type A</button>
+    <button type="button" data-tbtn="B" data-active="{{ isTypeB }}" onClick="{{ setTypeB }}" style="font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Type B</button>
+  </div>
+
+  <div style="position:fixed; bottom:18px; left:18px; z-index:60; display:flex; align-items:center; gap:8px; padding:6px 10px; border:1px solid var(--line); border-radius:999px; background:color-mix(in srgb, var(--bg) 82%, transparent); backdrop-filter:blur(14px); font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--faint);">
+    <span style="letter-spacing:0.1em; text-transform:uppercase;">Demo</span>
+    <button type="button" data-fbtn="err" data-active="{{ simulateFailureStr }}" onClick="{{ toggleSimulateFailure }}" style="font-family:'Space Grotesk',sans-serif; font-size:11px; padding:6px 11px; border:1px solid var(--line); border-radius:999px; background:transparent; color:var(--faint); cursor:pointer;">Simulate OAuth failure</button>
+  </div>
+
+  <div style="position:absolute; inset:0; pointer-events:none; overflow:hidden; opacity:0.5;">
+    <svg viewBox="0 0 1200 800" preserveAspectRatio="xMidYMid slice" style="position:absolute; inset:0; width:100%; height:100%;">
+      <g stroke="var(--line)" fill="none" stroke-width="1" style="animation:drift1 40s ease-in-out infinite;">
+        <path d="M120 120 L260 120 L260 220 L400 220" />
+        <path d="M260 220 L260 340 L410 340" />
+        <path d="M120 120 L120 460 L280 460" />
+      </g>
+      <g stroke="var(--line)" fill="none" stroke-width="1" style="animation:drift2 48s ease-in-out infinite;">
+        <path d="M980 520 L860 520 L860 620 L730 620" />
+        <path d="M860 620 L860 700 L1000 700" />
+        <path d="M980 520 L980 320 L840 320" />
+      </g>
+      <g fill="var(--faint)" style="animation:drift1 40s ease-in-out infinite;">
+        <circle cx="400" cy="220" r="2.5" style="animation:pulseNodeSlow 9s ease-in-out infinite;" />
+        <circle cx="410" cy="340" r="2" style="animation:pulseNodeSlow 11s ease-in-out 1.4s infinite;" />
+        <circle cx="280" cy="460" r="2.5" style="animation:pulseNodeSlow 10s ease-in-out .6s infinite;" />
+      </g>
+      <g fill="var(--accent)" style="animation:drift2 48s ease-in-out infinite;">
+        <circle cx="730" cy="620" r="2" style="animation:pulseNodeSlow 12s ease-in-out infinite;" />
+        <circle cx="1000" cy="700" r="2.5" style="animation:pulseNodeSlow 9.5s ease-in-out 2s infinite;" />
+        <circle cx="840" cy="320" r="2" style="animation:pulseNodeSlow 13s ease-in-out .8s infinite;" />
+      </g>
+      <g stroke="var(--accent)" fill="none" stroke-width="1.2" stroke-dasharray="600" style="animation:drift1 40s ease-in-out infinite;">
+        <path d="M120 120 L260 120 L260 220 L400 220" style="animation:traverseSlow 14s linear infinite;" />
+      </g>
+      <g stroke="var(--accent)" fill="none" stroke-width="1.2" stroke-dasharray="600" style="animation:drift2 48s ease-in-out infinite;">
+        <path d="M980 520 L860 520 L860 620 L730 620" style="animation:traverseSlow 17s linear 5s infinite;" />
+      </g>
+    </svg>
+  </div>
+
+  <div style="position:relative; z-index:1; width:100%; max-width:400px; border:1px solid var(--line); background:var(--surface); padding:clamp(32px,5vw,44px) clamp(28px,4vw,38px); display:flex; flex-direction:column; gap:22px; animation:cardIn .6s cubic-bezier(.2,.7,.2,1) both;">
+
+    <div style="display:flex; flex-direction:column; align-items:center; gap:16px; text-align:center;">
+      <span style="width:26px; height:26px; flex:none; border:1.5px solid var(--accent); border-radius:3px; position:relative; display:block;">
+        <span style="position:absolute; inset:6px 6px auto 6px; height:1.5px; background:var(--accent); display:block;"></span>
+        <span style="position:absolute; left:6px; top:13px; width:1.5px; height:7px; background:var(--accent); display:block;"></span>
+        <span style="position:absolute; left:6px; top:18px; width:8px; height:1.5px; background:var(--accent); display:block;"></span>
+      </span>
+      <h1 style="font-family:var(--fHead); font-weight:800; font-size:clamp(22px,3vw,27px); line-height:1; letter-spacing:0.01em; margin:0;">Log in to Sleuth</h1>
+    </div>
+
+    <sc-if value="{{ hasError }}" hint-placeholder-val="{{ false }}">
+      <div style="background:var(--glow); color:var(--accent); font-size:13px; line-height:1.5; padding:11px 14px; border-radius:2px;">{{ errorText }}</div>
+    </sc-if>
+
+    <div style="display:flex; flex-direction:column; gap:10px;">
+      <sc-for list="{{ providers }}" as="p" hint-placeholder-count="3">
+        <button type="button" data-oauth-btn="1" data-disabled="{{ p.disabledStr }}" disabled="{{ p.disabled }}" onClick="{{ p.select }}" style="cursor:pointer; text-align:left; width:100%; border:1px solid var(--line); background:transparent; padding:13px 16px; display:flex; align-items:center; gap:13px; transition:transform .3s cubic-bezier(.2,.7,.2,1), border-color .3s ease, box-shadow .3s ease; color:var(--text); opacity:{{ p.opacity }};">
+          <span style="flex:none; width:32px; height:32px; border:1.5px solid var(--lineStrong); border-radius:6px; display:flex; align-items:center; justify-content:center;" dangerouslySetInnerHTML="{{ p.iconHtml }}"></span>
+          <span style="font-size:14.5px; font-weight:600; font-family:{{ p.labelFont }}; letter-spacing:{{ p.labelSpacing }}; {{ p.labelStyle }}">{{ p.label }}</span>
+        </button>
+      </sc-for>
+    </div>
+
+    <div style="display:flex; align-items:center; gap:12px;">
+      <span style="flex:1; height:1px; background:var(--line);"></span>
+      <span style="font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:0.08em; text-transform:uppercase; color:var(--faint); white-space:nowrap;">or continue with email</span>
+      <span style="flex:1; height:1px; background:var(--line);"></span>
+    </div>
+
+    <form onSubmit="{{ handleEmailSubmit }}" style="display:flex; flex-direction:column; gap:10px;">
+      <input type="email" required="1" value="{{ emailValue }}" onChange="{{ handleEmailChange }}" disabled="{{ emailBusy }}" placeholder="you@company.com" style="background:var(--deep); border:1px solid var(--line); border-radius:2px; padding:13px 14px; color:var(--text); font-family:'JetBrains Mono',monospace; font-size:13.5px;" />
+      <button type="submit" data-cta="1" disabled="{{ ctaDisabled }}" style="cursor:pointer; width:100%; background:var(--accent); color:var(--onAccent); font-weight:600; font-size:14.5px; padding:13px 0; border:0; border-radius:2px; transition:transform .3s cubic-bezier(.2,.7,.2,1), box-shadow .3s ease; opacity:{{ ctaOpacity }};">{{ ctaLabel }}</button>
+      <sc-if value="{{ emailSent }}" hint-placeholder-val="{{ false }}">
+        <div style="font-size:12.5px; color:var(--muted); text-align:center;">Check your email for a link to log in.</div>
+      </sc-if>
+    </form>
+
+    <div style="text-align:center; font-size:12.5px; color:var(--faint); line-height:1.5;">New to Sleuth? Connecting a repo creates your account.</div>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1200,&quot;height&quot;:840},&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;storm&quot;,&quot;midnight&quot;,&quot;ivory&quot;,&quot;leaf&quot;,&quot;edition&quot;],&quot;default&quot;:&quot;storm&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Theme&quot;},&quot;typeOption&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;a&quot;,&quot;b&quot;],&quot;default&quot;:&quot;a&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Theme&quot;}}">
+const ICONS = {
+  github: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="8.5"/><path d="M9 17c-2 0.6-2.4-1-3-1.2M15 20v-2.2c0-.7.2-1.1.5-1.4-1.8-.2-3.7-.9-3.7-4 0-.9.3-1.6.9-2.2-.1-.2-.4-1.1.1-2.3 0 0 .7-.2 2.4.9a8.2 8.2 0 0 1 4.4 0c1.7-1.1 2.4-.9 2.4-.9.5 1.2.2 2.1.1 2.3.6.6.9 1.3.9 2.2 0 3.1-1.9 3.8-3.7 4 .3.3.6.8.6 1.6V20"/></svg>',
+  gitlab: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M12 20 4.5 10.5 3 6l3-1.5L9 10h6l3-5.5L21 6l-1.5 4.5z"/></svg>',
+  bitbucket: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 5h16l-2.1 13.4a1 1 0 0 1-1 .8H7.1a1 1 0 0 1-1-.8z"/><path d="M9 10h6l-1 4H10z"/></svg>'
+};
+const PROVIDERS = [
+  { id: 'github', name: 'GitHub' },
+  { id: 'gitlab', name: 'GitLab' },
+  { id: 'bitbucket', name: 'Bitbucket' }
+];
+
+class Component extends DCLogic {
+  state = {
+    theme: null, typeOpt: null,
+    connectingProvider: null,
+    error: null,
+    simulateFailure: false,
+    emailValue: '', emailBusy: false, emailSent: false,
+    shellOpacity: 1
+  };
+
+  get typeOpt() { return this.state.typeOpt || this.props.typeOption || 'a'; }
+  setType(v) { this.setState({ typeOpt: v }); }
+  get theme() { return this.state.theme || this.props.theme || 'storm'; }
+  set(t) { this.setState({ theme: t }); }
+
+  applyBg() {
+    const root = document.querySelector('[data-theme]');
+    if (root) document.body.style.background = getComputedStyle(root).getPropertyValue('--bg');
+  }
+  componentDidMount() { this.applyBg(); }
+  componentDidUpdate() { this.applyBg(); }
+  componentWillUnmount() { clearTimeout(this._oauthTimer); clearTimeout(this._emailTimer); }
+
+  toggleSimulateFailure = () => this.setState(s => ({ simulateFailure: !s.simulateFailure }));
+
+  selectProvider(id, name) {
+    if (this.state.connectingProvider || this.state.emailBusy) return;
+    this.setState({ connectingProvider: id, error: null });
+    clearTimeout(this._oauthTimer);
+    this._oauthTimer = setTimeout(() => {
+      if (this.state.simulateFailure) {
+        this.setState({ connectingProvider: null, error: 'Couldn\u2019t verify access with ' + name + '. Try again.' });
+        return;
+      }
+      this.setState({ shellOpacity: 0 });
+      setTimeout(() => { window.location.href = 'Sleuth Dashboard.dc.html'; }, 500);
+    }, 1400);
+  }
+
+  handleEmailSubmit(e) {
+    e.preventDefault();
+    if (this.state.emailBusy || this.state.connectingProvider || !this.state.emailValue.trim()) return;
+    this.setState({ emailBusy: true, emailSent: false });
+    clearTimeout(this._emailTimer);
+    this._emailTimer = setTimeout(() => {
+      this.setState({ emailBusy: false, emailSent: true });
+    }, 1100);
+  }
+
+  renderVals() {
+    const t = this.theme;
+    const s = this.state;
+    const anyBusy = !!s.connectingProvider || s.emailBusy;
+
+    const providers = PROVIDERS.map(p => {
+      const isConnecting = s.connectingProvider === p.id;
+      const disabled = anyBusy;
+      return {
+        key: p.id,
+        label: isConnecting ? 'Connecting\u2026' : ('Continue with ' + p.name),
+        labelFont: isConnecting ? "'JetBrains Mono',monospace" : 'var(--fBody)',
+        labelSpacing: isConnecting ? '0.02em' : 'normal',
+        iconHtml: { __html: ICONS[p.id] },
+        disabled: disabled,
+        disabledStr: String(disabled),
+        labelStyle: isConnecting ? 'animation: connectPulse 1.3s ease-in-out infinite;' : '',
+        opacity: disabled && !isConnecting ? '0.4' : '1',
+        select: () => this.selectProvider(p.id, p.name)
+      };
+    });
+
+    return {
+      theme: t, typeOpt: this.typeOpt,
+      isTypeA: String(this.typeOpt === 'a'), isTypeB: String(this.typeOpt === 'b'),
+      setTypeA: () => this.setType('a'), setTypeB: () => this.setType('b'),
+      isStorm: String(t === 'storm'), isMidnight: String(t === 'midnight'), isIvory: String(t === 'ivory'), isLeaf: String(t === 'leaf'), isEdition: String(t === 'edition'),
+      setEdition: () => this.set('edition'), setLeaf: () => this.set('leaf'), setStorm: () => this.set('storm'), setMidnight: () => this.set('midnight'), setIvory: () => this.set('ivory'),
+
+      simulateFailureStr: String(s.simulateFailure),
+      toggleSimulateFailure: this.toggleSimulateFailure,
+
+      hasError: !!s.error, errorText: s.error || '',
+
+      providers,
+
+      emailValue: s.emailValue,
+      handleEmailChange: (e) => this.setState({ emailValue: e.target.value, emailSent: false }),
+      handleEmailSubmit: (e) => this.handleEmailSubmit(e),
+      emailBusy: s.emailBusy,
+      emailSent: s.emailSent,
+      ctaDisabled: anyBusy || !s.emailValue.trim(),
+      ctaOpacity: (anyBusy && !s.emailBusy) ? '0.4' : ((!s.emailValue.trim()) ? '0.55' : '1'),
+      ctaLabel: s.emailBusy ? 'Sending\u2026' : 'Send magic link',
+
+      shellOpacity: s.shellOpacity
+    };
+  }
+}
+
+</script>
+</body>
+</html>

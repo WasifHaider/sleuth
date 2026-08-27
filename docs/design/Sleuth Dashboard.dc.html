@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+<link href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Sacramento&family=Big+Shoulders+Display:wght@400;600;700;800;900&family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  body { margin: 0; padding: 0; }
+  * { box-sizing: border-box; }
+  [data-theme] { --bg:#0F372F; --deep:#0A2621; --surface:#143F36; --text:#F2F5F2; --muted:rgba(242,245,242,0.58); --faint:rgba(242,245,242,0.30); --accent:#ECBC6B; --onAccent:#0F372F; --line:rgba(242,245,242,0.13); --lineStrong:rgba(242,245,242,0.26); --glow:rgba(236,188,107,0.16); --accent2:var(--accent); --warn:#C89B6A; --warnBg:rgba(200,155,106,0.14); --warnBorder:rgba(200,155,106,0.42); --fHead:'Big Shoulders Display',sans-serif; --fBody:'Space Grotesk',system-ui,sans-serif; --fEyebrow:'Space Grotesk',sans-serif; }
+  [data-theme="midnight"] { --bg:#011423; --deep:#000A12; --surface:#07202F; --text:#E8F0F6; --muted:rgba(232,240,246,0.58); --faint:rgba(232,240,246,0.30); --accent:#E7D269; --onAccent:#011423; --line:rgba(232,240,246,0.13); --lineStrong:rgba(232,240,246,0.26); --glow:rgba(231,210,105,0.14); --accent2:var(--accent); --warn:#CBA36E; --warnBg:rgba(203,163,110,0.14); --warnBorder:rgba(203,163,110,0.4); }
+  [data-type="b"] { --fHead:'Alfa Slab One',Georgia,serif; --fEyebrow:'Sacramento',cursive; }
+  [data-type="b"] h1 { font-size:clamp(34px,5.4vw,60px) !important; line-height:1.02 !important; letter-spacing:-0.005em !important; font-weight:400 !important; }
+  [data-type="b"] [data-eyebrow] { font-size:24px !important; letter-spacing:0 !important; text-transform:none !important; font-weight:400 !important; line-height:1 !important; }
+  [data-theme="edition"] { --bg:#071317; --deep:#040C0F; --surface:#0C1E23; --text:#E6F2F2; --muted:rgba(230,242,242,0.58); --faint:rgba(230,242,242,0.30); --accent:#02A0A0; --onAccent:#04191B; --line:rgba(230,242,242,0.13); --lineStrong:rgba(230,242,242,0.26); --glow:rgba(2,160,160,0.20); --accent2:#FFBD65; --warn:#E3A867; --warnBg:rgba(227,168,103,0.16); --warnBorder:rgba(227,168,103,0.42); }
+  [data-theme="leaf"] { --bg:#CDFF9B; --deep:#BDF287; --surface:#D8FFB2; --text:#203D43; --muted:rgba(32,61,67,0.66); --faint:rgba(32,61,67,0.38); --accent:#203D43; --onAccent:#CDFF9B; --line:rgba(32,61,67,0.16); --lineStrong:rgba(32,61,67,0.32); --glow:rgba(32,61,67,0.16); --accent2:var(--accent); --warn:#8C6A3F; --warnBg:rgba(140,106,63,0.14); --warnBorder:rgba(140,106,63,0.34); }
+  [data-theme="ivory"] { --bg:#F3EEE1; --deep:#E7E0CF; --surface:#FBF8F1; --text:#101E28; --muted:rgba(16,30,40,0.62); --faint:rgba(16,30,40,0.34); --accent:#0061A4; --onAccent:#F7F4EC; --line:rgba(16,30,40,0.14); --lineStrong:rgba(16,30,40,0.28); --glow:rgba(0,97,164,0.12); --accent2:var(--accent); --warn:#A8703E; --warnBg:rgba(168,112,62,0.13); --warnBorder:rgba(168,112,62,0.3); }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { color: var(--text); }
+  [data-tbtn][data-active="true"] { background: var(--accent) !important; color: var(--onAccent) !important; }
+  [data-tbtn][data-active="false"]:hover { color: var(--text) !important; }
+  [data-fbtn][data-active="true"] { background: var(--accent) !important; color: var(--onAccent) !important; }
+  [data-fbtn][data-active="false"]:hover { color: var(--text) !important; }
+  @keyframes pulseNode { 0%,100%{opacity:.3; transform:scale(1);} 50%{opacity:1; transform:scale(1.25);} }
+  @keyframes drift1 { 0%{transform:translate3d(0,0,0)} 50%{transform:translate3d(10px,-12px,0)} 100%{transform:translate3d(0,0,0)} }
+  [data-sleuth] .repo-row { display:grid; grid-template-columns:2.2fr 1fr 1.15fr 1.7fr auto auto; align-items:center; gap:18px; padding:20px 22px; border-top:1px solid var(--line); transition:background .25s ease; position:relative; }
+  [data-sleuth] .repo-row:hover { background:var(--surface); }
+  [data-sleuth] .chat-btn { opacity:0; transform:scale(0.94); transition:opacity .3s ease, transform .3s cubic-bezier(.2,.7,.2,1), box-shadow .3s ease; }
+  [data-sleuth] .repo-row:hover .chat-btn { opacity:1; transform:scale(1); }
+  [data-sleuth] .chat-btn:hover { box-shadow:0 10px 26px var(--glow); transform:translateY(-2px) scale(1.03) !important; }
+  @media (max-width:768px) {
+    [data-sleuth] .repo-list-head { display:none !important; }
+    [data-sleuth] .repo-row { grid-template-columns:1fr auto; grid-template-areas:"name overflow" "status chat" "last last" "stats stats"; padding:18px; gap:12px 14px; border:1px solid var(--line); border-top:1px solid var(--line); margin-bottom:12px; }
+    [data-sleuth] .cell-name{grid-area:name;} [data-sleuth] .cell-status{grid-area:status;} [data-sleuth] .cell-last{grid-area:last;} [data-sleuth] .cell-stats{grid-area:stats;} [data-sleuth] .cell-chat{grid-area:chat; justify-self:end;} [data-sleuth] .cell-overflow{grid-area:overflow; justify-self:end;}
+    [data-sleuth] .chat-btn { opacity:1 !important; transform:none !important; }
+  }
+</style>
+</helmet>
+
+<div data-sleuth="1" data-theme="{{ theme }}" data-type="{{ typeOpt }}" style="background:var(--bg); color:var(--text); font-family:var(--fBody); height:100vh; overflow:hidden; -webkit-font-smoothing:antialiased; display:flex;">
+
+  <dc-import name="Sleuth Rail" theme="{{ theme }}" type-option="{{ typeOpt }}" active-page="repos" on-set-theme="{{ setTheme }}" hint-size="272px,100vh"></dc-import>
+
+  <div style="flex:1; min-width:0; height:100%; overflow-y:auto; position:relative;">
+
+  <sc-if value="{{ menuOpen }}" hint-placeholder-val="{{ false }}">
+    <div onClick="{{ closeMenus }}" style="position:fixed; inset:0; z-index:50;"></div>
+  </sc-if>
+
+  <div style="position:fixed; top:18px; right:18px; z-index:60; display:flex; align-items:center; gap:6px; padding:5px; border:1px solid var(--line); border-radius:999px; background:color-mix(in srgb, var(--bg) 78%, transparent); backdrop-filter:blur(14px);">
+    <button type="button" data-tbtn="1" data-active="{{ isStorm }}" onClick="{{ setStorm }}" style="font-family:'Space Grotesk',sans-serif; font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Storm</button>
+    <button type="button" data-tbtn="2" data-active="{{ isMidnight }}" onClick="{{ setMidnight }}" style="font-family:'Space Grotesk',sans-serif; font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Midnight</button>
+    <button type="button" data-tbtn="3" data-active="{{ isIvory }}" onClick="{{ setIvory }}" style="font-family:'Space Grotesk',sans-serif; font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Ivory</button>
+    <button type="button" data-tbtn="4" data-active="{{ isLeaf }}" onClick="{{ setLeaf }}" style="font-family:'Space Grotesk',sans-serif; font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Leaf</button>
+    <button type="button" data-tbtn="5" data-active="{{ isEdition }}" onClick="{{ setEdition }}" style="font-family:'Space Grotesk',sans-serif; font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Edition</button>
+  </div>
+
+  <div style="position:fixed; top:70px; right:18px; z-index:60; display:flex; align-items:center; gap:6px; padding:5px; border:1px solid var(--line); border-radius:999px; background:color-mix(in srgb, var(--bg) 78%, transparent); backdrop-filter:blur(14px);">
+    <button type="button" data-tbtn="A" data-active="{{ isTypeA }}" onClick="{{ setTypeA }}" style="font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Type A</button>
+    <button type="button" data-tbtn="B" data-active="{{ isTypeB }}" onClick="{{ setTypeB }}" style="font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Type B</button>
+  </div>
+
+  <header style="position:relative; z-index:20; display:flex; align-items:center; justify-content:space-between; gap:24px; flex-wrap:wrap; padding:112px clamp(20px,5vw,72px) 22px; max-width:1440px; margin:0 auto;">
+    <div></div>
+    <div style="position:relative;">
+      <button type="button" onClick="{{ toggleAccountMenu }}" style="display:flex; align-items:center; gap:10px; background:transparent; border:1px solid var(--line); border-radius:999px; padding:6px 14px 6px 6px; cursor:pointer; color:var(--text); transition:border-color .25s ease;" style-hover="border-color:var(--lineStrong)">
+        <span style="width:26px; height:26px; border-radius:50%; background:var(--accent); color:var(--onAccent); font-family:var(--fHead); font-weight:700; font-size:12px; display:flex; align-items:center; justify-content:center;">JE</span>
+        <span style="font-size:13.5px;">Jordan Ellis</span>
+        <span style="font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--faint);">&#9662;</span>
+      </button>
+      <sc-if value="{{ isAccountMenuOpen }}" hint-placeholder-val="{{ false }}">
+        <div style="position:absolute; top:calc(100% + 8px); right:0; z-index:55; min-width:180px; background:var(--surface); border:1px solid var(--line); box-shadow:0 20px 50px rgba(0,0,0,0.22); display:flex; flex-direction:column; padding:6px;">
+          <a href="#" style="padding:10px 12px; font-size:13.5px; color:var(--text); border-radius:2px; transition:background .2s ease;" style-hover="background:var(--glow)">Account settings</a>
+          <a href="#" style="padding:10px 12px; font-size:13.5px; color:var(--text); border-radius:2px; transition:background .2s ease;" style-hover="background:var(--glow)">Billing</a>
+          <div style="height:1px; background:var(--line); margin:6px 4px;"></div>
+          <a href="#" style="padding:10px 12px; font-size:13.5px; color:var(--muted); border-radius:2px; transition:background .2s ease;" style-hover="background:var(--glow)">Sign out</a>
+        </div>
+      </sc-if>
+    </div>
+  </header>
+
+  <main style="max-width:1440px; margin:0 auto; padding:14px clamp(20px,5vw,72px) 100px; position:relative;">
+
+    <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:20px; flex-wrap:wrap; margin-bottom:30px;">
+      <div>
+        <div data-eyebrow="1" style="font-family:var(--fEyebrow); font-weight:700; font-size:12px; letter-spacing:0.2em; color:var(--accent2); text-transform:uppercase; margin-bottom:12px;">Your repos</div>
+        <h1 style="font-family:var(--fHead); font-weight:800; font-size:clamp(30px,4vw,46px); line-height:0.98; letter-spacing:-0.01em; margin:0;">Connected repositories</h1>
+      </div>
+      <a href="#" style="display:inline-flex; align-items:center; gap:10px; background:var(--accent); color:var(--onAccent); font-weight:600; font-size:14.5px; padding:14px 24px; border-radius:2px; transition:transform .35s cubic-bezier(.2,.7,.2,1), box-shadow .35s ease;" style-hover="transform:translateY(-2px); box-shadow:0 14px 34px var(--glow); color:var(--onAccent)">Connect a repo<span style="font-family:'JetBrains Mono',monospace; font-size:12px;">&#8594;</span></a>
+    </div>
+
+    <sc-if value="{{ hasRepos }}" hint-placeholder-val="{{ true }}">
+      <div style="display:flex; align-items:center; gap:5px; padding:4px; border:1px solid var(--line); border-radius:999px; width:fit-content; margin-bottom:28px;">
+        <button type="button" data-fbtn="1" data-active="{{ filterIsAll }}" onClick="{{ setFilterAll }}" style="font-family:'Space Grotesk',sans-serif; font-size:11.5px; letter-spacing:0.04em; padding:8px 15px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .3s ease, color .3s ease;">All</button>
+        <button type="button" data-fbtn="2" data-active="{{ filterIsIndexed }}" onClick="{{ setFilterIndexed }}" style="font-family:'Space Grotesk',sans-serif; font-size:11.5px; letter-spacing:0.04em; padding:8px 15px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .3s ease, color .3s ease;">Indexed</button>
+        <button type="button" data-fbtn="3" data-active="{{ filterIsIndexing }}" onClick="{{ setFilterIndexing }}" style="font-family:'Space Grotesk',sans-serif; font-size:11.5px; letter-spacing:0.04em; padding:8px 15px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .3s ease, color .3s ease;">Indexing</button>
+        <button type="button" data-fbtn="4" data-active="{{ filterIsAttention }}" onClick="{{ setFilterAttention }}" style="font-family:'Space Grotesk',sans-serif; font-size:11.5px; letter-spacing:0.04em; padding:8px 15px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .3s ease, color .3s ease;">Failed</button>
+      </div>
+
+      <div style="border:1px solid var(--line);">
+        <div class="repo-list-head" style="display:grid; grid-template-columns:2.2fr 1fr 1.15fr 1.7fr auto auto; gap:18px; padding:14px 22px; font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:0.08em; text-transform:uppercase; color:var(--faint); background:var(--deep);">
+          <span>Repository</span><span>Status</span><span>Last indexed</span><span>Stats</span><span></span><span></span>
+        </div>
+
+        <sc-for list="{{ filteredRepos }}" as="repo" hint-placeholder-count="4">
+          <div class="repo-row">
+            <div class="cell-name" style="display:flex; flex-direction:column; gap:6px; min-width:0;">
+              <div style="display:flex; align-items:center; gap:9px; min-width:0;">
+                <span style="flex:none; width:20px; height:20px; border:1px solid var(--lineStrong); border-radius:3px; display:flex; align-items:center; justify-content:center; font-family:'JetBrains Mono',monospace; font-size:8.5px; color:var(--muted);">{{ repo.providerAbbr }}</span>
+                <span style="font-weight:600; font-size:15px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ repo.name }}</span>
+              </div>
+              <span style="font-family:'JetBrains Mono',monospace; font-size:11.5px; color:var(--faint);">{{ repo.branch }}</span>
+            </div>
+
+            <div class="cell-status">
+              <sc-if value="{{ repo.isIndexed }}" hint-placeholder-val="{{ false }}">
+                <span style="display:inline-flex; align-items:center; gap:7px; background:var(--accent); color:var(--onAccent); font-size:11.5px; font-weight:600; padding:6px 12px; border-radius:999px; white-space:nowrap;">Indexed</span>
+              </sc-if>
+              <sc-if value="{{ repo.isIndexing }}" hint-placeholder-val="{{ false }}">
+                <span style="display:inline-flex; align-items:center; gap:7px; border:1px solid var(--lineStrong); color:var(--accent); font-size:11.5px; font-weight:600; padding:6px 12px; border-radius:999px; white-space:nowrap;">
+                  <span style="width:6px; height:6px; border-radius:50%; background:var(--accent); display:inline-block; animation:pulseNode 1.4s ease-in-out infinite;"></span>
+                  Indexing
+                </span>
+              </sc-if>
+              <sc-if value="{{ repo.isAttention }}" hint-placeholder-val="{{ false }}">
+                <span style="display:inline-flex; align-items:center; gap:7px; background:var(--warnBg); border:1px solid var(--warnBorder); color:var(--warn); font-size:11.5px; font-weight:600; padding:6px 12px; border-radius:999px; white-space:nowrap;">Failed</span>
+              </sc-if>
+              <sc-if value="{{ repo.isNone }}" hint-placeholder-val="{{ false }}">
+                <span style="display:inline-flex; align-items:center; gap:7px; border:1px dashed var(--line); color:var(--faint); font-size:11.5px; font-weight:600; padding:6px 12px; border-radius:999px; white-space:nowrap;">Not indexed yet</span>
+              </sc-if>
+            </div>
+
+            <div class="cell-last" style="font-size:13px; color:var(--muted);">{{ repo.lastIndexedText }}</div>
+
+            <div class="cell-stats" style="display:flex; flex-direction:column; gap:3px; font-family:'JetBrains Mono',monospace; font-size:11.5px; color:var(--faint); line-height:1.5;">
+              <span>{{ repo.filesText }}</span>
+              <span>{{ repo.symbolsText }}</span>
+              <span>{{ repo.shaText }}</span>
+            </div>
+
+            <div class="cell-chat">
+              <sc-if value="{{ repo.isIndexed }}" hint-placeholder-val="{{ false }}">
+                <a href="#" class="chat-btn" style="display:inline-flex; align-items:center; gap:7px; background:var(--accent); color:var(--onAccent); font-weight:600; font-size:13px; padding:9px 16px; border-radius:2px; white-space:nowrap;">Chat</a>
+              </sc-if>
+            </div>
+
+            <div class="cell-overflow" style="position:relative;">
+              <button type="button" onClick="{{ repo.toggleMenu }}" style="background:transparent; border:1px solid var(--line); border-radius:2px; width:30px; height:30px; color:var(--muted); cursor:pointer; font-size:15px; line-height:1; transition:border-color .2s ease, color .2s ease;" style-hover="border-color:var(--lineStrong); color:var(--text)">&#8942;</button>
+              <sc-if value="{{ repo.menuOpen }}" hint-placeholder-val="{{ false }}">
+                <div style="position:absolute; top:calc(100% + 6px); right:0; z-index:55; min-width:150px; background:var(--surface); border:1px solid var(--line); box-shadow:0 20px 50px rgba(0,0,0,0.22); display:flex; flex-direction:column; padding:6px;">
+                  <a href="#" style="padding:9px 11px; font-size:13px; color:var(--text); border-radius:2px;" style-hover="background:var(--glow)">Reindex</a>
+                  <a href="#" style="padding:9px 11px; font-size:13px; color:var(--text); border-radius:2px;" style-hover="background:var(--glow)">Settings</a>
+                  <a href="#" style="padding:9px 11px; font-size:13px; color:var(--muted); border-radius:2px;" style-hover="background:var(--glow)">Disconnect</a>
+                </div>
+              </sc-if>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ showEmptyState }}" hint-placeholder-val="{{ false }}">
+      <div style="position:relative; min-height:60vh; display:flex; align-items:center; justify-content:center; overflow:hidden; border:1px solid var(--line);">
+        <div style="position:absolute; inset:0; pointer-events:none; opacity:0.5;">
+          <svg viewBox="0 0 900 500" preserveAspectRatio="xMidYMid slice" style="position:absolute; inset:0; width:100%; height:100%;">
+            <g stroke="var(--line)" fill="none" stroke-width="1" style="animation:drift1 30s ease-in-out infinite;">
+              <path d="M560 60 L640 60 L640 130 L720 130" />
+              <path d="M640 130 L640 200 L740 200" />
+              <path d="M560 60 L560 260 L660 260" />
+            </g>
+            <g stroke="var(--line)" fill="none" stroke-width="1" style="animation:drift1 24s ease-in-out infinite reverse;">
+              <path d="M120 420 L220 420 L220 350 L320 350" />
+              <path d="M220 420 L220 470 L340 470" />
+            </g>
+            <g fill="var(--accent)" opacity="0.5">
+              <circle cx="720" cy="130" r="2.5" style="animation:pulseNode 8s ease-in-out infinite;" />
+              <circle cx="740" cy="200" r="2" style="animation:pulseNode 10s ease-in-out 1s infinite;" />
+              <circle cx="320" cy="350" r="2.5" style="animation:pulseNode 9s ease-in-out .5s infinite;" />
+            </g>
+          </svg>
+        </div>
+        <div style="position:relative; text-align:center; max-width:480px; padding:60px 24px; display:flex; flex-direction:column; align-items:center; gap:18px;">
+          <h2 style="font-family:var(--fHead); font-weight:800; font-size:clamp(30px,4vw,44px); line-height:1; margin:0;">Connect your first repo</h2>
+          <p style="font-size:15px; line-height:1.6; color:var(--muted); margin:0;">Sleuth indexes structure, not text, so it can answer questions the moment your repository connects.</p>
+          <a href="#" style="display:inline-flex; align-items:center; gap:10px; background:var(--accent); color:var(--onAccent); font-weight:600; font-size:14.5px; padding:14px 26px; border-radius:2px; margin-top:8px; transition:transform .35s cubic-bezier(.2,.7,.2,1), box-shadow .35s ease;" style-hover="transform:translateY(-2px); box-shadow:0 14px 34px var(--glow); color:var(--onAccent)">Connect a repo<span style="font-family:'JetBrains Mono',monospace; font-size:12px;">&#8594;</span></a>
+        </div>
+      </div>
+    </sc-if>
+
+  </main>
+  </div>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;storm&quot;,&quot;midnight&quot;,&quot;ivory&quot;,&quot;leaf&quot;,&quot;edition&quot;],&quot;default&quot;:&quot;storm&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Theme&quot;},&quot;typeOption&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;a&quot;,&quot;b&quot;],&quot;default&quot;:&quot;a&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Theme&quot;},&quot;showEmpty&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Demo&quot;}}">
+const REPOS = [
+  { id: 'r1', name: 'acme/platform', provider: 'github', branch: 'main', status: 'indexed', lastIndexed: 'Indexed 4h ago', files: 1284, symbols: 6502, sha: 'a1b2c3d' },
+  { id: 'r2', name: 'acme/mobile-app', provider: 'gitlab', branch: 'develop', status: 'indexing', lastIndexed: 'Indexing now', files: 842, symbols: 3110, sha: 'e4f5a6b' },
+  { id: 'r3', name: 'acme/infra', provider: 'bitbucket', branch: 'main', status: 'attention', lastIndexed: 'Indexed 3d ago', files: 210, symbols: 890, sha: '9c1d2e3' },
+  { id: 'r4', name: 'acme/docs-site', provider: 'github', branch: 'main', status: 'none', lastIndexed: 'Not indexed yet', files: null, symbols: null, sha: null },
+  { id: 'r5', name: 'acme/billing-service', provider: 'github', branch: 'main', status: 'indexed', lastIndexed: 'Indexed 1h ago', files: 96, symbols: 512, sha: '77abf12' },
+  { id: 'r6', name: 'acme/data-pipeline', provider: 'gitlab', branch: 'main', status: 'indexed', lastIndexed: 'Indexed 2d ago', files: 340, symbols: 1780, sha: '4b2f9a0' }
+];
+const PROVIDER_ABBR = { github: 'GH', gitlab: 'GL', bitbucket: 'BB' };
+
+class Component extends DCLogic {
+  state = { theme: null, typeOpt: null, filter: 'all', openMenu: null, accountMenuOpen: false };
+
+  get typeOpt() { return this.state.typeOpt || this.props.typeOption || 'a'; }
+  setType(v) { this.setState({ typeOpt: v }); }
+  get theme() { return this.state.theme || this.props.theme || 'storm'; }
+  set(t) { this.setState({ theme: t }); }
+
+  toggleAccountMenu = () => this.setState(s => ({ accountMenuOpen: !s.accountMenuOpen, openMenu: null }));
+  closeMenus = () => this.setState({ accountMenuOpen: false, openMenu: null });
+  toggleRowMenu(id) { this.setState(s => ({ openMenu: s.openMenu === id ? null : id, accountMenuOpen: false })); }
+
+  componentDidUpdate() {
+    const root = document.querySelector('[data-theme]');
+    if (root) document.body.style.background = getComputedStyle(root).getPropertyValue('--bg');
+  }
+  componentDidMount() { this.componentDidUpdate(); }
+
+  renderVals() {
+    const t = this.theme;
+    const filter = this.state.filter;
+    const showEmptyState = !!this.props.showEmpty;
+    const source = showEmptyState ? [] : REPOS;
+    const filtered = source.filter(r => filter === 'all' ? true : r.status === filter);
+    const filteredRepos = filtered.map(r => ({
+      ...r,
+      providerAbbr: PROVIDER_ABBR[r.provider] || '?',
+      lastIndexedText: r.lastIndexed,
+      filesText: r.files == null ? '\u2014' : r.files.toLocaleString() + ' files',
+      symbolsText: r.symbols == null ? '\u2014' : r.symbols.toLocaleString() + ' symbols',
+      shaText: r.sha || '\u2014',
+      isIndexed: r.status === 'indexed',
+      isIndexing: r.status === 'indexing',
+      isAttention: r.status === 'attention',
+      isNone: r.status === 'none',
+      menuOpen: this.state.openMenu === r.id,
+      toggleMenu: () => this.toggleRowMenu(r.id)
+    }));
+    return {
+      theme: t,
+      typeOpt: this.typeOpt,
+      isTypeA: String(this.typeOpt === 'a'),
+      isTypeB: String(this.typeOpt === 'b'),
+      setTypeA: () => this.setType('a'),
+      setTypeB: () => this.setType('b'),
+      isStorm: String(t === 'storm'),
+      isMidnight: String(t === 'midnight'),
+      isIvory: String(t === 'ivory'),
+      isLeaf: String(t === 'leaf'),
+      isEdition: String(t === 'edition'),
+      setEdition: () => this.set('edition'),
+      setLeaf: () => this.set('leaf'),
+      setStorm: () => this.set('storm'),
+      setMidnight: () => this.set('midnight'),
+      setIvory: () => this.set('ivory'),
+      setTheme: (v) => this.set(v),
+      isAccountMenuOpen: this.state.accountMenuOpen,
+      toggleAccountMenu: this.toggleAccountMenu,
+      menuOpen: this.state.accountMenuOpen || !!this.state.openMenu,
+      closeMenus: this.closeMenus,
+      hasRepos: !showEmptyState,
+      showEmptyState,
+      filteredRepos,
+      filterIsAll: String(filter === 'all'),
+      filterIsIndexed: String(filter === 'indexed'),
+      filterIsIndexing: String(filter === 'indexing'),
+      filterIsAttention: String(filter === 'attention'),
+      setFilterAll: () => this.setState({ filter: 'all' }),
+      setFilterIndexed: () => this.setState({ filter: 'indexed' }),
+      setFilterIndexing: () => this.setState({ filter: 'indexing' }),
+      setFilterAttention: () => this.setState({ filter: 'attention' })
+    };
+  }
+}
+
+</script>
+</body>
+</html>

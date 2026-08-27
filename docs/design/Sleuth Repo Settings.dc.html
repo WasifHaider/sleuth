@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+<link href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Sacramento&family=Big+Shoulders+Display:wght@400;600;700;800;900&family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  body { margin: 0; padding: 0; }
+  * { box-sizing: border-box; }
+  [data-theme] { --bg:#0F372F; --deep:#0A2621; --surface:#143F36; --text:#F2F5F2; --muted:rgba(242,245,242,0.58); --faint:rgba(242,245,242,0.30); --accent:#ECBC6B; --onAccent:#0F372F; --line:rgba(242,245,242,0.13); --lineStrong:rgba(242,245,242,0.26); --glow:rgba(236,188,107,0.16); --accent2:var(--accent); --fHead:'Big Shoulders Display',sans-serif; --fBody:'Space Grotesk',system-ui,sans-serif; --fEyebrow:'Space Grotesk',sans-serif; }
+  [data-theme="midnight"] { --bg:#011423; --deep:#000A12; --surface:#07202F; --text:#E8F0F6; --muted:rgba(232,240,246,0.58); --faint:rgba(232,240,246,0.30); --accent:#E7D269; --onAccent:#011423; --line:rgba(232,240,246,0.13); --lineStrong:rgba(232,240,246,0.26); --glow:rgba(231,210,105,0.14); --accent2:var(--accent); }
+  [data-type="b"] { --fHead:'Alfa Slab One',Georgia,serif; --fEyebrow:'Sacramento',cursive; }
+  [data-type="b"] [data-eyebrow] { font-size:22px !important; letter-spacing:0 !important; text-transform:none !important; font-weight:400 !important; }
+  [data-theme="edition"] { --bg:#071317; --deep:#040C0F; --surface:#0C1E23; --text:#E6F2F2; --muted:rgba(230,242,242,0.58); --faint:rgba(230,242,242,0.30); --accent:#02A0A0; --onAccent:#04191B; --line:rgba(230,242,242,0.13); --lineStrong:rgba(230,242,242,0.26); --glow:rgba(2,160,160,0.20); --accent2:#FFBD65; }
+  [data-theme="leaf"] { --bg:#CDFF9B; --deep:#BDF287; --surface:#D8FFB2; --text:#203D43; --muted:rgba(32,61,67,0.66); --faint:rgba(32,61,67,0.38); --accent:#203D43; --onAccent:#CDFF9B; --line:rgba(32,61,67,0.16); --lineStrong:rgba(32,61,67,0.32); --glow:rgba(32,61,67,0.16); --accent2:var(--accent); }
+  [data-theme="ivory"] { --bg:#F3EEE1; --deep:#E7E0CF; --surface:#FBF8F1; --text:#101E28; --muted:rgba(16,30,40,0.62); --faint:rgba(16,30,40,0.34); --accent:#0061A4; --onAccent:#F7F4EC; --line:rgba(16,30,40,0.14); --lineStrong:rgba(16,30,40,0.28); --glow:rgba(0,97,164,0.12); --accent2:var(--accent); }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { color: var(--text); }
+  [data-tbtn][data-active="true"] { background: var(--accent) !important; color: var(--onAccent) !important; }
+  [data-tbtn][data-active="false"]:hover { color: var(--text) !important; }
+  [data-settings] select { -webkit-appearance:none; appearance:none; }
+  [data-settings] .field-input:focus { border-color: var(--accent) !important; }
+  [data-settings] textarea::placeholder, [data-settings] input::placeholder { color: var(--faint); }
+</style>
+</helmet>
+
+<div data-settings="1" data-theme="{{ theme }}" data-type="{{ typeOpt }}" style="background:var(--bg); color:var(--text); font-family:var(--fBody); height:100vh; overflow:hidden; -webkit-font-smoothing:antialiased; display:flex;">
+
+  <dc-import name="Sleuth Rail" theme="{{ theme }}" type-option="{{ typeOpt }}" active-page="settings" on-set-theme="{{ setTheme }}" hint-size="272px,100vh"></dc-import>
+
+  <div style="flex:1; min-width:0; height:100%; overflow-y:auto; position:relative;">
+
+  <div style="position:fixed; top:18px; right:18px; z-index:60; display:flex; align-items:center; gap:6px; padding:5px; border:1px solid var(--line); border-radius:999px; background:color-mix(in srgb, var(--bg) 78%, transparent); backdrop-filter:blur(14px);">
+    <button type="button" data-tbtn="1" data-active="{{ isStorm }}" onClick="{{ setStorm }}" style="font-family:'Space Grotesk',sans-serif; font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Storm</button>
+    <button type="button" data-tbtn="2" data-active="{{ isMidnight }}" onClick="{{ setMidnight }}" style="font-family:'Space Grotesk',sans-serif; font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Midnight</button>
+    <button type="button" data-tbtn="3" data-active="{{ isIvory }}" onClick="{{ setIvory }}" style="font-family:'Space Grotesk',sans-serif; font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Ivory</button>
+    <button type="button" data-tbtn="4" data-active="{{ isLeaf }}" onClick="{{ setLeaf }}" style="font-family:'Space Grotesk',sans-serif; font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Leaf</button>
+    <button type="button" data-tbtn="5" data-active="{{ isEdition }}" onClick="{{ setEdition }}" style="font-family:'Space Grotesk',sans-serif; font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Edition</button>
+  </div>
+  <div style="position:fixed; top:70px; right:18px; z-index:60; display:flex; align-items:center; gap:6px; padding:5px; border:1px solid var(--line); border-radius:999px; background:color-mix(in srgb, var(--bg) 78%, transparent); backdrop-filter:blur(14px);">
+    <button type="button" data-tbtn="A" data-active="{{ isTypeA }}" onClick="{{ setTypeA }}" style="font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Type A</button>
+    <button type="button" data-tbtn="B" data-active="{{ isTypeB }}" onClick="{{ setTypeB }}" style="font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Type B</button>
+  </div>
+
+  <header style="display:flex; align-items:center; justify-content:flex-end; padding:40px clamp(20px,5vw,72px) 0; max-width:760px; margin:0 auto;">
+  </header>
+
+  <main style="max-width:760px; margin:0 auto; padding:32px clamp(20px,5vw,72px) 120px; display:flex; flex-direction:column; gap:44px;">
+
+    <div>
+      <div style="display:flex; align-items:center; gap:14px; margin-bottom:6px;">
+        <span style="flex:none; width:26px; height:26px; border:1px solid var(--lineStrong); border-radius:3px; display:flex; align-items:center; justify-content:center; font-family:'JetBrains Mono',monospace; font-size:10.5px; color:var(--muted);">{{ repo.providerAbbr }}</span>
+        <h1 style="font-family:var(--fHead); font-weight:800; font-size:clamp(28px,3.4vw,38px); margin:0; letter-spacing:-0.01em;">{{ repo.name }}</h1>
+      </div>
+      <div style="font-size:13.5px; color:var(--muted);">Repository settings</div>
+    </div>
+
+    <div style="border:1px solid var(--line); border-radius:2px; padding:32px;">
+      <div data-eyebrow="1" style="font-family:var(--fEyebrow); font-weight:700; font-size:11.5px; letter-spacing:0.18em; text-transform:uppercase; color:var(--accent2); margin-bottom:8px;">General</div>
+      <h2 style="font-family:var(--fHead); font-weight:800; font-size:21px; margin:0 0 24px;">Repository</h2>
+
+      <div style="display:flex; flex-direction:column; gap:22px;">
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:0.08em; text-transform:uppercase; color:var(--faint); margin-bottom:8px;">Name</div>
+          <div style="font-size:14.5px;">{{ repo.name }}</div>
+        </div>
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:0.08em; text-transform:uppercase; color:var(--faint); margin-bottom:8px;">Branch</div>
+          <select class="field-input" value="{{ branch }}" onChange="{{ handleBranchChange }}" style="width:260px; background:transparent; border:1px solid var(--line); border-radius:2px; padding:10px 12px; color:var(--text); font-family:'JetBrains Mono',monospace; font-size:13px; cursor:pointer; transition:border-color .2s ease;">
+            <sc-for list="{{ branches }}" as="b" hint-placeholder-count="3">
+              <option value="{{ b }}">{{ b }}</option>
+            </sc-for>
+          </select>
+        </div>
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:0.08em; text-transform:uppercase; color:var(--faint); margin-bottom:8px;">Connected account</div>
+          <div style="display:flex; align-items:center; gap:10px; font-size:14px; color:var(--muted);">
+            <span style="display:inline-flex; align-items:center; gap:7px; border:1px solid var(--line); border-radius:999px; padding:5px 12px; font-size:12.5px; color:var(--text);">{{ repo.providerName }}</span>
+            connected as {{ repo.connectedAs }}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div style="border:1px solid var(--line); border-radius:2px; padding:32px;">
+      <div data-eyebrow="1" style="font-family:var(--fEyebrow); font-weight:700; font-size:11.5px; letter-spacing:0.18em; text-transform:uppercase; color:var(--accent2); margin-bottom:8px;">Indexing</div>
+      <h2 style="font-family:var(--fHead); font-weight:800; font-size:21px; margin:0 0 24px;">Index maintenance</h2>
+
+      <div style="display:flex; align-items:center; justify-content:space-between; gap:20px; flex-wrap:wrap; padding-bottom:24px; border-bottom:1px solid var(--line); margin-bottom:24px;">
+        <div style="font-size:13.5px; color:var(--muted);">
+          Last indexed {{ repo.lastIndexed }} <span style="color:var(--faint);">&#183;</span> commit <span style="font-family:'JetBrains Mono',monospace; color:var(--text);">{{ repo.sha }}</span>
+        </div>
+        <button type="button" onClick="{{ reindex }}" disabled="{{ isReindexing }}" style="white-space:nowrap; flex:none; display:inline-flex; align-items:center; gap:8px; background:transparent; border:1px solid var(--lineStrong); color:var(--text); font-weight:600; font-size:13.5px; padding:10px 18px; border-radius:2px; cursor:pointer; transition:border-color .3s ease;" style-hover="border-color:var(--accent)">{{ reindexLabel }}</button>
+      </div>
+
+      <div style="margin-bottom:24px;">
+        <div style="font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:0.08em; text-transform:uppercase; color:var(--faint); margin-bottom:8px;">Exclude patterns</div>
+        <textarea class="field-input" value="{{ excludePatterns }}" onChange="{{ handleExcludeChange }}" rows="4" placeholder="node_modules/**&#10;dist/**&#10;*.test.ts" style="width:100%; background:var(--deep); border:1px solid var(--line); border-radius:2px; padding:12px 14px; color:var(--text); font-family:'JetBrains Mono',monospace; font-size:12.5px; line-height:1.6; resize:vertical; outline:none; transition:border-color .2s ease;"></textarea>
+      </div>
+
+      <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:20px;">
+        <div>
+          <div style="font-size:14px; font-weight:600; margin-bottom:4px;">Auto-reindex on push</div>
+          <div style="font-size:13px; color:var(--muted); max-width:44ch;">{{ webhookNote }}</div>
+        </div>
+        <button type="button" onClick="{{ toggleAutoReindex }}" disabled="{{ autoReindexDisabled }}" style="flex:none; width:42px; height:24px; border-radius:999px; border:1px solid {{ toggleBorder }}; background:{{ toggleBg }}; position:relative; cursor:{{ toggleCursor }}; opacity:{{ toggleOpacity }}; transition:background .25s ease;">
+          <span style="position:absolute; top:2px; left:{{ knobLeft }}; width:18px; height:18px; border-radius:50%; background:{{ knobColor }}; transition:left .25s cubic-bezier(.2,.7,.2,1);"></span>
+        </button>
+      </div>
+    </div>
+
+    <div style="border:1px solid var(--line); border-radius:2px; padding:32px;">
+      <div data-eyebrow="1" style="font-family:var(--fEyebrow); font-weight:700; font-size:11.5px; letter-spacing:0.18em; text-transform:uppercase; color:var(--accent2); margin-bottom:8px;">Index health</div>
+      <h2 style="font-family:var(--fHead); font-weight:800; font-size:21px; margin:0 0 12px;">What Sleuth actually built</h2>
+      <p style="font-size:13.5px; color:var(--muted); line-height:1.6; margin:0 0 26px; max-width:56ch;">Sleuth parses this repository into functions, classes and the calls between them, then indexes that structure &#8212; it doesn&#39;t just split files into arbitrary text chunks.</p>
+      <div style="display:grid; grid-template-columns:repeat(4,1fr); gap:24px;">
+        <sc-for list="{{ healthStats }}" as="stat" hint-placeholder-count="4">
+          <div>
+            <div style="font-family:'JetBrains Mono',monospace; font-size:24px; font-weight:600; color:var(--text); margin-bottom:6px;">{{ stat.value }}</div>
+            <div style="font-size:12px; color:var(--faint); line-height:1.4;">{{ stat.label }}</div>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+
+    <div style="border:1px solid var(--line); border-radius:2px; padding:32px;">
+      <div data-eyebrow="1" style="font-family:var(--fEyebrow); font-weight:700; font-size:11.5px; letter-spacing:0.18em; text-transform:uppercase; color:var(--accent2); margin-bottom:8px;">Access</div>
+      <h2 style="font-family:var(--fHead); font-weight:800; font-size:21px; margin:0 0 8px;">Who can query this repo</h2>
+      <p style="font-size:13px; color:var(--muted); margin:0 0 22px;">Access to this repo&#39;s index is scoped separately from your other repos.</p>
+
+      <div style="border-top:1px solid var(--line);">
+        <sc-for list="{{ teamMembers }}" as="member" hint-placeholder-count="3">
+          <div style="display:flex; align-items:center; gap:12px; padding:14px 2px; border-bottom:1px solid var(--line);">
+            <span style="flex:none; width:28px; height:28px; border-radius:50%; background:var(--surface); border:1px solid var(--lineStrong); color:var(--text); font-family:var(--fHead); font-weight:700; font-size:11px; display:flex; align-items:center; justify-content:center;">{{ member.initials }}</span>
+            <div style="flex:1; min-width:0;">
+              <div style="font-size:13.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ member.name }}</div>
+              <div style="font-size:12px; color:var(--faint);">{{ member.email }}</div>
+            </div>
+            <span style="flex:none; font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--faint); text-transform:uppercase;">{{ member.role }}</span>
+            <sc-if value="{{ member.canRemove }}" hint-placeholder-val="{{ false }}">
+              <button type="button" onClick="{{ member.remove }}" style="flex:none; background:transparent; border:0; color:var(--faint); cursor:pointer; font-size:13px; padding:4px 6px;" style-hover="color:var(--text)">Remove</button>
+            </sc-if>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="display:flex; gap:10px; margin-top:20px;">
+        <input type="email" class="field-input" value="{{ inviteEmail }}" onChange="{{ handleInviteChange }}" placeholder="teammate@company.com" style="flex:1; background:transparent; border:1px solid var(--line); border-radius:2px; padding:10px 14px; color:var(--text); font-size:13.5px; outline:none; transition:border-color .2s ease;" />
+        <button type="button" onClick="{{ invite }}" disabled="{{ inviteDisabled }}" style="white-space:nowrap; flex:none; background:transparent; border:1px solid var(--lineStrong); color:var(--text); font-weight:600; font-size:13.5px; padding:10px 20px; border-radius:2px; cursor:pointer; opacity:{{ inviteOpacity }}; transition:border-color .3s ease;" style-hover="border-color:var(--accent)">Invite</button>
+      </div>
+    </div>
+
+    <div style="border:1px dashed var(--line); border-radius:2px; padding:32px;">
+      <div data-eyebrow="1" style="font-family:var(--fEyebrow); font-weight:700; font-size:11.5px; letter-spacing:0.18em; text-transform:uppercase; color:var(--faint); margin-bottom:8px;">Danger zone</div>
+      <h2 style="font-family:var(--fHead); font-weight:800; font-size:21px; margin:0 0 10px;">Disconnect repository</h2>
+      <p style="font-size:13.5px; color:var(--muted); line-height:1.6; margin:0 0 20px; max-width:52ch;">Removes {{ repo.name }} from Sleuth. Its index is deleted and past conversations about it become read-only.</p>
+
+      <sc-if value="{{ !confirmOpen }}" hint-placeholder-val="{{ true }}">
+        <button type="button" onClick="{{ openConfirm }}" style="white-space:nowrap; background:transparent; border:1px solid var(--lineStrong); color:var(--muted); font-weight:600; font-size:13.5px; padding:10px 18px; border-radius:2px; cursor:pointer; transition:border-color .3s ease, color .3s ease;" style-hover="border-color:var(--accent); color:var(--text)">Disconnect repository</button>
+      </sc-if>
+
+      <sc-if value="{{ confirmOpen }}" hint-placeholder-val="{{ false }}">
+        <div style="border:1px solid var(--lineStrong); background:var(--glow); padding:22px 24px; border-radius:2px;">
+          <div style="font-size:13.5px; margin-bottom:14px;">Type <span style="font-family:'JetBrains Mono',monospace; color:var(--text);">{{ repo.name }}</span> to confirm.</div>
+          <input type="text" class="field-input" value="{{ confirmText }}" onChange="{{ handleConfirmChange }}" placeholder="{{ repo.name }}" style="width:100%; background:var(--deep); border:1px solid var(--line); border-radius:2px; padding:10px 14px; color:var(--text); font-family:'JetBrains Mono',monospace; font-size:13px; outline:none; margin-bottom:16px; transition:border-color .2s ease;" />
+          <div style="display:flex; gap:10px;">
+            <button type="button" onClick="{{ closeConfirm }}" style="white-space:nowrap; background:transparent; border:1px solid var(--line); color:var(--muted); font-size:13.5px; padding:9px 16px; border-radius:2px; cursor:pointer;" style-hover="color:var(--text)">Cancel</button>
+            <button type="button" onClick="{{ confirmDisconnect }}" disabled="{{ disconnectDisabled }}" style="white-space:nowrap; background:transparent; border:1px solid var(--accent); color:var(--accent); font-size:13.5px; font-weight:600; padding:9px 16px; border-radius:2px; cursor:pointer; opacity:{{ disconnectOpacity }};" style-hover="background:var(--accent); color:var(--onAccent)">Disconnect</button>
+          </div>
+        </div>
+      </sc-if>
+    </div>
+
+  </main>
+  </div>
+</div>
+</helmet>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:900,&quot;height&quot;:1400},&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;storm&quot;,&quot;midnight&quot;,&quot;ivory&quot;,&quot;leaf&quot;,&quot;edition&quot;],&quot;default&quot;:&quot;storm&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Theme&quot;},&quot;typeOption&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;a&quot;,&quot;b&quot;],&quot;default&quot;:&quot;a&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Theme&quot;}}">
+const REPO = {
+  name: 'acme/platform', providerAbbr: 'GH', providerName: 'GitHub', connectedAs: '@jordanellis',
+  lastIndexed: '4 hours ago', sha: 'a1b2c3d',
+  files: 1284, functions: 6502, relationships: 9840, embeddings: 14220
+};
+const BRANCHES = ['main', 'develop', 'staging'];
+const TEAM = [
+  { id: 't1', name: 'Jordan Ellis', email: 'jordan@acme.co', role: 'Owner', canRemove: false },
+  { id: 't2', name: 'Priya Nair', email: 'priya@acme.co', role: 'Member', canRemove: true },
+  { id: 't3', name: 'Sam Okafor', email: 'sam@acme.co', role: 'Member', canRemove: true }
+];
+
+function initials(name) {
+  return name.split(' ').map(p => p[0]).join('').toUpperCase();
+}
+
+class Component extends DCLogic {
+  state = {
+    theme: null, typeOpt: null,
+    branch: 'main', excludePatterns: 'node_modules/**\ndist/**\n*.test.ts',
+    autoReindex: true, isReindexing: false,
+    team: TEAM.map(m => ({ ...m, initials: initials(m.name) })),
+    inviteEmail: '',
+    confirmOpen: false, confirmText: ''
+  };
+
+  get typeOpt() { return this.state.typeOpt || this.props.typeOption || 'a'; }
+  setType(v) { this.setState({ typeOpt: v }); }
+  get theme() { return this.state.theme || this.props.theme || 'storm'; }
+  set(t) { this.setState({ theme: t }); }
+
+  applyBg() {
+    const root = document.querySelector('[data-theme]');
+    if (root) document.body.style.background = getComputedStyle(root).getPropertyValue('--bg');
+  }
+  componentDidMount() { this.applyBg(); }
+  componentDidUpdate() { this.applyBg(); }
+
+  handleBranchChange = (e) => this.setState({ branch: e.target.value });
+  handleExcludeChange = (e) => this.setState({ excludePatterns: e.target.value });
+  handleInviteChange = (e) => this.setState({ inviteEmail: e.target.value });
+  handleConfirmChange = (e) => this.setState({ confirmText: e.target.value });
+
+  toggleAutoReindex = () => this.setState(s => ({ autoReindex: !s.autoReindex }));
+
+  reindex = () => {
+    this.setState({ isReindexing: true });
+    setTimeout(() => this.setState({ isReindexing: false }), 1600);
+  };
+
+  removeMember(id) { this.setState(s => ({ team: s.team.filter(m => m.id !== id) })); }
+  invite = () => {
+    const email = this.state.inviteEmail.trim();
+    if (!email) return;
+    const name = email.split('@')[0].replace(/[._]/g, ' ');
+    this.setState(s => ({
+      team: [...s.team, { id: 't' + Date.now(), name, email, role: 'Member', canRemove: true, initials: initials(name) }],
+      inviteEmail: ''
+    }));
+  };
+
+  openConfirm = () => this.setState({ confirmOpen: true, confirmText: '' });
+  closeConfirm = () => this.setState({ confirmOpen: false, confirmText: '' });
+  confirmDisconnect = () => { this.setState({ confirmOpen: false, confirmText: '' }); };
+
+  renderVals() {
+    const t = this.theme;
+    const s = this.state;
+    const hasWebhookAccess = REPO.providerName === 'GitHub';
+
+    return {
+      theme: t, typeOpt: this.typeOpt,
+      isTypeA: String(this.typeOpt === 'a'), isTypeB: String(this.typeOpt === 'b'),
+      setTypeA: () => this.setType('a'), setTypeB: () => this.setType('b'),
+      isStorm: String(t === 'storm'), isMidnight: String(t === 'midnight'), isIvory: String(t === 'ivory'), isLeaf: String(t === 'leaf'), isEdition: String(t === 'edition'),
+      setEdition: () => this.set('edition'), setLeaf: () => this.set('leaf'), setStorm: () => this.set('storm'), setMidnight: () => this.set('midnight'), setIvory: () => this.set('ivory'),
+      setTheme: (v) => this.set(v),
+
+      repo: REPO,
+      branch: s.branch, branches: BRANCHES, handleBranchChange: this.handleBranchChange,
+
+      reindex: this.reindex, isReindexing: s.isReindexing,
+      reindexLabel: s.isReindexing ? 'Reindexing\u2026' : 'Reindex now',
+
+      excludePatterns: s.excludePatterns, handleExcludeChange: this.handleExcludeChange,
+
+      webhookNote: hasWebhookAccess ? 'Reindexes automatically whenever new commits land on ' + s.branch + '.' : 'Requires webhook access from ' + REPO.providerName + '. Grant access in your provider settings to enable this.',
+      autoReindexDisabled: !hasWebhookAccess,
+      toggleAutoReindex: this.toggleAutoReindex,
+      toggleBorder: (s.autoReindex && hasWebhookAccess) ? 'var(--accent)' : 'var(--line)',
+      toggleBg: (s.autoReindex && hasWebhookAccess) ? 'var(--accent)' : 'transparent',
+      toggleCursor: hasWebhookAccess ? 'pointer' : 'not-allowed',
+      toggleOpacity: hasWebhookAccess ? '1' : '0.45',
+      knobLeft: (s.autoReindex && hasWebhookAccess) ? '21px' : '2px',
+      knobColor: (s.autoReindex && hasWebhookAccess) ? 'var(--onAccent)' : 'var(--faint)',
+
+      healthStats: [
+        { label: 'Files indexed', value: REPO.files.toLocaleString() },
+        { label: 'Functions & classes parsed', value: REPO.functions.toLocaleString() },
+        { label: 'Call relationships mapped', value: REPO.relationships.toLocaleString() },
+        { label: 'Embeddings generated', value: REPO.embeddings.toLocaleString() }
+      ],
+
+      teamMembers: s.team.map(m => ({ ...m, remove: () => this.removeMember(m.id) })),
+      inviteEmail: s.inviteEmail, handleInviteChange: this.handleInviteChange, invite: this.invite,
+      inviteDisabled: !s.inviteEmail.trim(), inviteOpacity: s.inviteEmail.trim() ? '1' : '0.5',
+
+      confirmOpen: s.confirmOpen, confirmText: s.confirmText,
+      openConfirm: this.openConfirm, closeConfirm: this.closeConfirm, confirmDisconnect: this.confirmDisconnect,
+      handleConfirmChange: this.handleConfirmChange,
+      disconnectDisabled: s.confirmText.trim() !== REPO.name,
+      disconnectOpacity: s.confirmText.trim() === REPO.name ? '1' : '0.5'
+    };
+  }
+}
+
+</script>
+</body>
+</html>

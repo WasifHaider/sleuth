@@ -1,0 +1,716 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+<link href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Sacramento&family=Big+Shoulders+Display:wght@400;600;700;800;900&family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  body { margin: 0; padding: 0; }
+  * { box-sizing: border-box; }
+  [data-theme] { --bg:#0F372F; --deep:#0A2621; --surface:#143F36; --text:#F2F5F2; --muted:rgba(242,245,242,0.58); --faint:rgba(242,245,242,0.30); --accent:#ECBC6B; --onAccent:#0F372F; --line:rgba(242,245,242,0.13); --lineStrong:rgba(242,245,242,0.26); --glow:rgba(236,188,107,0.16); --accent2:var(--accent); --syn1:#ECBC6B; --syn2:#8FBFA3; --syn3:rgba(242,245,242,0.42); --fHead:'Big Shoulders Display',sans-serif; --fBody:'Space Grotesk',system-ui,sans-serif; --fEyebrow:'Space Grotesk',sans-serif; }
+  [data-theme="midnight"] { --bg:#011423; --deep:#000A12; --surface:#07202F; --text:#E8F0F6; --muted:rgba(232,240,246,0.58); --faint:rgba(232,240,246,0.30); --accent:#E7D269; --onAccent:#011423; --line:rgba(232,240,246,0.13); --lineStrong:rgba(232,240,246,0.26); --glow:rgba(231,210,105,0.14); --accent2:var(--accent); --syn1:#E7D269; --syn2:#6FA8C9; --syn3:rgba(232,240,246,0.42); }
+  [data-type="b"] { --fHead:'Alfa Slab One',Georgia,serif; --fEyebrow:'Sacramento',cursive; }
+  [data-theme="edition"] { --bg:#071317; --deep:#040C0F; --surface:#0C1E23; --text:#E6F2F2; --muted:rgba(230,242,242,0.58); --faint:rgba(230,242,242,0.30); --accent:#02A0A0; --onAccent:#04191B; --line:rgba(230,242,242,0.13); --lineStrong:rgba(230,242,242,0.26); --glow:rgba(2,160,160,0.20); --accent2:#FFBD65; --syn1:#02A0A0; --syn2:#FFBD65; --syn3:rgba(230,242,242,0.42); }
+  [data-theme="leaf"] { --bg:#CDFF9B; --deep:#BDF287; --surface:#D8FFB2; --text:#203D43; --muted:rgba(32,61,67,0.66); --faint:rgba(32,61,67,0.38); --accent:#203D43; --onAccent:#CDFF9B; --line:rgba(32,61,67,0.16); --lineStrong:rgba(32,61,67,0.32); --glow:rgba(32,61,67,0.16); --accent2:var(--accent); --syn1:#203D43; --syn2:#8A6D3F; --syn3:rgba(32,61,67,0.5); }
+  [data-theme="ivory"] { --bg:#F3EEE1; --deep:#E7E0CF; --surface:#FBF8F1; --text:#101E28; --muted:rgba(16,30,40,0.62); --faint:rgba(16,30,40,0.34); --accent:#0061A4; --onAccent:#F7F4EC; --line:rgba(16,30,40,0.14); --lineStrong:rgba(16,30,40,0.28); --glow:rgba(0,97,164,0.12); --accent2:var(--accent); --syn1:#0061A4; --syn2:#A8703E; --syn3:rgba(16,30,40,0.46); }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { color: var(--text); }
+  [data-tbtn][data-active="true"] { background: var(--accent) !important; color: var(--onAccent) !important; }
+  [data-tbtn][data-active="false"]:hover { color: var(--text) !important; }
+  @keyframes pulseNode { 0%,100%{opacity:.3; transform:scale(1);} 50%{opacity:1; transform:scale(1.25);} }
+  @keyframes fadeUp { from{ opacity:0; transform:translateY(8px); } to{ opacity:1; transform:none; } }
+  [data-sleuthchat] .rail-item:hover { background: var(--surface); }
+  [data-sleuthchat] .cite-pill { transition: transform .25s cubic-bezier(.2,.7,.2,1), box-shadow .25s ease, background .25s ease; }
+  [data-sleuthchat] .cite-pill:hover { transform: translateY(-1px) scale(1.03); box-shadow: 0 8px 20px var(--glow); }
+  [data-sleuthchat] .pill-sugg:hover { border-color: var(--accent) !important; color: var(--text) !important; }
+  [data-sleuthchat] ::-webkit-scrollbar { width: 8px; height: 8px; }
+  [data-sleuthchat] ::-webkit-scrollbar-thumb { background: var(--lineStrong); border-radius: 4px; }
+  @media (max-width:900px) {
+    [data-sleuthchat] [data-rightrail] { position:fixed !important; right:0; top:0; bottom:0; z-index:70; box-shadow:-20px 0 50px rgba(0,0,0,0.3); }
+  }
+</style>
+</helmet>
+
+<div data-sleuthchat="1" data-theme="{{ theme }}" data-type="{{ typeOpt }}" style="background:var(--bg); color:var(--text); font-family:var(--fBody); height:100vh; display:flex; overflow:hidden; -webkit-font-smoothing:antialiased;">
+
+  <dc-import name="Sleuth Rail" theme="{{ theme }}" type-option="{{ typeOpt }}" active-page="chat" hide-repo-switcher="{{ true }}" hide-history="{{ true }}" on-set-theme="{{ setTheme }}" hint-size="272px,100vh"></dc-import>
+
+  <div style="flex:1; min-width:0; height:100%; display:flex; flex-direction:column; overflow:hidden;">
+
+  <div style="position:fixed; top:18px; right:18px; z-index:80; display:flex; align-items:center; gap:6px; padding:5px; border:1px solid var(--line); border-radius:999px; background:color-mix(in srgb, var(--bg) 78%, transparent); backdrop-filter:blur(14px);">
+    <button type="button" data-tbtn="1" data-active="{{ isStorm }}" onClick="{{ setStorm }}" style="font-family:'Space Grotesk',sans-serif; font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Storm</button>
+    <button type="button" data-tbtn="2" data-active="{{ isMidnight }}" onClick="{{ setMidnight }}" style="font-family:'Space Grotesk',sans-serif; font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Midnight</button>
+    <button type="button" data-tbtn="3" data-active="{{ isIvory }}" onClick="{{ setIvory }}" style="font-family:'Space Grotesk',sans-serif; font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Ivory</button>
+    <button type="button" data-tbtn="4" data-active="{{ isLeaf }}" onClick="{{ setLeaf }}" style="font-family:'Space Grotesk',sans-serif; font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Leaf</button>
+    <button type="button" data-tbtn="5" data-active="{{ isEdition }}" onClick="{{ setEdition }}" style="font-family:'Space Grotesk',sans-serif; font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Edition</button>
+  </div>
+  <div style="position:fixed; top:70px; right:18px; z-index:80; display:flex; align-items:center; gap:6px; padding:5px; border:1px solid var(--line); border-radius:999px; background:color-mix(in srgb, var(--bg) 78%, transparent); backdrop-filter:blur(14px);">
+    <button type="button" data-tbtn="A" data-active="{{ isTypeA }}" onClick="{{ setTypeA }}" style="font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Type A</button>
+    <button type="button" data-tbtn="B" data-active="{{ isTypeB }}" onClick="{{ setTypeB }}" style="font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Type B</button>
+  </div>
+
+  <header style="flex:none; display:flex; align-items:center; justify-content:flex-end; padding:40px clamp(20px,5vw,56px) 18px; max-width:1600px; width:100%; margin:0 auto; box-sizing:border-box;">
+  </header>
+
+  <div style="flex:1; min-height:0; display:flex; max-width:1600px; width:100%; margin:0 auto; border-top:1px solid var(--line);">
+
+    <div style="flex:none; width:{{ leftWidth }}; overflow:hidden; border-right:1px solid var(--line); display:flex; flex-direction:column; transition:width .3s cubic-bezier(.2,.7,.2,1);">
+      <sc-if value="{{ leftOpen }}" hint-placeholder-val="{{ true }}">
+        <div style="display:flex; flex-direction:column; height:100%; width:260px;">
+          <div style="flex:none; padding:16px 14px 10px; display:flex; align-items:center; justify-content:space-between;">
+            <span style="font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:0.1em; text-transform:uppercase; color:var(--faint);">Repository</span>
+            <button type="button" onClick="{{ collapseLeft }}" title="Collapse" style="background:transparent; border:0; color:var(--faint); cursor:pointer; padding:4px; display:flex;" style-hover="color:var(--text)" dangerouslySetInnerHTML="{{ iconPanelLeft }}"></button>
+          </div>
+          <div style="flex:none; padding:0 14px 14px; position:relative;">
+            <button type="button" onClick="{{ toggleRepoMenu }}" style="width:100%; display:flex; align-items:center; justify-content:space-between; gap:8px; border:1px solid var(--line); border-radius:2px; padding:10px 12px; background:transparent; color:var(--text); cursor:pointer; text-align:left;" style-hover="border-color:var(--lineStrong)">
+              <span style="min-width:0;">
+                <span style="display:block; font-weight:600; font-size:13.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ activeRepo.name }}</span>
+                <span style="display:block; font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--faint); margin-top:2px;">{{ activeRepo.branch }}</span>
+              </span>
+              <span style="flex:none; color:var(--faint); display:flex;" dangerouslySetInnerHTML="{{ iconChevronDown }}"></span>
+            </button>
+            <sc-if value="{{ repoMenuOpen }}" hint-placeholder-val="{{ false }}">
+              <div style="position:absolute; top:calc(100% + 4px); left:14px; right:14px; z-index:65; background:var(--surface); border:1px solid var(--line); box-shadow:0 20px 50px rgba(0,0,0,0.22); padding:6px; display:flex; flex-direction:column;">
+                <sc-for list="{{ repoOptions }}" as="r" hint-placeholder-count="3">
+                  <button type="button" onClick="{{ r.select }}" style="text-align:left; background:transparent; border:0; padding:9px 10px; border-radius:2px; cursor:pointer; color:var(--text); font-size:13px;" style-hover="background:var(--glow)">
+                    <span style="display:block;">{{ r.name }}</span>
+                    <span style="display:block; font-family:'JetBrains Mono',monospace; font-size:10.5px; color:var(--faint); margin-top:2px;">{{ r.branch }}</span>
+                  </button>
+                </sc-for>
+              </div>
+            </sc-if>
+          </div>
+          <div style="flex:none; padding:0 14px 16px;">
+            <button type="button" onClick="{{ newChat }}" style="width:100%; display:flex; align-items:center; gap:8px; justify-content:center; border:1px solid var(--lineStrong); border-radius:2px; padding:9px 12px; background:transparent; color:var(--text); cursor:pointer; font-size:13px; font-weight:600;" style-hover="border-color:var(--accent); color:var(--accent)">
+              <span style="display:flex;" dangerouslySetInnerHTML="{{ iconPlus }}"></span>
+              New chat
+            </button>
+          </div>
+          <div style="flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; padding:0 8px 16px;">
+            <sc-for list="{{ historyGroups }}" as="grp" hint-placeholder-count="2">
+              <div style="margin-bottom:14px;">
+                <div style="font-family:'JetBrains Mono',monospace; font-size:10px; letter-spacing:0.1em; text-transform:uppercase; color:var(--faint); padding:8px 8px 6px;">{{ grp.label }}</div>
+                <sc-for list="{{ grp.items }}" as="item" hint-placeholder-count="2">
+                  <button type="button" class="rail-item" onClick="{{ item.select }}" style="display:block; width:100%; text-align:left; background:{{ item.bg }}; border:0; border-radius:2px; padding:9px 10px; cursor:pointer; color:var(--text); font-size:12.5px; line-height:1.4; margin-bottom:2px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ item.title }}</button>
+                </sc-for>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+      <sc-if value="{{ leftCollapsedView }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex; flex-direction:column; align-items:center; gap:14px; padding:16px 0; width:60px;">
+          <button type="button" onClick="{{ expandLeft }}" title="Expand" style="background:transparent; border:0; color:var(--faint); cursor:pointer; padding:6px; display:flex;" style-hover="color:var(--text)" dangerouslySetInnerHTML="{{ iconPanelLeft }}"></button>
+          <button type="button" onClick="{{ newChat }}" title="New chat" style="background:transparent; border:1px solid var(--line); border-radius:2px; color:var(--faint); cursor:pointer; padding:6px; display:flex;" style-hover="color:var(--accent); border-color:var(--accent)" dangerouslySetInnerHTML="{{ iconPlus }}"></button>
+        </div>
+      </sc-if>
+    </div>
+
+    <div style="flex:1; min-width:0; display:flex; flex-direction:column; position:relative;">
+
+      <div ref="{{ messagesRef }}" style="flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; padding:28px clamp(16px,4vw,48px) 20px;">
+
+        <sc-if value="{{ isEmpty }}" hint-placeholder-val="{{ false }}">
+          <div style="min-height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:22px; text-align:center; padding:40px 20px;">
+            <h1 style="font-family:var(--fHead); font-weight:800; font-size:clamp(26px,3.4vw,38px); margin:0; letter-spacing:-0.01em;">Ask anything about {{ activeRepo.name }}</h1>
+            <p style="margin:0; color:var(--muted); font-size:14.5px; max-width:52ch;">Sleuth reads the repository&#39;s structure before it answers &#8212; every claim traces back to a file and a line range.</p>
+            <div style="display:flex; flex-wrap:wrap; gap:10px; justify-content:center; max-width:640px;">
+              <sc-for list="{{ suggestions }}" as="s" hint-placeholder-count="3">
+                <button type="button" class="pill-sugg" onClick="{{ s.select }}" style="border:1px solid var(--line); border-radius:999px; background:transparent; color:var(--muted); font-size:13px; padding:10px 16px; cursor:pointer; transition:border-color .25s ease, color .25s ease;">{{ s.q }}</button>
+              </sc-for>
+            </div>
+          </div>
+        </sc-if>
+
+        <sc-for list="{{ messages }}" as="msg" hint-placeholder-count="2">
+          <div style="margin-bottom:26px;">
+            <sc-if value="{{ msg.isUser }}" hint-placeholder-val="{{ false }}">
+              <div style="display:flex; justify-content:flex-end;">
+                <div style="max-width:68%; background:var(--surface); border:1px solid var(--line); border-radius:2px; padding:12px 16px; font-size:14.5px; line-height:1.55;">{{ msg.text }}</div>
+              </div>
+            </sc-if>
+
+            <sc-if value="{{ msg.isAssistant }}" hint-placeholder-val="{{ false }}">
+              <div style="max-width:78%;">
+
+                <sc-if value="{{ msg.traceExpanded }}" hint-placeholder-val="{{ false }}">
+                  <div style="border:1px solid var(--line); background:var(--deep); border-radius:2px; padding:4px 14px; margin-bottom:12px;">
+                    <sc-for list="{{ msg.traceRows }}" as="row" hint-placeholder-count="3">
+                      <div style="display:flex; align-items:baseline; gap:10px; padding:9px 2px; font-family:'JetBrains Mono',monospace; font-size:12px; animation:fadeUp .4s ease both;">
+                        <span style="flex:none; color:var(--faint); display:flex; align-items:center; width:14px;" dangerouslySetInnerHTML="{{ row.icon }}"></span>
+                        <span style="color:var(--accent); flex:none;">{{ row.verb }}</span>
+                        <span style="color:var(--text); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ row.target }}</span>
+                        <span style="color:var(--faint); flex:none; margin-left:auto;">{{ row.result }}</span>
+                      </div>
+                    </sc-for>
+                    <sc-if value="{{ msg.showCollapseLink }}" hint-placeholder-val="{{ false }}">
+                      <button type="button" onClick="{{ msg.toggleTrace }}" style="width:100%; text-align:left; background:transparent; border:0; border-top:1px solid var(--line); margin-top:2px; padding:8px 2px; color:var(--faint); font-family:'JetBrains Mono',monospace; font-size:11.5px; cursor:pointer;" style-hover="color:var(--text)">hide trace</button>
+                    </sc-if>
+                  </div>
+                </sc-if>
+
+                <sc-if value="{{ msg.showCollapsedSummary }}" hint-placeholder-val="{{ false }}">
+                  <button type="button" onClick="{{ msg.toggleTrace }}" style="display:flex; align-items:center; gap:7px; background:transparent; border:0; padding:0; margin-bottom:10px; color:var(--faint); font-family:'JetBrains Mono',monospace; font-size:12px; cursor:pointer;" style-hover="color:var(--text)">
+                    <span style="display:flex;" dangerouslySetInnerHTML="{{ iconChevronRight }}"></span>
+                    {{ msg.traceSummary }}
+                  </button>
+                </sc-if>
+
+                <sc-if value="{{ msg.showThinking }}" hint-placeholder-val="{{ false }}">
+                  <div style="display:flex; align-items:center; gap:8px; color:var(--faint); font-family:'JetBrains Mono',monospace; font-size:12px;">
+                    <span style="width:6px; height:6px; border-radius:50%; background:var(--accent); display:inline-block; animation:pulseNode 1.2s ease-in-out infinite;"></span>
+                    searching the repository&#8230;
+                  </div>
+                </sc-if>
+
+                <sc-if value="{{ msg.answerReady }}" hint-placeholder-val="{{ false }}">
+                  <div style="font-size:15px; line-height:1.7; color:var(--text); animation:fadeUp .5s ease both;">
+                    <sc-for list="{{ msg.segments }}" as="seg" hint-placeholder-count="4">
+                      <sc-if value="{{ seg.isText }}" hint-placeholder-val="{{ true }}">
+                        <span>{{ seg.text }}</span>
+                      </sc-if>
+                      <sc-if value="{{ seg.isCite }}" hint-placeholder-val="{{ false }}">
+                        <button type="button" class="cite-pill" onClick="{{ seg.select }}" style="display:inline-flex; align-items:center; border:1px solid var(--lineStrong); background:var(--glow); color:var(--accent); font-family:'JetBrains Mono',monospace; font-size:12.5px; padding:2px 8px; border-radius:3px; cursor:pointer; margin:0 2px; vertical-align:baseline;">{{ seg.label }}</button>
+                      </sc-if>
+                    </sc-for>
+                  </div>
+                </sc-if>
+              </div>
+            </sc-if>
+          </div>
+        </sc-for>
+      </div>
+
+      <div style="flex:none; border-top:1px solid var(--line); padding:14px clamp(16px,4vw,48px) 22px;">
+        <div style="display:flex; align-items:center; gap:8px; margin-bottom:10px;">
+          <span style="display:inline-flex; align-items:center; gap:7px; border:1px solid var(--line); border-radius:999px; padding:5px 12px; font-family:'JetBrains Mono',monospace; font-size:11.5px; color:var(--muted);">
+            <span style="width:6px; height:6px; border-radius:50%; background:var(--accent); display:inline-block;"></span>
+            {{ activeRepo.name }} <span style="color:var(--faint);">&#183;</span> {{ activeRepo.branch }}
+          </span>
+        </div>
+        <form onSubmit="{{ handleSubmit }}" style="display:flex; align-items:flex-end; gap:10px;">
+          <input type="text" value="{{ inputValue }}" onChange="{{ handleInputChange }}" disabled="{{ isBusy }}" placeholder="Ask about this repository&#8230;" style="flex:1; background:var(--surface); border:1px solid var(--line); border-radius:2px; padding:13px 14px; color:var(--text); font-family:'JetBrains Mono',monospace; font-size:13.5px; outline:none;" />
+          <button type="submit" disabled="{{ sendDisabled }}" style="flex:none; width:42px; height:42px; display:flex; align-items:center; justify-content:center; background:var(--accent); color:var(--onAccent); border:0; border-radius:2px; cursor:pointer; opacity:{{ sendOpacity }}; transition:transform .3s cubic-bezier(.2,.7,.2,1), box-shadow .3s ease;" style-hover="transform:translateY(-2px); box-shadow:0 10px 26px var(--glow)" dangerouslySetInnerHTML="{{ iconSend }}"></button>
+        </form>
+      </div>
+    </div>
+
+    <div data-rightrail="1" style="flex:none; width:{{ rightWidth }}; overflow:hidden; border-left:1px solid var(--line); background:var(--deep); transition:width .32s cubic-bezier(.2,.7,.2,1);">
+      <sc-if value="{{ rightOpen }}" hint-placeholder-val="{{ false }}">
+        <div style="width:380px; height:100%; display:flex; flex-direction:column;">
+          <div style="flex:none; display:flex; align-items:center; justify-content:space-between; gap:8px; padding:14px 16px; border-bottom:1px solid var(--line);">
+            <div style="min-width:0;">
+              <div style="font-family:'JetBrains Mono',monospace; font-size:12.5px; font-weight:600; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">{{ activeCitation.file }}</div>
+              <a href="#" style="display:inline-flex; align-items:center; gap:5px; font-size:11.5px; color:var(--muted); margin-top:3px;" style-hover="color:var(--accent)">
+                open in repo
+                <span style="display:flex;" dangerouslySetInnerHTML="{{ iconExternal }}"></span>
+              </a>
+            </div>
+            <button type="button" onClick="{{ closeRight }}" style="flex:none; background:transparent; border:0; color:var(--faint); cursor:pointer; padding:4px; display:flex;" style-hover="color:var(--text)" dangerouslySetInnerHTML="{{ iconClose }}"></button>
+          </div>
+          <div ref="{{ codeRef }}" style="flex:1; min-height:0; overflow-y:auto; overflow-x:hidden; padding:10px 0;">
+            <sc-for list="{{ activeCitation.lines }}" as="ln" hint-placeholder-count="20">
+              <div style="display:flex; border-left:2px solid {{ ln.borderColor }}; background:{{ ln.bg }};">
+                <span style="flex:none; width:34px; text-align:right; padding:2px 10px 2px 0; font-family:'JetBrains Mono',monospace; font-size:11.5px; color:var(--faint); user-select:none;">{{ ln.num }}</span>
+                <span style="flex:1; padding:2px 14px 2px 4px; font-family:'JetBrains Mono',monospace; font-size:12.5px; color:var(--text); white-space:pre;" dangerouslySetInnerHTML="{{ ln.html }}"></span>
+              </div>
+            </sc-for>
+          </div>
+        </div>
+      </sc-if>
+    </div>
+
+  </div>
+  </div>
+</div>
+</helmet>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1600,&quot;height&quot;:960},&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;storm&quot;,&quot;midnight&quot;,&quot;ivory&quot;,&quot;leaf&quot;,&quot;edition&quot;],&quot;default&quot;:&quot;storm&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Theme&quot;},&quot;typeOption&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;a&quot;,&quot;b&quot;],&quot;default&quot;:&quot;a&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Theme&quot;}}">
+const ICONS = {
+  search: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="10.5" cy="10.5" r="6.5"/><path d="M15.5 15.5 20 20" stroke-linecap="round"/></svg>',
+  file: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M6 3h9l4 4v14H6z" stroke-linejoin="round"/><path d="M15 3v4h4" stroke-linejoin="round"/></svg>',
+  chevronDown: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M6 9l6 6 6-6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  chevronRight: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M9 6l6 6-6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  panelLeft: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="3" y="4" width="18" height="16" rx="1"/><path d="M9 4v16" /></svg>',
+  plus: '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 5v14M5 12h14" stroke-linecap="round"/></svg>',
+  send: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 19V5M6 11l6-6 6 6" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+  close: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M6 6l12 12M18 6L6 18" stroke-linecap="round"/></svg>',
+  external: '<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M14 5h5v5" stroke-linecap="round" stroke-linejoin="round"/><path d="M19 5 10 14" stroke-linecap="round"/><path d="M18 13v6H5V6h6" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+};
+
+const REPOS = [
+  { id: 'r1', name: 'acme/platform', branch: 'main' },
+  { id: 'r5', name: 'acme/billing-service', branch: 'main' },
+  { id: 'r6', name: 'acme/data-pipeline', branch: 'main' }
+];
+
+const CODE_FILES = {
+  'src/auth/session.ts': [
+    "import { SessionStore } from './store';",
+    "import { hashToken } from './crypto';",
+    "",
+    "const SESSION_TTL_MS = 1000 * 60 * 60 * 12;",
+    "",
+    "export interface Session {",
+    "  id: string;",
+    "  userId: string;",
+    "  createdAt: number;",
+    "  expiresAt: number;",
+    "  revoked: boolean;",
+    "}",
+    "",
+    "const store = new SessionStore();",
+    "",
+    "export function createSession(userId: string): Session {",
+    "  const now = Date.now();",
+    "  const session: Session = {",
+    "    id: hashToken(userId + now),",
+    "    userId,",
+    "    createdAt: now,",
+    "    expiresAt: now + SESSION_TTL_MS,",
+    "    revoked: false,",
+    "  };",
+    "  store.put(session);",
+    "  return session;",
+    "}",
+    "",
+    "export function getSession(id: string): Session | null {",
+    "  const session = store.get(id);",
+    "  if (!session) return null;",
+    "  if (session.revoked || session.expiresAt < Date.now()) return null;",
+    "  return session;",
+    "}",
+    "",
+    "export function isValid(session: Session | null): boolean {",
+    "  return !!session && !session.revoked && session.expiresAt > Date.now();",
+    "}",
+    "",
+    "// Invalidate a session immediately, ahead of its natural expiry.",
+    "export function invalidateSession(id: string): void {",
+    "  const session = store.get(id);",
+    "  if (!session) return;",
+    "  session.revoked = true;",
+    "  store.put(session);",
+    "  store.revoke(id);",
+    "}",
+    "",
+    "export function invalidateAllForUser(userId: string): void {",
+    "  for (const session of store.allForUser(userId)) {",
+    "    invalidateSession(session.id);",
+    "  }",
+    "}",
+    "",
+    "export function touchSession(id: string): void {",
+    "  const session = store.get(id);",
+    "  if (session) session.expiresAt = Date.now() + SESSION_TTL_MS;",
+    "}"
+  ],
+  'src/auth/store.ts': [
+    "import type { Session } from './session';",
+    "",
+    "// In-memory session store, swappable for Redis via SESSION_BACKEND.",
+    "export class SessionStore {",
+    "  private sessions = new Map<string, Session>();",
+    "  private revoked = new Set<string>();",
+    "",
+    "  put(session: Session): void {",
+    "    this.sessions.set(session.id, session);",
+    "  }",
+    "",
+    "  get(id: string): Session | undefined {",
+    "    if (this.revoked.has(id)) return undefined;",
+    "    return this.sessions.get(id);",
+    "  }",
+    "",
+    "  allForUser(userId: string): Session[] {",
+    "    return [...this.sessions.values()].filter(s => s.userId === userId);",
+    "  }",
+    "",
+    "  // Deletes the session and records the id so replay attempts",
+    "  // with a cached token are rejected even before expiry.",
+    "  revoke(id: string): void {",
+    "    this.sessions.delete(id);",
+    "    this.revoked.add(id);",
+    "  }",
+    "",
+    "  isRevoked(id: string): boolean {",
+    "    return this.revoked.has(id);",
+    "  }",
+    "}"
+  ],
+  'src/middleware/rateLimiter.ts': [
+    "import type { Request, Response, NextFunction } from 'express';",
+    "import { redis } from '../lib/redis';",
+    "import { RATE_LIMIT_WINDOW_MS, RATE_LIMIT_MAX } from '../config/limits';",
+    "",
+    "export async function rateLimit(req: Request, res: Response, next: NextFunction) {",
+    "  const key = `rl:${req.apiKey}`;",
+    "  const windowStart = Date.now() - RATE_LIMIT_WINDOW_MS;",
+    "",
+    "  await redis.zremrangebyscore(key, 0, windowStart);",
+    "  const count = await redis.zcard(key);",
+    "",
+    "  if (count >= RATE_LIMIT_MAX) {",
+    "    const oldest = await redis.zrange(key, 0, 0, 'WITHSCORES');",
+    "    const retryAfterMs = Number(oldest[1]) + RATE_LIMIT_WINDOW_MS - Date.now();",
+    "    res.set('Retry-After', String(Math.ceil(retryAfterMs / 1000)));",
+    "    return res.status(429).json({ error: 'rate_limited' });",
+    "  }",
+    "",
+    "  await redis.zadd(key, Date.now(), `${Date.now()}:${Math.random()}`);",
+    "  next();",
+    "}"
+  ],
+  'src/config/limits.ts': [
+    "// Defaults; overridden per plan in the billing service.",
+    "export const RATE_LIMIT_WINDOW_MS = 60_000;",
+    "export const RATE_LIMIT_MAX = 100;",
+    "",
+    "export const PLAN_OVERRIDES: Record<string, number> = {",
+    "  free: 100,",
+    "  pro: 1000,",
+    "  enterprise: 10000,",
+    "};"
+  ],
+  'src/middleware/auth.ts': [
+    "import type { Request, Response, NextFunction } from 'express';",
+    "import { verifyToken } from './jwt';",
+    "",
+    "export interface AuthedRequest extends Request {",
+    "  user?: { id: string; email: string };",
+    "}",
+    "",
+    "export async function requireAuth(req: AuthedRequest, res: Response, next: NextFunction) {",
+    "  const header = req.headers.authorization;",
+    "  if (!header?.startsWith('Bearer ')) {",
+    "    return res.status(401).json({ error: 'missing_token' });",
+    "  }",
+    "",
+    "  try {",
+    "    const payload = await verifyToken(header.slice(7));",
+    "    req.user = { id: payload.sub, email: payload.email };",
+    "    next();",
+    "  } catch {",
+    "    res.status(401).json({ error: 'invalid_token' });",
+    "  }",
+    "}"
+  ],
+  'src/routes/index.ts': [
+    "import { Router } from 'express';",
+    "import { requireAuth } from '../middleware/auth';",
+    "import { rateLimit } from '../middleware/rateLimiter';",
+    "import authRoutes from './auth';",
+    "import repoRoutes from './repos';",
+    "",
+    "const router = Router();",
+    "const publicRoutes = ['/health', '/auth/login', '/auth/callback'];",
+    "",
+    "router.use(rateLimit);",
+    "router.use((req, res, next) => {",
+    "  if (publicRoutes.includes(req.path)) return next();",
+    "  return requireAuth(req, res, next);",
+    "});",
+    "",
+    "router.use('/auth', authRoutes);",
+    "router.use('/repos', repoRoutes);",
+    "",
+    "export default router;"
+  ]
+};
+
+const QUESTIONS = [
+  {
+    q: 'How does session invalidation work?',
+    trace: [
+      { verb: 'grep', target: '"handleAuth"', result: '6 matches', icon: 'search' },
+      { verb: 'read_file', target: 'src/auth/session.ts:1-59', result: '', icon: 'file' },
+      { verb: 'grep', target: '"SessionStore"', result: '3 matches', icon: 'search' },
+      { verb: 'read_file', target: 'src/auth/store.ts:1-31', result: '', icon: 'file' }
+    ],
+    segments: [
+      { t: 'Session invalidation happens in two places. ' },
+      { t: 'invalidateSession()' },
+      { t: ' in ', },
+      { cite: { file: 'src/auth/session.ts', label: 'session.ts:42-58', start: 42, end: 58 } },
+      { t: ' clears the in-memory session and calls the store\u2019s revoke method. The actual removal happens in SessionStore.revoke() in ' },
+      { cite: { file: 'src/auth/store.ts', label: 'store.ts:23-26', start: 23, end: 26 } },
+      { t: ', which deletes the entry from the backing map and records the id so a replayed token is rejected. Calls to the auth middleware check session validity on every request, so a revoked session fails on the very next request rather than waiting for expiry.' }
+    ]
+  },
+  {
+    q: 'Where is rate limiting implemented?',
+    trace: [
+      { verb: 'grep', target: '"rateLimit"', result: '5 matches', icon: 'search' },
+      { verb: 'read_file', target: 'src/middleware/rateLimiter.ts:1-20', result: '', icon: 'file' },
+      { verb: 'grep', target: '"RATE_LIMIT_WINDOW"', result: '2 matches', icon: 'search' },
+      { verb: 'read_file', target: 'src/config/limits.ts:1-9', result: '', icon: 'file' }
+    ],
+    segments: [
+      { t: 'Rate limiting runs as Express middleware in ' },
+      { cite: { file: 'src/middleware/rateLimiter.ts', label: 'rateLimiter.ts:9-17', start: 9, end: 17 } },
+      { t: ', using a sliding-window counter in Redis keyed by API key. The window and max are read from ' },
+      { cite: { file: 'src/config/limits.ts', label: 'limits.ts:2-3', start: 2, end: 3 } },
+      { t: ' rather than hardcoded, so a plan can override the default of 100 requests per 60 seconds. Requests over the limit get a 429 with a Retry-After header computed from the window\u2019s remaining time.' }
+    ]
+  },
+  {
+    q: 'What calls the auth middleware?',
+    trace: [
+      { verb: 'grep', target: '"requireAuth"', result: '8 matches', icon: 'search' },
+      { verb: 'read_file', target: 'src/middleware/auth.ts:1-21', result: '', icon: 'file' },
+      { verb: 'read_file', target: 'src/routes/index.ts:1-18', result: '', icon: 'file' }
+    ],
+    segments: [
+      { t: 'requireAuth is applied at the router level in ' },
+      { cite: { file: 'src/routes/index.ts', label: 'index.ts:10-13', start: 10, end: 13 } },
+      { t: ', not per-route, so every route under /api goes through it except the ones listed in publicRoutes. The middleware itself, in ' },
+      { cite: { file: 'src/middleware/auth.ts', label: 'auth.ts:8-20', start: 8, end: 20 } },
+      { t: ', verifies the bearer token and attaches the decoded user to req.user before calling next().' }
+    ]
+  }
+];
+
+function esc(s) { return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); }
+const KW = ['import','export','const','let','function','class','interface','return','if','else','for','of','new','async','await','try','catch','extends','type','private','public','static','void','from'];
+const KW_RE = new RegExp('\\b(' + KW.join('|') + ')\\b', 'g');
+
+function highlightLine(line, syn1, syn2, syn3) {
+  const e = esc(line);
+  if (e.trim().startsWith('//')) return '<span style="color:' + syn3 + ';font-style:italic;">' + e + '</span>';
+  let html = e.replace(/(['"`])((?:\\.|(?!\1)[^\\])*?)\1/g, (m) => '<span style="color:' + syn2 + '">' + m + '</span>');
+  html = html.replace(KW_RE, (m) => '<span style="color:' + syn1 + '">' + m + '</span>');
+  return html;
+}
+
+let uid = 0;
+
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.messagesRef = React.createRef();
+    this.codeRef = React.createRef();
+  }
+  state = {
+    theme: null, typeOpt: null,
+    leftOpen: true, rightOpen: false, repoMenuOpen: false,
+    activeRepoId: 'r1',
+    activeConvId: 'live',
+    inputValue: '',
+    isBusy: false,
+    messages: [],
+    liveMessages: [],
+    qCounter: 0,
+    extraHistory: null,
+    activeCitationKey: null
+  };
+
+  get typeOpt() { return this.state.typeOpt || this.props.typeOption || 'a'; }
+  setType(v) { this.setState({ typeOpt: v }); }
+  get theme() { return this.state.theme || this.props.theme || 'storm'; }
+  set(t) { this.setState({ theme: t }); }
+
+  applyBg() {
+    const root = document.querySelector('[data-theme]');
+    if (root) document.body.style.background = getComputedStyle(root).getPropertyValue('--bg');
+  }
+  componentDidMount() { this.applyBg(); }
+  componentDidUpdate(prevProps, prevState) {
+    this.applyBg();
+    if (this.messagesRef.current && prevState.messages.length !== this.state.messages.length) {
+      this.messagesRef.current.scrollTop = this.messagesRef.current.scrollHeight;
+    }
+    if (this.codeRef.current && this.state.activeCitationKey && prevState.activeCitationKey !== this.state.activeCitationKey) {
+      const lineHeight = 22;
+      const cite = this._lastCitation;
+      if (cite) this.codeRef.current.scrollTop = Math.max(0, (cite.start - 4) * lineHeight);
+    }
+    clearInterval(this._traceTimer);
+  }
+  componentWillUnmount() { clearInterval(this._traceTimer); }
+
+  collapseLeft = () => this.setState({ leftOpen: false });
+  expandLeft = () => this.setState({ leftOpen: true });
+  toggleRepoMenu = () => this.setState(s => ({ repoMenuOpen: !s.repoMenuOpen }));
+  selectRepo(id) { this.setState({ activeRepoId: id, repoMenuOpen: false }); }
+  closeRight = () => this.setState({ rightOpen: false });
+
+  newChat = () => this.setState({ liveMessages: [], activeConvId: 'live', rightOpen: false });
+
+  toggleTrace(msgId) {
+    this.setState(s => ({
+      liveMessages: s.liveMessages.map(m => m.id === msgId ? { ...m, traceForcedOpen: !m.traceForcedOpen } : m)
+    }));
+  }
+
+  openCitation(cite) {
+    this._lastCitation = cite;
+    this.setState({ rightOpen: true, activeCitationKey: cite.file + ':' + cite.start + '-' + cite.end });
+  }
+
+  runQuestion(qIndex, userText) {
+    const qdef = QUESTIONS[qIndex % QUESTIONS.length];
+    const userMsg = { id: 'm' + (uid++), role: 'user', text: userText };
+    const asstId = 'm' + (uid++);
+    const asstMsg = { id: asstId, role: 'assistant', qdef, revealedTrace: 0, done: false, traceForcedOpen: false };
+    this.setState(s => ({ liveMessages: [...s.liveMessages, userMsg, asstMsg], isBusy: true, inputValue: '' }));
+    let i = 0;
+    this._traceTimer = setInterval(() => {
+      i++;
+      this.setState(s => ({
+        liveMessages: s.liveMessages.map(m => m.id === asstId ? { ...m, revealedTrace: i } : m)
+      }));
+      if (i >= qdef.trace.length) {
+        clearInterval(this._traceTimer);
+        setTimeout(() => {
+          this.setState(s => ({
+            liveMessages: s.liveMessages.map(m => m.id === asstId ? { ...m, done: true } : m),
+            isBusy: false
+          }));
+        }, 450);
+      }
+    }, 480);
+  }
+
+  handleInputChange = (e) => this.setState({ inputValue: e.target.value });
+  handleSubmit = (e) => {
+    e.preventDefault();
+    const text = this.state.inputValue.trim();
+    if (!text || this.state.isBusy) return;
+    const idx = this.state.qCounter;
+    this.setState({ qCounter: idx + 1 });
+    this.runQuestion(idx, text);
+  };
+  selectSuggestion(idx) {
+    if (this.state.isBusy) return;
+    this.setState({ qCounter: idx + 1 });
+    this.runQuestion(idx, QUESTIONS[idx].q);
+  }
+
+  buildSegments(qdef, msgId) {
+    return qdef.segments.map((seg, i) => {
+      if (seg.cite) {
+        return { key: msgId + '-c' + i, isText: false, isCite: true, label: seg.cite.label, select: () => this.openCitation(seg.cite) };
+      }
+      return { key: msgId + '-t' + i, isText: true, isCite: false, text: seg.t };
+    });
+  }
+
+  renderVals() {
+    const t = this.theme;
+    const s = this.state;
+    const syn = document.querySelector('[data-theme]');
+
+    const activeRepo = REPOS.find(r => r.id === s.activeRepoId) || REPOS[0];
+    const repoOptions = REPOS.filter(r => r.id !== s.activeRepoId).map(r => ({
+      name: r.name, branch: r.branch, select: () => this.selectRepo(r.id)
+    }));
+
+    const liveTitle = s.liveMessages.find(m => m.role === 'user');
+    const historyGroups = [
+      liveTitle ? { label: 'Today', items: [{ title: liveTitle.text, bg: 'var(--surface)', select: () => {} }] } : null,
+      { label: 'Yesterday', items: [
+        { title: 'Where do we handle Stripe webhook retries?', bg: 'transparent', select: () => {} }
+      ] },
+      { label: 'Earlier', items: [
+        { title: 'What owns the feature-flag rollout logic?', bg: 'transparent', select: () => {} },
+        { title: 'How is the onboarding funnel tracked?', bg: 'transparent', select: () => {} }
+      ] }
+    ].filter(Boolean);
+
+    const messages = s.liveMessages.map(m => {
+      if (m.role === 'user') return { key: m.id, isUser: true, isAssistant: false, text: m.text };
+      const qdef = m.qdef;
+      const revealed = m.revealedTrace;
+      const traceRows = qdef.trace.slice(0, revealed).map((row, i) => ({
+        key: m.id + '-r' + i, verb: row.verb, target: row.target, result: row.result, icon: { __html: ICONS[row.icon] }
+      }));
+      const inProgress = !m.done;
+      const traceOpen = inProgress || m.traceForcedOpen;
+      const greps = qdef.trace.filter(r => r.verb === 'grep').length;
+      const reads = qdef.trace.filter(r => r.verb === 'read_file').length;
+      return {
+        key: m.id, isUser: false, isAssistant: true,
+        traceExpanded: traceOpen && traceRows.length > 0,
+        traceRows,
+        showCollapseLink: m.done && m.traceForcedOpen,
+        showCollapsedSummary: m.done && !m.traceForcedOpen,
+        traceSummary: greps + ' searches, ' + reads + ' files read \u2014 show trace',
+        toggleTrace: () => this.toggleTrace(m.id),
+        showThinking: revealed === 0 && inProgress,
+        answerReady: m.done,
+        segments: m.done ? this.buildSegments(qdef, m.id) : []
+      };
+    });
+
+    let activeCitation = { file: '', lines: [] };
+    if (s.activeCitationKey) {
+      const [file, range] = s.activeCitationKey.split(/:(?=[0-9])/);
+      const [start, end] = range.split('-').map(Number);
+      const rawLines = CODE_FILES[file] || [];
+      const syn1 = 'var(--syn1)', syn2 = 'var(--syn2)', syn3 = 'var(--syn3)';
+      activeCitation = {
+        file,
+        lines: rawLines.map((text, i) => {
+          const num = i + 1;
+          const hit = num >= start && num <= end;
+          return {
+            key: file + num,
+            num,
+            html: { __html: highlightLine(text, syn1, syn2, syn3) },
+            borderColor: hit ? 'var(--accent)' : 'transparent',
+            bg: hit ? 'var(--glow)' : 'transparent'
+          };
+        })
+      };
+    }
+
+    const isEmpty = s.liveMessages.length === 0;
+
+    return {
+      theme: t, typeOpt: this.typeOpt,
+      isTypeA: String(this.typeOpt === 'a'), isTypeB: String(this.typeOpt === 'b'),
+      setTypeA: () => this.setType('a'), setTypeB: () => this.setType('b'),
+      isStorm: String(t === 'storm'), isMidnight: String(t === 'midnight'), isIvory: String(t === 'ivory'), isLeaf: String(t === 'leaf'), isEdition: String(t === 'edition'),
+      setEdition: () => this.set('edition'), setLeaf: () => this.set('leaf'), setStorm: () => this.set('storm'), setMidnight: () => this.set('midnight'), setIvory: () => this.set('ivory'),
+      setTheme: (v) => this.set(v),
+
+      leftOpen: s.leftOpen, leftCollapsedView: !s.leftOpen,
+      leftWidth: s.leftOpen ? '260px' : '60px',
+      rightOpen: s.rightOpen, rightWidth: s.rightOpen ? '380px' : '0px',
+      collapseLeft: this.collapseLeft, expandLeft: this.expandLeft, closeRight: this.closeRight,
+
+      activeRepo, repoOptions, repoMenuOpen: s.repoMenuOpen, toggleRepoMenu: this.toggleRepoMenu,
+      newChat: this.newChat,
+      historyGroups,
+
+      isEmpty, messages,
+      messagesRef: this.messagesRef, codeRef: this.codeRef,
+      activeCitation,
+
+      suggestions: QUESTIONS.map((qd, i) => ({ q: qd.q, select: () => this.selectSuggestion(i) })),
+
+      inputValue: s.inputValue, handleInputChange: this.handleInputChange, handleSubmit: this.handleSubmit,
+      isBusy: s.isBusy, sendDisabled: s.isBusy || !s.inputValue.trim(), sendOpacity: (s.isBusy || !s.inputValue.trim()) ? '0.45' : '1',
+
+      iconChevronDown: { __html: ICONS.chevronDown },
+      iconChevronRight: { __html: ICONS.chevronRight },
+      iconPanelLeft: { __html: ICONS.panelLeft },
+      iconPlus: { __html: ICONS.plus },
+      iconSend: { __html: ICONS.send },
+      iconClose: { __html: ICONS.close },
+      iconExternal: { __html: ICONS.external }
+    };
+  }
+}
+
+</script>
+</body>
+</html>

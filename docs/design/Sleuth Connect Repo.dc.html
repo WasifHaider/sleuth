@@ -1,0 +1,417 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+<link href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Sacramento&family=Big+Shoulders+Display:wght@400;600;700;800;900&family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  body { margin: 0; padding: 0; }
+  * { box-sizing: border-box; }
+  [data-theme] { --bg:#0F372F; --deep:#0A2621; --surface:#143F36; --text:#F2F5F2; --muted:rgba(242,245,242,0.58); --faint:rgba(242,245,242,0.30); --accent:#ECBC6B; --onAccent:#0F372F; --line:rgba(242,245,242,0.13); --lineStrong:rgba(242,245,242,0.26); --glow:rgba(236,188,107,0.16); --accent2:var(--accent); --fHead:'Big Shoulders Display',sans-serif; --fBody:'Space Grotesk',system-ui,sans-serif; --fEyebrow:'Space Grotesk',sans-serif; }
+  [data-theme="midnight"] { --bg:#011423; --deep:#000A12; --surface:#07202F; --text:#E8F0F6; --muted:rgba(232,240,246,0.58); --faint:rgba(232,240,246,0.30); --accent:#E7D269; --onAccent:#011423; --line:rgba(232,240,246,0.13); --lineStrong:rgba(232,240,246,0.26); --glow:rgba(231,210,105,0.14); --accent2:var(--accent); }
+  [data-type="b"] { --fHead:'Alfa Slab One',Georgia,serif; --fEyebrow:'Sacramento',cursive; }
+  [data-type="b"] h1, [data-type="b"] h2 { font-weight:400 !important; letter-spacing:-0.005em !important; }
+  [data-theme="edition"] { --bg:#071317; --deep:#040C0F; --surface:#0C1E23; --text:#E6F2F2; --muted:rgba(230,242,242,0.58); --faint:rgba(230,242,242,0.30); --accent:#02A0A0; --onAccent:#04191B; --line:rgba(230,242,242,0.13); --lineStrong:rgba(230,242,242,0.26); --glow:rgba(2,160,160,0.20); --accent2:#FFBD65; }
+  [data-theme="leaf"] { --bg:#CDFF9B; --deep:#BDF287; --surface:#D8FFB2; --text:#203D43; --muted:rgba(32,61,67,0.66); --faint:rgba(32,61,67,0.38); --accent:#203D43; --onAccent:#CDFF9B; --line:rgba(32,61,67,0.16); --lineStrong:rgba(32,61,67,0.32); --glow:rgba(32,61,67,0.16); --accent2:var(--accent); }
+  [data-theme="ivory"] { --bg:#F3EEE1; --deep:#E7E0CF; --surface:#FBF8F1; --text:#101E28; --muted:rgba(16,30,40,0.62); --faint:rgba(16,30,40,0.34); --accent:#0061A4; --onAccent:#F7F4EC; --line:rgba(16,30,40,0.14); --lineStrong:rgba(16,30,40,0.28); --glow:rgba(0,97,164,0.12); --accent2:var(--accent); }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { color: var(--text); }
+  [data-tbtn][data-active="true"] { background: var(--accent) !important; color: var(--onAccent) !important; }
+  [data-tbtn][data-active="false"]:hover { color: var(--text) !important; }
+  input, select { font-family: inherit; outline: none; }
+  input::placeholder { color: var(--faint); }
+  select:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  [data-provider-card]:hover { transform: translateY(-6px); border-color: var(--lineStrong); box-shadow: 0 22px 50px rgba(0,0,0,0.18); }
+  [data-repo-row]:hover { background: var(--surface); }
+  @keyframes pulseNode { 0%,100%{opacity:.3; transform:scale(1);} 50%{opacity:1; transform:scale(1.25);} }
+  @keyframes traverse { 0%{stroke-dashoffset:400; opacity:0} 15%{opacity:1} 85%{opacity:1} 100%{stroke-dashoffset:0; opacity:0} }
+  @keyframes fadeUp { from{ opacity:0; transform:translateY(10px); } to{ opacity:1; transform:none; } }
+  @keyframes caret { 0%,49%{opacity:1} 50%,100%{opacity:0} }
+</style>
+</helmet>
+
+<div data-theme="{{ theme }}" data-type="{{ typeOpt }}" style="background:var(--bg); color:var(--text); font-family:var(--fBody); min-height:100vh; -webkit-font-smoothing:antialiased;">
+
+  <div style="position:fixed; top:18px; right:18px; z-index:60; display:flex; align-items:center; gap:6px; padding:5px; border:1px solid var(--line); border-radius:999px; background:color-mix(in srgb, var(--bg) 78%, transparent); backdrop-filter:blur(14px);">
+    <button type="button" data-tbtn="1" data-active="{{ isStorm }}" onClick="{{ setStorm }}" style="font-family:'Space Grotesk',sans-serif; font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Storm</button>
+    <button type="button" data-tbtn="2" data-active="{{ isMidnight }}" onClick="{{ setMidnight }}" style="font-family:'Space Grotesk',sans-serif; font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Midnight</button>
+    <button type="button" data-tbtn="3" data-active="{{ isIvory }}" onClick="{{ setIvory }}" style="font-family:'Space Grotesk',sans-serif; font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Ivory</button>
+    <button type="button" data-tbtn="4" data-active="{{ isLeaf }}" onClick="{{ setLeaf }}" style="font-family:'Space Grotesk',sans-serif; font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Leaf</button>
+    <button type="button" data-tbtn="5" data-active="{{ isEdition }}" onClick="{{ setEdition }}" style="font-family:'Space Grotesk',sans-serif; font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Edition</button>
+  </div>
+
+  <div style="position:fixed; top:70px; right:18px; z-index:60; display:flex; align-items:center; gap:6px; padding:5px; border:1px solid var(--line); border-radius:999px; background:color-mix(in srgb, var(--bg) 78%, transparent); backdrop-filter:blur(14px);">
+    <button type="button" data-tbtn="A" data-active="{{ isTypeA }}" onClick="{{ setTypeA }}" style="font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Type A</button>
+    <button type="button" data-tbtn="B" data-active="{{ isTypeB }}" onClick="{{ setTypeB }}" style="font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Type B</button>
+  </div>
+
+  <header style="display:flex; align-items:center; justify-content:center; padding:44px clamp(20px,5vw,72px) 0;">
+    <div style="display:flex; align-items:center; gap:11px;">
+      <div style="width:20px; height:20px; border:1.5px solid var(--accent); border-radius:3px; position:relative;">
+        <div style="position:absolute; inset:4px 4px auto 4px; height:1.5px; background:var(--accent);"></div>
+        <div style="position:absolute; left:4px; top:10px; width:1.5px; height:5px; background:var(--accent);"></div>
+        <div style="position:absolute; left:4px; top:13.5px; width:6px; height:1.5px; background:var(--accent);"></div>
+      </div>
+      <span style="font-family:var(--fHead); font-weight:800; font-size:20px; letter-spacing:0.06em; line-height:1;">SLEUTH</span>
+    </div>
+  </header>
+
+  <sc-if value="{{ showStepper }}" hint-placeholder-val="{{ true }}">
+    <div style="display:flex; align-items:center; justify-content:center; gap:10px; padding:34px 20px 0; flex-wrap:wrap;">
+      <sc-for list="{{ progressSteps }}" as="ps" hint-placeholder-count="4">
+        <div style="display:flex; align-items:center; gap:10px;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="width:7px; height:7px; border-radius:50%; display:inline-block; background:{{ ps.dotBg }}; border:1px solid {{ ps.dotBorder }};"></span>
+            <span style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:0.1em; text-transform:uppercase; color:{{ ps.labelColor }};">{{ ps.label }}</span>
+          </div>
+          <sc-if value="{{ ps.hasNext }}" hint-placeholder-val="{{ true }}">
+            <span style="width:26px; height:1px; background:var(--line); display:inline-block;"></span>
+          </sc-if>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <main style="max-width:920px; margin:0 auto; padding:40px clamp(20px,5vw,48px) 100px; position:relative;">
+
+    <sc-if value="{{ isProvider }}" hint-placeholder-val="{{ true }}">
+      <div style="text-align:center; margin-bottom:44px;">
+        <h1 style="font-family:var(--fHead); font-weight:800; font-size:clamp(30px,4vw,42px); line-height:1; margin:0 0 12px;">Connect a repository</h1>
+        <p style="font-size:15px; color:var(--muted); margin:0;">Choose where your code lives. Sleuth requests read-only access.</p>
+      </div>
+      <div style="display:flex; justify-content:center;">
+        <div style="max-width:280px; width:100%;">
+          <sc-for list="{{ providers }}" as="p" hint-placeholder-count="1">
+            <button type="button" data-provider-card="1" onClick="{{ p.select }}" style="cursor:pointer; text-align:left; width:100%; border:1px solid var(--line); background:var(--surface); padding:32px 26px; display:flex; flex-direction:column; gap:16px; transition:transform .4s cubic-bezier(.2,.7,.2,1), border-color .4s ease, box-shadow .4s ease; color:var(--text);">
+              <div style="width:40px; height:40px; border:1.5px solid var(--lineStrong); border-radius:8px; display:flex; align-items:center; justify-content:center;" dangerouslySetInnerHTML="{{ p.iconHtml }}"></div>
+              <div>
+                <div style="font-family:var(--fHead); font-weight:700; font-size:22px; letter-spacing:0.01em; margin-bottom:4px;">{{ p.name }}</div>
+                <div style="font-family:'JetBrains Mono',monospace; font-size:11.5px; color:var(--faint);">Connect via OAuth</div>
+              </div>
+            </button>
+          </sc-for>
+        </div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isConnecting }}" hint-placeholder-val="{{ false }}">
+      <div style="min-height:52vh; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:26px; text-align:center;">
+        <div style="width:220px; height:1px; position:relative; overflow:visible;">
+          <svg viewBox="0 0 220 2" width="220" height="2" style="display:block;">
+            <line x1="0" y1="1" x2="220" y2="1" stroke="var(--line)" stroke-width="1" />
+            <line x1="0" y1="1" x2="220" y2="1" stroke="var(--accent)" stroke-width="1.4" stroke-dasharray="400" style="animation:traverse 1.6s ease-in-out infinite;" />
+          </svg>
+        </div>
+        <div style="font-family:var(--fHead); font-weight:800; font-size:clamp(30px,4vw,40px); letter-spacing:0.06em;">CONNECTING</div>
+        <div style="font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--faint); letter-spacing:0.04em;">Verifying access with {{ connectingProviderName }}</div>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isRepos }}" hint-placeholder-val="{{ false }}">
+      <div style="margin-bottom:28px;">
+        <h1 style="font-family:var(--fHead); font-weight:800; font-size:clamp(28px,3.6vw,38px); line-height:1; margin:0 0 10px;">Add repositories</h1>
+        <p style="font-size:14.5px; color:var(--muted); margin:0;">{{ connectedProviderName }} connected. Paste the GitHub URL of each repo to index.</p>
+      </div>
+      <form onSubmit="{{ onAddRepo }}" style="display:flex; align-items:center; gap:10px; border:1px solid var(--line); border-radius:2px; padding:12px 16px; margin-bottom:10px; background:var(--deep);">
+        <span style="font-family:'JetBrains Mono',monospace; font-size:13px; color:var(--accent);">&#8250;</span>
+        <input type="text" value="{{ urlInput }}" onChange="{{ onUrlChange }}" placeholder="https://github.com/acme-org/platform" style="flex:1; background:transparent; border:0; color:var(--text); font-family:'JetBrains Mono',monospace; font-size:13.5px;" />
+        <button type="submit" style="cursor:pointer; background:transparent; border:1px solid var(--lineStrong); color:var(--text); font-size:12.5px; padding:8px 14px; border-radius:2px;">Add</button>
+      </form>
+      <sc-if value="{{ hasUrlError }}" hint-placeholder-val="{{ false }}">
+        <div style="font-family:'JetBrains Mono',monospace; font-size:11.5px; color:var(--accent); margin-bottom:18px;">{{ urlError }}</div>
+      </sc-if>
+      <div style="border:1px solid var(--line); margin-top:18px;">
+        <sc-if value="{{ hasNoRepos }}" hint-placeholder-val="{{ true }}">
+          <div style="padding:26px 18px; text-align:center; font-size:13.5px; color:var(--faint);">No repos added yet.</div>
+        </sc-if>
+        <sc-for list="{{ addedRepos }}" as="r" hint-placeholder-count="0">
+          <div data-repo-row="1" style="display:flex; align-items:center; gap:16px; padding:16px 18px; border-top:1px solid var(--line);">
+            <span style="font-weight:600; font-size:14.5px; flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">{{ r.name }}</span>
+            <span style="font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--faint); flex:none;">{{ r.url }}</span>
+            <button type="button" onClick="{{ r.remove }}" style="cursor:pointer; background:transparent; border:1px solid var(--line); color:var(--muted); width:26px; height:26px; border-radius:2px; flex:none;">&#215;</button>
+          </div>
+        </sc-for>
+      </div>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:28px;">
+        <a href="#" onClick="{{ backToProvider }}" style="font-size:13.5px; color:var(--muted);" style-hover="color:var(--text)">&#8592; Back</a>
+        <button type="button" onClick="{{ goToScope }}" disabled="{{ noneSelected }}" style="cursor:pointer; opacity:{{ continueOpacity }}; display:inline-flex; align-items:center; gap:10px; background:var(--accent); color:var(--onAccent); font-weight:600; font-size:14.5px; padding:14px 26px; border:0; border-radius:2px; transition:transform .3s ease;" style-hover="transform:translateY(-2px)">Continue <span style="font-family:'JetBrains Mono',monospace; font-size:12px;">({{ selectedCount }})</span></button>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isScope }}" hint-placeholder-val="{{ false }}">
+      <div style="margin-bottom:22px;">
+        <h1 style="font-family:var(--fHead); font-weight:800; font-size:clamp(28px,3.6vw,38px); line-height:1; margin:0 0 12px;">Confirm indexing scope</h1>
+        <p style="font-size:14.5px; line-height:1.65; color:var(--muted); margin:0; max-width:60ch;">Sleuth parses each repo to the function and class level, not fixed-size chunks. Exclude what you don&#39;t want reasoned about &#8212; generated code, vendored dependencies &#8212; not simply what&#39;s large.</p>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:1px; background:var(--line); border:1px solid var(--line);">
+        <sc-for list="{{ scopedRepos }}" as="r" hint-placeholder-count="2">
+          <div style="background:var(--surface); padding:24px; display:flex; flex-direction:column; gap:16px;">
+            <div style="font-weight:600; font-size:15.5px;">{{ r.name }}</div>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:14px;">
+              <label style="display:flex; flex-direction:column; gap:6px;">
+                <span style="font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:0.08em; text-transform:uppercase; color:var(--faint);">Branch</span>
+                <input type="text" value="{{ r.branch }}" onChange="{{ r.onBranchChange }}" style="border:1px solid var(--line); background:var(--deep); color:var(--text); padding:10px 12px; border-radius:2px; font-family:'JetBrains Mono',monospace; font-size:13.5px;" />
+              </label>
+              <label style="display:flex; flex-direction:column; gap:6px;">
+                <span style="font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:0.08em; text-transform:uppercase; color:var(--faint);">Exclude patterns</span>
+                <input type="text" value="{{ r.excludes }}" onChange="{{ r.onExcludesChange }}" placeholder="node_modules/, dist/, *.min.js" style="border:1px solid var(--line); background:var(--deep); color:var(--text); padding:10px 12px; border-radius:2px; font-family:'JetBrains Mono',monospace; font-size:12.5px;" />
+              </label>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-top:28px;">
+        <a href="#" onClick="{{ backToRepos }}" style="font-size:13.5px; color:var(--muted);" style-hover="color:var(--text)">&#8592; Back</a>
+        <button type="button" onClick="{{ goToConfirm }}" style="cursor:pointer; display:inline-flex; align-items:center; gap:10px; background:var(--accent); color:var(--onAccent); font-weight:600; font-size:14.5px; padding:14px 26px; border:0; border-radius:2px; transition:transform .3s ease;" style-hover="transform:translateY(-2px)">Review &amp; start indexing</button>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isConfirm }}" hint-placeholder-val="{{ false }}">
+      <div style="margin-bottom:22px;">
+        <h1 style="font-family:var(--fHead); font-weight:800; font-size:clamp(28px,3.6vw,38px); line-height:1; margin:0 0 10px;">Ready to index</h1>
+        <p style="font-size:14.5px; color:var(--muted); margin:0;">{{ selectedCount }} repository(s) will be indexed. Sleuth notifies you when each finishes.</p>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:14px; margin-bottom:30px;">
+        <sc-for list="{{ scopedRepos }}" as="r" hint-placeholder-count="2">
+          <div style="border:1px solid var(--line); padding:20px 22px; display:flex; align-items:center; justify-content:space-between; gap:16px; flex-wrap:wrap;">
+            <div>
+              <div style="font-weight:600; font-size:15px; margin-bottom:5px;">{{ r.name }}</div>
+              <div style="font-family:'JetBrains Mono',monospace; font-size:11.5px; color:var(--faint);">branch: {{ r.branch }} &#183; excludes: {{ r.excludesDisplay }}</div>
+            </div>
+          </div>
+        </sc-for>
+      </div>
+      <div style="display:flex; justify-content:space-between; align-items:center;">
+        <a href="#" onClick="{{ backToScope }}" style="font-size:13.5px; color:var(--muted);" style-hover="color:var(--text)">&#8592; Back</a>
+        <button type="button" onClick="{{ startIndexing }}" style="cursor:pointer; display:inline-flex; align-items:center; gap:10px; background:var(--accent); color:var(--onAccent); font-weight:600; font-size:15px; padding:16px 30px; border:0; border-radius:2px; transition:transform .3s ease;" style-hover="transform:translateY(-2px)">Start indexing</button>
+      </div>
+    </sc-if>
+
+    <sc-if value="{{ isIndexing }}" hint-placeholder-val="{{ false }}">
+      <div style="min-height:52vh; display:flex; flex-direction:column; gap:34px; padding-top:20px;">
+        <div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:11.5px; color:var(--faint); letter-spacing:0.06em; text-transform:uppercase; margin-bottom:10px;">First repo &#183; {{ firstRepoName }}</div>
+          <div style="display:flex; align-items:center; gap:14px;">
+            <h1 style="font-family:var(--fHead); font-weight:800; font-size:clamp(30px,4vw,42px); line-height:1; margin:0;">INDEXING</h1>
+            <span style="width:8px; height:8px; border-radius:50%; background:var(--accent); display:inline-block; animation:pulseNode 1.4s ease-in-out infinite;"></span>
+          </div>
+        </div>
+        <div style="border:1px solid var(--line); background:var(--surface); padding:28px;">
+          <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(160px,1fr)); gap:24px; margin-bottom:22px;">
+            <div>
+              <div style="font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:0.08em; text-transform:uppercase; color:var(--faint); margin-bottom:8px;">Files parsed</div>
+              <div style="font-family:var(--fHead); font-weight:800; font-size:34px;">{{ filesDoneText }}</div>
+            </div>
+            <div>
+              <div style="font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:0.08em; text-transform:uppercase; color:var(--faint); margin-bottom:8px;">Symbols extracted</div>
+              <div style="font-family:var(--fHead); font-weight:800; font-size:34px;">{{ symbolsDoneText }}</div>
+            </div>
+            <div>
+              <div style="font-family:'JetBrains Mono',monospace; font-size:10.5px; letter-spacing:0.08em; text-transform:uppercase; color:var(--faint); margin-bottom:8px;">Progress</div>
+              <div style="font-family:var(--fHead); font-weight:800; font-size:34px;">{{ percentText }}</div>
+            </div>
+          </div>
+          <div style="height:3px; background:var(--line); position:relative; overflow:hidden;">
+            <div style="position:absolute; inset:0 auto 0 0; width:{{ percentText }}; background:var(--accent); transition:width .5s ease;"></div>
+          </div>
+        </div>
+        <sc-if value="{{ hasMoreQueued }}" hint-placeholder-val="{{ false }}">
+          <div style="font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--faint);">{{ queuedCountText }} queued and will begin automatically.</div>
+        </sc-if>
+        <a href="Sleuth Dashboard.dc.html" style="align-self:flex-start; display:inline-flex; align-items:center; gap:10px; border:1px solid var(--line); color:var(--text); font-size:14px; padding:12px 22px; border-radius:2px; transition:border-color .3s ease;" style-hover="border-color:var(--lineStrong)">Go to dashboard</a>
+      </div>
+    </sc-if>
+
+  </main>
+</div>
+</helmet>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1200,&quot;height&quot;:900},&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;storm&quot;,&quot;midnight&quot;,&quot;ivory&quot;,&quot;leaf&quot;,&quot;edition&quot;],&quot;default&quot;:&quot;storm&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Theme&quot;},&quot;typeOption&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;a&quot;,&quot;b&quot;],&quot;default&quot;:&quot;a&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Theme&quot;}}">
+const ICONS = {
+  github: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><circle cx="12" cy="12" r="8.5"/><path d="M9 17c-2 0.6-2.4-1-3-1.2M15 20v-2.2c0-.7.2-1.1.5-1.4-1.8-.2-3.7-.9-3.7-4 0-.9.3-1.6.9-2.2-.1-.2-.4-1.1.1-2.3 0 0 .7-.2 2.4.9a8.2 8.2 0 0 1 4.4 0c1.7-1.1 2.4-.9 2.4-.9.5 1.2.2 2.1.1 2.3.6.6.9 1.3.9 2.2 0 3.1-1.9 3.8-3.7 4 .3.3.6.8.6 1.6V20"/></svg>',
+  gitlab: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"><path d="M12 20 4.5 10.5 3 6l3-1.5L9 10h6l3-5.5L21 6l-1.5 4.5z"/></svg>',
+  bitbucket: '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M4 5h16l-2.1 13.4a1 1 0 0 1-1 .8H7.1a1 1 0 0 1-1-.8z"/><path d="M9 10h6l-1 4H10z"/></svg>'
+};
+const PROVIDERS = [
+  { id: 'github', name: 'GitHub' }
+];
+const STEP_ORDER = ['provider', 'repos', 'scope', 'confirm'];
+const STEP_LABELS = { provider: 'Provider', repos: 'Repos', scope: 'Scope', confirm: 'Confirm' };
+
+class Component extends DCLogic {
+  state = {
+    theme: null, typeOpt: null,
+    step: 'provider',
+    connectingProvider: null,
+    connectedProvider: null,
+    urlInput: '',
+    urlError: '',
+    repos: [],
+    scopes: {},
+    filesDone: 0, symbolsDone: 0
+  };
+
+  get typeOpt() { return this.state.typeOpt || this.props.typeOption || 'a'; }
+  setType(v) { this.setState({ typeOpt: v }); }
+  get theme() { return this.state.theme || this.props.theme || 'storm'; }
+  set(t) { this.setState({ theme: t }); }
+
+  componentDidUpdate() {
+    const root = document.querySelector('[data-theme]');
+    if (root) document.body.style.background = getComputedStyle(root).getPropertyValue('--bg');
+  }
+  componentDidMount() { this.componentDidUpdate(); }
+  componentWillUnmount() { clearTimeout(this._connectTimer); clearInterval(this._indexTimer); }
+
+  selectProvider(id, name) {
+    this.setState({ step: 'connecting', connectingProvider: name });
+    clearTimeout(this._connectTimer);
+    this._connectTimer = setTimeout(() => {
+      this.setState({ step: 'repos', connectedProvider: name });
+    }, 1700);
+  }
+
+  addRepoFromUrl(e) {
+    if (e && e.preventDefault) e.preventDefault();
+    const raw = this.state.urlInput.trim();
+    if (!raw) return;
+    const m = raw.match(/^(?:https?:\/\/)?(?:www\.)?github\.com\/([^\/\s]+)\/([^\/\s#?]+)/i);
+    if (!m) { this.setState({ urlError: 'Enter a valid github.com repo URL.' }); return; }
+    const name = m[1] + '/' + m[2].replace(/\.git$/, '');
+    if (this.state.repos.some(r => r.name === name)) { this.setState({ urlError: 'That repo is already added.', urlInput: '' }); return; }
+    const id = 'r' + Date.now();
+    this.setState(s => ({ repos: [...s.repos, { id, name, url: raw }], urlInput: '', urlError: '' }));
+  }
+
+  removeRepo(id) {
+    this.setState(s => ({ repos: s.repos.filter(r => r.id !== id) }));
+  }
+
+  ensureScopes() {
+    const scopes = { ...this.state.scopes };
+    this.state.repos.forEach(r => {
+      if (!scopes[r.id]) scopes[r.id] = { branch: 'main', excludes: '' };
+    });
+    return scopes;
+  }
+
+  goToScope() {
+    if (this.state.repos.length === 0) return;
+    this.setState({ step: 'scope', scopes: this.ensureScopes() });
+  }
+
+  setBranch(id, v) { this.setState(s => ({ scopes: { ...s.scopes, [id]: { ...s.scopes[id], branch: v } } })); }
+  setExcludes(id, v) { this.setState(s => ({ scopes: { ...s.scopes, [id]: { ...s.scopes[id], excludes: v } } })); }
+
+  startIndexing() {
+    this.setState({ step: 'indexing', filesDone: 0, symbolsDone: 0 });
+    const repo = this.state.repos[0];
+    const totalFiles = 400 + (repo ? repo.name.length * 11 : 0);
+    const totalSymbols = totalFiles * 5;
+    clearInterval(this._indexTimer);
+    this._indexTimer = setInterval(() => {
+      this.setState(s => {
+        const filesDone = Math.min(totalFiles, s.filesDone + Math.ceil(totalFiles / 26));
+        const symbolsDone = Math.min(totalSymbols, s.symbolsDone + Math.ceil(totalSymbols / 26));
+        if (filesDone >= totalFiles) clearInterval(this._indexTimer);
+        return { filesDone, symbolsDone };
+      });
+    }, 140);
+    this._totalFiles = totalFiles;
+    this._totalSymbols = totalSymbols;
+  }
+
+  renderVals() {
+    const t = this.theme;
+    const step = this.state.step;
+    const addedRepos = this.state.repos.map(r => ({ ...r, remove: () => this.removeRepo(r.id) }));
+
+    const scopedRepos = this.state.repos.map(repo => {
+      const scope = this.state.scopes[repo.id] || { branch: 'main', excludes: '' };
+      return {
+        id: repo.id, name: repo.name, branch: scope.branch, excludes: scope.excludes,
+        excludesDisplay: scope.excludes ? scope.excludes : 'none',
+        onBranchChange: (e) => this.setBranch(repo.id, e.target.value),
+        onExcludesChange: (e) => this.setExcludes(repo.id, e.target.value)
+      };
+    });
+
+    const stepIdx = STEP_ORDER.indexOf(step);
+    const progressSteps = STEP_ORDER.map((s, i) => {
+      const isCurrent = i === stepIdx;
+      const isDone = stepIdx > -1 && i < stepIdx;
+      return {
+        label: STEP_LABELS[s],
+        hasNext: i < STEP_ORDER.length - 1,
+        dotBg: isCurrent ? 'var(--accent)' : (isDone ? 'var(--faint)' : 'transparent'),
+        dotBorder: isCurrent ? 'var(--accent)' : (isDone ? 'var(--faint)' : 'var(--line)'),
+        labelColor: isCurrent ? 'var(--accent)' : (isDone ? 'var(--muted)' : 'var(--faint)')
+      };
+    });
+
+    const totalFiles = this._totalFiles || 1;
+    const percent = Math.min(100, Math.round((this.state.filesDone / totalFiles) * 100));
+    const firstRepo = this.state.repos[0];
+
+    return {
+      theme: t, typeOpt: this.typeOpt,
+      isTypeA: String(this.typeOpt === 'a'), isTypeB: String(this.typeOpt === 'b'),
+      setTypeA: () => this.setType('a'), setTypeB: () => this.setType('b'),
+      isStorm: String(t === 'storm'), isMidnight: String(t === 'midnight'), isIvory: String(t === 'ivory'), isLeaf: String(t === 'leaf'), isEdition: String(t === 'edition'),
+      setEdition: () => this.set('edition'), setLeaf: () => this.set('leaf'), setStorm: () => this.set('storm'), setMidnight: () => this.set('midnight'), setIvory: () => this.set('ivory'),
+
+      showStepper: step !== 'connecting' && step !== 'indexing',
+      progressSteps,
+
+      isProvider: step === 'provider',
+      providers: PROVIDERS.map(p => ({ ...p, iconHtml: { __html: ICONS[p.id] }, select: () => this.selectProvider(p.id, p.name) })),
+
+      isConnecting: step === 'connecting',
+      connectingProviderName: this.state.connectingProvider || '',
+
+      isRepos: step === 'repos',
+      connectedProviderName: this.state.connectedProvider || '',
+      urlInput: this.state.urlInput,
+      onUrlChange: (e) => this.setState({ urlInput: e.target.value, urlError: '' }),
+      onAddRepo: (e) => this.addRepoFromUrl(e),
+      hasUrlError: !!this.state.urlError,
+      urlError: this.state.urlError,
+      addedRepos,
+      hasNoRepos: this.state.repos.length === 0,
+      noneSelected: this.state.repos.length === 0,
+      continueOpacity: this.state.repos.length === 0 ? '0.45' : '1',
+      selectedCount: this.state.repos.length,
+      backToProvider: (e) => { e.preventDefault(); this.setState({ step: 'provider' }); },
+      goToScope: () => this.goToScope(),
+
+      isScope: step === 'scope',
+      scopedRepos,
+      backToRepos: (e) => { e.preventDefault(); this.setState({ step: 'repos' }); },
+      goToConfirm: () => this.setState({ step: 'confirm' }),
+
+      isConfirm: step === 'confirm',
+      backToScope: (e) => { e.preventDefault(); this.setState({ step: 'scope' }); },
+      startIndexing: () => this.startIndexing(),
+
+      isIndexing: step === 'indexing',
+      firstRepoName: firstRepo ? firstRepo.name : '',
+      filesDoneText: this.state.filesDone.toLocaleString(),
+      symbolsDoneText: this.state.symbolsDone.toLocaleString(),
+      percentText: percent + '%',
+      hasMoreQueued: this.state.repos.length > 1,
+      queuedCountText: this.state.repos.length - 1
+    };
+  }
+}
+
+</script>
+</body>
+</html>

@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="" />
+<link href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=Sacramento&family=Big+Shoulders+Display:wght@400;600;700;800;900&family=Space+Grotesk:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+<style>
+  html { scroll-behavior: smooth; }
+  body { margin: 0; padding: 0; background: #0F372F; }
+  * { box-sizing: border-box; }
+  [data-theme] { --bg:#0F372F; --deep:#0A2621; --surface:#143F36; --text:#F2F5F2; --muted:rgba(242,245,242,0.58); --faint:rgba(242,245,242,0.30); --accent:#ECBC6B; --onAccent:#0F372F; --line:rgba(242,245,242,0.13); --lineStrong:rgba(242,245,242,0.26); --glow:rgba(236,188,107,0.16); --accent2:var(--accent); --fHead:'Big Shoulders Display',sans-serif; --fBody:'Space Grotesk',system-ui,sans-serif; --fEyebrow:'Space Grotesk',sans-serif; }
+  [data-theme="midnight"] { --bg:#011423; --deep:#000A12; --surface:#07202F; --text:#E8F0F6; --muted:rgba(232,240,246,0.58); --faint:rgba(232,240,246,0.30); --accent:#E7D269; --onAccent:#011423; --line:rgba(232,240,246,0.13); --lineStrong:rgba(232,240,246,0.26); --glow:rgba(231,210,105,0.14); --accent2:var(--accent); }
+  [data-type="b"] { --fHead:'Alfa Slab One',Georgia,serif; --fEyebrow:'Sacramento',cursive; }
+  [data-type="b"] h1 { font-size:clamp(40px,7.4vw,104px) !important; line-height:1.0 !important; letter-spacing:-0.01em !important; font-weight:400 !important; }
+  [data-type="b"] h2 { font-size:clamp(30px,4.1vw,56px) !important; line-height:1.08 !important; letter-spacing:-0.005em !important; font-weight:400 !important; }
+  [data-type="b"] h3 { font-size:25px !important; line-height:1.18 !important; text-transform:none !important; font-weight:400 !important; }
+  [data-type="b"] [data-eyebrow] { font-size:26px !important; letter-spacing:0 !important; text-transform:none !important; font-weight:400 !important; line-height:1 !important; }
+  [data-type="b"] [data-stepnum] { font-size:56px !important; line-height:1 !important; font-weight:400 !important; }
+  [data-theme="edition"] { --bg:#071317; --deep:#040C0F; --surface:#0C1E23; --text:#E6F2F2; --muted:rgba(230,242,242,0.58); --faint:rgba(230,242,242,0.30); --accent:#02A0A0; --onAccent:#04191B; --line:rgba(230,242,242,0.13); --lineStrong:rgba(230,242,242,0.26); --glow:rgba(2,160,160,0.20); --accent2:#FFBD65; }
+  [data-theme="leaf"] { --bg:#CDFF9B; --deep:#BDF287; --surface:#D8FFB2; --text:#203D43; --muted:rgba(32,61,67,0.66); --faint:rgba(32,61,67,0.38); --accent:#203D43; --onAccent:#CDFF9B; --line:rgba(32,61,67,0.16); --lineStrong:rgba(32,61,67,0.32); --glow:rgba(32,61,67,0.16); --accent2:var(--accent); }
+  [data-theme="ivory"] { --bg:#F3EEE1; --deep:#E7E0CF; --surface:#FBF8F1; --text:#101E28; --muted:rgba(16,30,40,0.62); --faint:rgba(16,30,40,0.34); --accent:#0061A4; --onAccent:#F7F4EC; --line:rgba(16,30,40,0.14); --lineStrong:rgba(16,30,40,0.28); --glow:rgba(0,97,164,0.12); --accent2:var(--accent); }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { color: var(--text); }
+  [data-tbtn][data-active="true"] { background: var(--accent) !important; color: var(--onAccent) !important; }
+  [data-tbtn][data-active="false"]:hover { color: var(--text) !important; }
+  @keyframes drift1 { 0%{transform:translate3d(0,0,0)} 50%{transform:translate3d(14px,-18px,0)} 100%{transform:translate3d(0,0,0)} }
+  @keyframes drift2 { 0%{transform:translate3d(0,0,0)} 50%{transform:translate3d(-18px,12px,0)} 100%{transform:translate3d(0,0,0)} }
+  @keyframes drift3 { 0%{transform:translate3d(0,0,0)} 50%{transform:translate3d(9px,16px,0)} 100%{transform:translate3d(0,0,0)} }
+  @keyframes pulseNode { 0%,100%{opacity:.28} 50%{opacity:.85} }
+  @keyframes traverse { 0%{stroke-dashoffset:600; opacity:0} 12%{opacity:.9} 88%{opacity:.9} 100%{stroke-dashoffset:0; opacity:0} }
+  @keyframes caret { 0%,49%{opacity:1} 50%,100%{opacity:0} }
+</style>
+</helmet>
+
+<div data-theme="{{ theme }}" data-type="{{ typeOpt }}" style="background:var(--bg); color:var(--text); font-family:var(--fBody); min-height:100vh; overflow-x:hidden; -webkit-font-smoothing:antialiased;">
+
+  <div style="position:fixed; top:18px; right:18px; z-index:60; display:flex; align-items:center; gap:6px; padding:5px; border:1px solid var(--line); border-radius:999px; background:color-mix(in srgb, var(--bg) 78%, transparent); backdrop-filter:blur(14px);">
+    <button type="button" data-tbtn="1" data-active="{{ isStorm }}" onClick="{{ setStorm }}" style="font-family:'Space Grotesk',sans-serif; font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Storm</button>
+    <button type="button" data-tbtn="2" data-active="{{ isMidnight }}" onClick="{{ setMidnight }}" style="font-family:'Space Grotesk',sans-serif; font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Midnight</button>
+    <button type="button" data-tbtn="3" data-active="{{ isIvory }}" onClick="{{ setIvory }}" style="font-family:'Space Grotesk',sans-serif; font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Ivory</button>
+    <button type="button" data-tbtn="4" data-active="{{ isLeaf }}" onClick="{{ setLeaf }}" style="font-family:'Space Grotesk',sans-serif; font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Leaf</button>
+    <button type="button" data-tbtn="5" data-active="{{ isEdition }}" onClick="{{ setEdition }}" style="font-family:'Space Grotesk',sans-serif; font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Edition</button>
+  </div>
+
+  <div style="position:fixed; top:70px; right:18px; z-index:60; display:flex; align-items:center; gap:6px; padding:5px; border:1px solid var(--line); border-radius:999px; background:color-mix(in srgb, var(--bg) 78%, transparent); backdrop-filter:blur(14px);">
+    <button type="button" data-tbtn="A" data-active="{{ isTypeA }}" onClick="{{ setTypeA }}" style="font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Type A</button>
+    <button type="button" data-tbtn="B" data-active="{{ isTypeB }}" onClick="{{ setTypeB }}" style="font-size:11px; letter-spacing:0.09em; text-transform:uppercase; padding:7px 13px; border:0; border-radius:999px; background:transparent; color:var(--faint); cursor:pointer; transition:background .35s cubic-bezier(.2,.7,.2,1), color .35s ease;">Type B</button>
+  </div>
+
+  <header style="position:relative; z-index:40; display:flex; align-items:center; justify-content:space-between; gap:24px; flex-wrap:wrap; padding:126px clamp(20px,5vw,72px) 26px; max-width:1440px; margin:0 auto;">
+    <div style="display:flex; align-items:center; gap:11px;">
+      <div style="width:22px; height:22px; border:1.5px solid var(--accent); border-radius:3px; position:relative;">
+        <div style="position:absolute; inset:5px 5px auto 5px; height:1.5px; background:var(--accent);"></div>
+        <div style="position:absolute; left:5px; top:11px; width:1.5px; height:6px; background:var(--accent);"></div>
+        <div style="position:absolute; left:5px; top:15px; width:7px; height:1.5px; background:var(--accent);"></div>
+      </div>
+      <span style="font-family:var(--fHead); font-weight:800; font-size:25px; letter-spacing:0.06em; line-height:1;">SLEUTH</span>
+    </div>
+    <nav style="display:flex; align-items:center; gap:clamp(18px,3vw,36px); flex-wrap:wrap; font-size:13.5px; letter-spacing:0.01em;">
+      <a href="#problem" style="color:var(--muted); transition:color .25s ease;" style-hover="color:var(--text)">Why it&#39;s hard</a>
+      <a href="#features" style="color:var(--muted); transition:color .25s ease;" style-hover="color:var(--text)">Features</a>
+      <a href="#how" style="color:var(--muted); transition:color .25s ease;" style-hover="color:var(--text)">How it works</a>
+      <a href="#preview" style="color:var(--muted); transition:color .25s ease;" style-hover="color:var(--text)">Product</a>
+      <a href="#cta" style="border:1px solid var(--lineStrong); color:var(--text); padding:9px 17px; border-radius:2px; font-size:13px; transition:border-color .3s ease, background .3s ease;" style-hover="border-color:var(--accent); background:var(--glow)">Connect a repo</a>
+    </nav>
+  </header>
+
+  <section style="position:relative; padding:clamp(56px,9vw,120px) clamp(20px,5vw,72px) clamp(72px,10vw,140px); max-width:1440px; margin:0 auto;">
+    <div style="position:absolute; inset:-40px 0 0 0; pointer-events:none; overflow:hidden;">
+      <svg viewBox="0 0 1200 760" preserveAspectRatio="xMidYMid slice" style="position:absolute; inset:0; width:100%; height:100%; opacity:0.9;">
+        <g stroke="var(--lineStrong)" fill="none" stroke-width="1" opacity="0.5" style="animation:drift1 26s ease-in-out infinite;">
+          <path d="M760 90 L860 90 L860 170 L960 170" />
+          <path d="M860 170 L860 250 L980 250" />
+          <path d="M760 90 L760 330 L880 330" />
+          <path d="M880 330 L880 410 L1010 410" />
+          <path d="M760 330 L760 500 L900 500" />
+        </g>
+        <g stroke="var(--line)" fill="none" stroke-width="1" style="animation:drift2 34s ease-in-out infinite;">
+          <path d="M120 560 L240 560 L240 470 L360 470" />
+          <path d="M240 560 L240 650 L390 650" />
+          <path d="M120 560 L120 300 L260 300" />
+          <path d="M260 300 L260 210 L400 210" />
+        </g>
+        <g fill="var(--accent)" style="animation:drift1 26s ease-in-out infinite;">
+          <circle cx="960" cy="170" r="3" style="animation:pulseNode 7s ease-in-out infinite;" />
+          <circle cx="980" cy="250" r="2.5" style="animation:pulseNode 9s ease-in-out .8s infinite;" />
+          <circle cx="1010" cy="410" r="3" style="animation:pulseNode 8s ease-in-out 1.6s infinite;" />
+          <circle cx="900" cy="500" r="2.5" style="animation:pulseNode 11s ease-in-out .4s infinite;" />
+        </g>
+        <g fill="var(--text)" opacity="0.35" style="animation:drift2 34s ease-in-out infinite;">
+          <circle cx="360" cy="470" r="2.5" style="animation:pulseNode 10s ease-in-out infinite;" />
+          <circle cx="390" cy="650" r="2" style="animation:pulseNode 12s ease-in-out 2s infinite;" />
+          <circle cx="400" cy="210" r="2.5" style="animation:pulseNode 8.5s ease-in-out 1s infinite;" />
+        </g>
+        <g stroke="var(--accent)" fill="none" stroke-width="1.4" stroke-dasharray="600" opacity="0.9" style="animation:drift1 26s ease-in-out infinite;">
+          <path d="M760 90 L860 90 L860 170 L960 170" style="animation:traverse 9s linear infinite;" />
+          <path d="M760 330 L880 330 L880 410 L1010 410" style="animation:traverse 11s linear 3s infinite;" />
+        </g>
+        <g stroke="var(--faint)" fill="none" stroke-width="1" opacity="0.35" style="animation:drift3 40s ease-in-out infinite;">
+          <path d="M520 60 L520 720" stroke-dasharray="2 10" />
+          <path d="M660 0 L660 760" stroke-dasharray="2 14" />
+        </g>
+      </svg>
+    </div>
+
+    <div data-reveal="1" style="position:relative; max-width:960px;">
+      <div data-eyebrow="1" style="display:inline-flex; align-items:center; gap:9px; font-family:var(--fEyebrow); font-weight:700; font-size:14px; letter-spacing:0.22em; color:var(--accent); text-transform:uppercase; margin-bottom:clamp(22px,3vw,34px);">
+        <span style="width:26px; height:1px; background:var(--accent); display:inline-block;"></span>Code intelligence, grounded
+      </div>
+      <h1 style="font-family:var(--fHead); font-weight:800; font-size:clamp(56px,10.5vw,148px); line-height:0.87; letter-spacing:-0.015em; margin:0 0 clamp(24px,3vw,34px); text-wrap:balance;">Understand any codebase without reading every file.</h1>
+      <p style="font-size:clamp(16px,1.5vw,20px); line-height:1.62; color:var(--muted); max-width:600px; margin:0 0 clamp(32px,4vw,46px); text-wrap:pretty;">Sleuth chats with your repository the way a senior engineer would: parsing structure, chasing references, opening the files that matter. Every answer comes back with the lines it came from.</p>
+      <div style="display:flex; align-items:center; gap:14px; flex-wrap:wrap;">
+        <a href="#cta" style="display:inline-flex; align-items:center; gap:10px; background:var(--accent); color:var(--onAccent); font-weight:600; font-size:15px; padding:16px 28px; border-radius:2px; transition:transform .35s cubic-bezier(.2,.7,.2,1), box-shadow .35s ease;" style-hover="transform:translateY(-2px); box-shadow:0 14px 34px var(--glow); color:var(--onAccent)">Connect a repo<span style="font-family:'JetBrains Mono',monospace; font-size:13px;">&#8594;</span></a>
+        <a href="#how" style="display:inline-flex; align-items:center; gap:10px; color:var(--text); font-size:15px; padding:16px 24px; border:1px solid var(--line); border-radius:2px; transition:border-color .35s ease, transform .35s cubic-bezier(.2,.7,.2,1);" style-hover="border-color:var(--accent2); transform:translateY(-2px); color:var(--text)">See how it works</a>
+      </div>
+      <div style="display:flex; gap:clamp(20px,4vw,44px); flex-wrap:wrap; margin-top:clamp(48px,6vw,80px); font-family:'JetBrains Mono',monospace; font-size:12px; letter-spacing:0.04em; color:var(--faint);">
+        <span>AST-LEVEL INDEXING</span>
+        <span>TOOL-LOOP RETRIEVAL</span>
+        <span>FILE:LINE CITATIONS</span>
+        <span>REPO-SCOPED CONTEXT</span>
+      </div>
+    </div>
+  </section>
+
+  <section id="problem" style="border-top:1px solid var(--line); background:var(--deep);">
+    <div data-reveal="1" style="max-width:1440px; margin:0 auto; padding:clamp(64px,8vw,120px) clamp(20px,5vw,72px); display:grid; grid-template-columns:repeat(auto-fit,minmax(320px,1fr)); gap:clamp(36px,6vw,90px); align-items:start;">
+      <div>
+        <div data-eyebrow="1" style="font-family:var(--fEyebrow); font-size:12px; letter-spacing:0.14em; color:var(--accent2); margin-bottom:20px; text-transform:uppercase;">01 / THE PROBLEM</div>
+        <h2 style="font-family:var(--fHead); font-weight:800; font-size:clamp(40px,5.4vw,76px); line-height:0.92; letter-spacing:-0.01em; margin:0 0 22px; max-width:14ch;">Text chunking breaks code.</h2>
+        <p style="font-size:16px; line-height:1.65; color:var(--muted); max-width:46ch; margin:0; text-wrap:pretty;">Generic RAG treats a repository as prose. It slices files into fixed windows, embeds them, and hopes the right window comes back. Code doesn&#39;t survive that.</p>
+      </div>
+      <div style="display:flex; flex-direction:column; gap:1px; background:var(--line); border:1px solid var(--line);">
+        <div style="background:var(--deep); padding:26px 26px; display:grid; grid-template-columns:auto 1fr; gap:18px; align-items:start;">
+          <span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--accent); padding-top:3px;">01</span>
+          <div><div style="font-size:15px; font-weight:600; margin-bottom:7px;">Functions get cut mid-body</div><div style="font-size:14px; line-height:1.6; color:var(--muted);">A 400-token window ends halfway through a handler. The retrieved chunk has a signature with no logic, or logic with no signature.</div></div>
+        </div>
+        <div style="background:var(--deep); padding:26px 26px; display:grid; grid-template-columns:auto 1fr; gap:18px; align-items:start;">
+          <span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--accent); padding-top:3px;">02</span>
+          <div><div style="font-size:15px; font-weight:600; margin-bottom:7px;">Call relationships disappear</div><div style="font-size:14px; line-height:1.6; color:var(--muted);">Embeddings capture lexical similarity, not the edges of a call graph. The definition and its three call sites live in four unrelated vectors.</div></div>
+        </div>
+        <div style="background:var(--deep); padding:26px 26px; display:grid; grid-template-columns:auto 1fr; gap:18px; align-items:start;">
+          <span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--accent); padding-top:3px;">03</span>
+          <div><div style="font-size:15px; font-weight:600; margin-bottom:7px;">&#34;What calls this?&#34; is unanswerable</div><div style="font-size:14px; line-height:1.6; color:var(--muted);">One-shot similarity search can&#39;t follow a thread. It returns the nearest paragraph and the model fills the rest in with plausible fiction.</div></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="features" style="border-top:1px solid var(--line);">
+    <div data-reveal="1" style="max-width:1440px; margin:0 auto; padding:clamp(64px,8vw,120px) clamp(20px,5vw,72px) clamp(20px,3vw,40px);">
+      <div data-eyebrow="1" style="font-family:var(--fEyebrow); font-size:12px; letter-spacing:0.14em; color:var(--accent2); margin-bottom:20px; text-transform:uppercase;">02 / WHAT SLEUTH DOES</div>
+      <h2 style="font-family:var(--fHead); font-weight:800; font-size:clamp(40px,5.4vw,76px); line-height:0.92; letter-spacing:-0.01em; margin:0; max-width:18ch;">Built for the shape of a repository.</h2>
+    </div>
+    <div data-reveal="1" style="max-width:1440px; margin:0 auto; padding:0 clamp(20px,5vw,72px) clamp(64px,8vw,120px); display:grid; grid-template-columns:repeat(auto-fit,minmax(290px,1fr)); gap:clamp(16px,2vw,28px);">
+      <div style="border:1px solid var(--line); background:var(--surface); padding:clamp(26px,3vw,38px); display:flex; flex-direction:column; gap:16px; transition:transform .45s cubic-bezier(.2,.7,.2,1), border-color .45s ease, box-shadow .45s ease;" style-hover="transform:translateY(-6px); border-color:var(--lineStrong); box-shadow:0 22px 50px rgba(0,0,0,0.18)">
+        <div style="font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--accent2);">a.</div>
+        <h3 style="font-family:var(--fHead); font-weight:700; font-size:34px; line-height:1; letter-spacing:0.005em; margin:0;">STRUCTURE-AWARE CHUNKING</h3>
+        <p style="font-size:14.5px; line-height:1.65; color:var(--muted); margin:0;">Sleuth parses each file to an AST and indexes at function, method and class boundaries. A unit of retrieval is a unit of code, with its signature, docstring, imports and enclosing scope intact.</p>
+        <div style="margin-top:6px; border-top:1px solid var(--line); padding-top:16px; font-family:'JetBrains Mono',monospace; font-size:12px; line-height:1.9; color:var(--faint);">
+          <div>class SessionStore <span style="color:var(--accent);">&#8594; 1 node</span></div>
+          <div>&#160;&#160;.rotate() <span style="color:var(--accent);">&#8594; 1 node</span></div>
+          <div>&#160;&#160;.revoke() <span style="color:var(--accent);">&#8594; 1 node</span></div>
+        </div>
+      </div>
+      <div style="border:1px solid var(--line); background:var(--surface); padding:clamp(26px,3vw,38px); display:flex; flex-direction:column; gap:16px; transition:transform .45s cubic-bezier(.2,.7,.2,1), border-color .45s ease, box-shadow .45s ease;" style-hover="transform:translateY(-6px); border-color:var(--lineStrong); box-shadow:0 22px 50px rgba(0,0,0,0.18)">
+        <div style="font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--accent2);">b.</div>
+        <h3 style="font-family:var(--fHead); font-weight:700; font-size:34px; line-height:1; letter-spacing:0.005em; margin:0;">AGENTIC RETRIEVAL</h3>
+        <p style="font-size:14.5px; line-height:1.65; color:var(--muted); margin:0;">Not one embedding lookup. Sleuth runs a tool loop — grep for a symbol, read the file around it, follow the import, read again — until it has the evidence to answer, or reports that it doesn&#39;t.</p>
+        <div style="margin-top:6px; border-top:1px solid var(--line); padding-top:16px; font-family:'JetBrains Mono',monospace; font-size:12px; line-height:1.9; color:var(--faint);">
+          <div><span style="color:var(--accent);">&#8250;</span> grep &#34;refreshToken&#34;</div>
+          <div><span style="color:var(--accent);">&#8250;</span> read_file auth/session.ts</div>
+          <div><span style="color:var(--accent);">&#8250;</span> read_file api/middleware.ts</div>
+        </div>
+      </div>
+      <div style="border:1px solid var(--line); background:var(--surface); padding:clamp(26px,3vw,38px); display:flex; flex-direction:column; gap:16px; transition:transform .45s cubic-bezier(.2,.7,.2,1), border-color .45s ease, box-shadow .45s ease;" style-hover="transform:translateY(-6px); border-color:var(--lineStrong); box-shadow:0 22px 50px rgba(0,0,0,0.18)">
+        <div style="font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--accent2);">c.</div>
+        <h3 style="font-family:var(--fHead); font-weight:700; font-size:34px; line-height:1; letter-spacing:0.005em; margin:0;">REPO-SCOPED &amp; CITED</h3>
+        <p style="font-size:14.5px; line-height:1.65; color:var(--muted); margin:0;">Context never leaves the repository you connected. Every claim carries a file path and line range you can click, so review takes seconds and hallucination has nowhere to hide.</p>
+        <div style="margin-top:6px; border-top:1px solid var(--line); padding-top:16px; font-family:'JetBrains Mono',monospace; font-size:12px; line-height:1.9; color:var(--faint);">
+          <div><span style="color:var(--accent);">src/auth/session.ts</span>:142&#8211;168</div>
+          <div><span style="color:var(--accent);">src/api/middleware.ts</span>:57&#8211;73</div>
+          <div>scope: <span style="color:var(--accent);">acme/platform</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="how" style="border-top:1px solid var(--line); background:var(--deep);">
+    <div data-reveal="1" style="max-width:1440px; margin:0 auto; padding:clamp(64px,8vw,120px) clamp(20px,5vw,72px);">
+      <div data-eyebrow="1" style="font-family:var(--fEyebrow); font-size:12px; letter-spacing:0.14em; color:var(--accent2); margin-bottom:20px; text-transform:uppercase;">03 / HOW IT WORKS</div>
+      <h2 style="font-family:var(--fHead); font-weight:800; font-size:clamp(40px,5.4vw,76px); line-height:0.92; letter-spacing:-0.01em; margin:0 0 clamp(44px,6vw,76px); max-width:16ch;">Three steps, then ask anything.</h2>
+      <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:clamp(28px,4vw,56px);">
+        <div style="border-top:1px solid var(--lineStrong); padding-top:26px; display:flex; flex-direction:column; gap:14px;">
+          <div data-stepnum="1" style="font-family:var(--fHead); font-weight:800; font-size:64px; line-height:0.8; color:var(--accent2);">01</div>
+          <div style="font-size:17px; font-weight:600;">Connect a repo</div>
+          <p style="font-size:14.5px; line-height:1.65; color:var(--muted); margin:0;">Point Sleuth at GitHub, GitLab or a local clone. Read-only access, one branch or all of them.</p>
+        </div>
+        <div style="border-top:1px solid var(--lineStrong); padding-top:26px; display:flex; flex-direction:column; gap:14px;">
+          <div data-stepnum="1" style="font-family:var(--fHead); font-weight:800; font-size:64px; line-height:0.8; color:var(--accent2);">02</div>
+          <div style="font-size:17px; font-weight:600;">Sleuth indexes structurally</div>
+          <p style="font-size:14.5px; line-height:1.65; color:var(--muted); margin:0;">Files are parsed, not split. Symbols, definitions and references become a graph that stays in sync on every push.</p>
+        </div>
+        <div style="border-top:1px solid var(--lineStrong); padding-top:26px; display:flex; flex-direction:column; gap:14px;">
+          <div data-stepnum="1" style="font-family:var(--fHead); font-weight:800; font-size:64px; line-height:0.8; color:var(--accent2);">03</div>
+          <div style="font-size:17px; font-weight:600;">Ask, get cited answers</div>
+          <p style="font-size:14.5px; line-height:1.65; color:var(--muted); margin:0;">Ask in plain language. Sleuth investigates, then answers with the exact lines it read.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="preview" style="border-top:1px solid var(--line);">
+    <div data-reveal="1" style="max-width:1440px; margin:0 auto; padding:clamp(64px,8vw,120px) clamp(20px,5vw,72px);">
+      <div style="display:flex; align-items:flex-end; justify-content:space-between; gap:24px; flex-wrap:wrap; margin-bottom:clamp(32px,4vw,52px);">
+        <h2 style="font-family:var(--fHead); font-weight:800; font-size:clamp(36px,4.6vw,64px); line-height:0.94; margin:0; max-width:16ch;">Answers you can check in one click.</h2>
+        <div style="font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--faint);">acme/platform &#183; main</div>
+      </div>
+      <div style="border:1px solid var(--line); background:var(--surface); box-shadow:0 40px 90px rgba(0,0,0,0.22); overflow:hidden;">
+        <div style="display:flex; align-items:center; gap:10px; padding:13px 18px; border-bottom:1px solid var(--line);">
+          <div style="display:flex; gap:6px;"><span style="width:9px;height:9px;border-radius:50%;background:var(--faint);display:block;"></span><span style="width:9px;height:9px;border-radius:50%;background:var(--faint);display:block;"></span><span style="width:9px;height:9px;border-radius:50%;background:var(--faint);display:block;"></span></div>
+          <div style="font-family:'JetBrains Mono',monospace; font-size:11.5px; color:var(--faint); margin-left:10px;">sleuth &#8212; acme/platform</div>
+        </div>
+        <div>
+          <div style="padding:clamp(22px,3vw,34px); display:flex; flex-direction:column; gap:22px; min-width:0;">
+            <div style="display:flex; gap:14px; align-items:flex-start;">
+              <span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--faint); padding-top:2px;">you</span>
+              <span style="font-size:15.5px; line-height:1.55;">Where do we invalidate a refresh token, and what calls it?</span>
+            </div>
+            <div style="display:flex; gap:14px; align-items:flex-start;">
+              <span style="font-family:'JetBrains Mono',monospace; font-size:12px; color:var(--accent); padding-top:2px;">slt</span>
+              <div style="display:flex; flex-direction:column; gap:16px; min-width:0;">
+                <p style="font-size:15px; line-height:1.65; margin:0; color:var(--text);">Invalidation happens in <span style="font-family:'JetBrains Mono',monospace; font-size:13.5px; color:var(--accent);">SessionStore.revoke()</span>, which deletes the token row and publishes a <span style="font-family:'JetBrains Mono',monospace; font-size:13.5px;">session.revoked</span> event. It has two callers: the logout route, and the auth middleware when it detects a reused token.</p>
+                <div style="border:1px solid var(--line); background:var(--deep);">
+                  <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; padding:10px 14px; border-bottom:1px solid var(--line); font-family:'JetBrains Mono',monospace; font-size:11.5px; color:var(--accent);"><span>src/auth/session.ts</span><span style="color:var(--faint);">142&#8211;149</span></div>
+                  <pre style="margin:0; padding:14px; font-family:'JetBrains Mono',monospace; font-size:12.5px; line-height:1.85; color:var(--muted); overflow-x:auto;"><span style="color:var(--faint);">142</span>  async revoke(id: string) {
+<span style="color:var(--faint);">143</span>    const row = await this.db.tokens
+<span style="color:var(--faint);">144</span>      .where({ id }).delete();
+<span style="color:var(--faint);">145</span>    if (!row) return false;
+<span style="color:var(--faint);">146</span>    await this.bus.publish(
+<span style="color:var(--faint);">147</span>      "session.revoked", { id });
+<span style="color:var(--faint);">148</span>    return true;
+<span style="color:var(--faint);">149</span>  }</pre>
+                </div>
+                <div style="display:flex; gap:10px; flex-wrap:wrap; font-family:'JetBrains Mono',monospace; font-size:11.5px;">
+                  <span style="border:1px solid var(--line); padding:6px 10px; color:var(--muted);">src/api/routes.ts:88</span>
+                  <span style="border:1px solid var(--line); padding:6px 10px; color:var(--muted);">src/api/middleware.ts:57&#8211;73</span>
+                </div>
+              </div>
+            </div>
+            <div style="border-top:1px solid var(--line); padding-top:16px; display:flex; align-items:center; gap:10px; font-family:'JetBrains Mono',monospace; font-size:12.5px; color:var(--faint);">
+              <span style="color:var(--accent);">&#8250;</span><span>Ask about acme/platform</span><span style="width:7px; height:15px; background:var(--accent); display:inline-block; animation:caret 1.2s steps(1) infinite;"></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="cta" style="border-top:1px solid var(--line); background:var(--deep);">
+    <div data-reveal="1" style="max-width:1440px; margin:0 auto; padding:clamp(80px,11vw,170px) clamp(20px,5vw,72px); display:flex; flex-direction:column; align-items:center; text-align:center; gap:26px;">
+      <h2 style="font-family:var(--fHead); font-weight:800; font-size:clamp(48px,9vw,132px); line-height:0.88; letter-spacing:-0.015em; margin:0; max-width:15ch;">Stop guessing. Start reading the code.</h2>
+      <p style="font-size:16.5px; line-height:1.6; color:var(--muted); max-width:52ch; margin:0;">Connect a repository and ask your first question in under two minutes.</p>
+      <a href="#" style="display:inline-flex; align-items:center; gap:10px; background:var(--accent); color:var(--onAccent); font-weight:600; font-size:15.5px; padding:17px 34px; border-radius:2px; margin-top:6px; transition:transform .35s cubic-bezier(.2,.7,.2,1), box-shadow .35s ease;" style-hover="transform:translateY(-2px); box-shadow:0 16px 40px var(--glow); color:var(--onAccent)">Connect a repo<span style="font-family:'JetBrains Mono',monospace; font-size:13px;">&#8594;</span></a>
+    </div>
+  </section>
+
+  <footer style="border-top:1px solid var(--line);">
+    <div style="max-width:1440px; margin:0 auto; padding:36px clamp(20px,5vw,72px); display:flex; align-items:center; justify-content:space-between; gap:24px; flex-wrap:wrap;">
+      <div style="display:flex; align-items:center; gap:10px;">
+        <span style="font-family:var(--fHead); font-weight:800; font-size:21px; letter-spacing:0.06em;">SLEUTH</span>
+        <span style="font-family:'JetBrains Mono',monospace; font-size:11.5px; color:var(--faint);">&#169; 2026</span>
+      </div>
+      <div style="display:flex; gap:clamp(16px,3vw,32px); flex-wrap:wrap; font-size:13px;">
+        <a href="#features" style="color:var(--muted);" style-hover="color:var(--text)">Product</a>
+        <a href="#how" style="color:var(--muted);" style-hover="color:var(--text)">Docs</a>
+        <a href="#problem" style="color:var(--muted);" style-hover="color:var(--text)">Security</a>
+        <a href="#cta" style="color:var(--muted);" style-hover="color:var(--text)">Contact</a>
+      </div>
+    </div>
+  </footer>
+</div>
+
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;theme&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;storm&quot;,&quot;midnight&quot;,&quot;ivory&quot;,&quot;leaf&quot;],&quot;default&quot;:&quot;storm&quot;,&quot;tsType&quot;:&quot;string&quot;,&quot;section&quot;:&quot;Theme&quot;},&quot;revealOnScroll&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;,&quot;section&quot;:&quot;Motion&quot;}}">
+class Component extends DCLogic {
+  state = { theme: null, typeOpt: null };
+  get typeOpt() { return this.state.typeOpt || this.props.typeOption || "a"; }
+  setType(v) { this.setState({ typeOpt: v }); }
+  get theme() { return this.state.theme || this.props.theme || "storm"; }
+  set(t) { this.setState({ theme: t }); }
+  syncBody() {
+    const root = document.querySelector('[data-theme]');
+    if (root) document.body.style.background = getComputedStyle(root).getPropertyValue('--bg');
+  }
+  componentDidUpdate() { this.syncBody(); }
+  componentDidMount() {
+    const root = document.querySelector('[data-theme]');
+    this.syncBody();
+    const els = Array.from(document.querySelectorAll('[data-reveal]'));
+    if (this.props.revealOnScroll === false) return;
+    els.forEach((el, i) => {
+      el.style.opacity = '0';
+      el.style.transform = 'translateY(26px)';
+      el.style.transition = 'opacity .9s cubic-bezier(.2,.7,.2,1), transform .9s cubic-bezier(.2,.7,.2,1)';
+      el.style.transitionDelay = (i % 2 ? 60 : 0) + 'ms';
+    });
+    const show = el => { el.style.opacity = '1'; el.style.transform = 'none'; };
+    const io = new IntersectionObserver(entries => {
+      entries.forEach(e => { if (e.isIntersecting) { show(e.target); io.unobserve(e.target); } });
+    }, { rootMargin: '0px 0px -12% 0px', threshold: 0.08 });
+    els.forEach(el => io.observe(el));
+    this._fallback = setTimeout(() => els.forEach(show), 2600);
+    void root;
+  }
+  componentWillUnmount() { clearTimeout(this._fallback); }
+  renderVals() {
+    const t = this.theme;
+    return {
+      theme: t,
+      typeOpt: this.typeOpt,
+      isTypeA: String(this.typeOpt === "a"),
+      isTypeB: String(this.typeOpt === "b"),
+      setTypeA: () => this.setType("a"),
+      setTypeB: () => this.setType("b"),
+      isStorm: String(t === "storm"),
+      isMidnight: String(t === "midnight"),
+      isIvory: String(t === "ivory"),
+      isLeaf: String(t === "leaf"),
+      isEdition: String(t === "edition"),
+      setEdition: () => this.set("edition"),
+      setLeaf: () => this.set("leaf"),
+      setStorm: () => this.set("storm"),
+      setMidnight: () => this.set("midnight"),
+      setIvory: () => this.set("ivory")
+    };
+  }
+}
+</script>
+</body>
+</html>
