@@ -6,6 +6,7 @@ from fastapi.responses import StreamingResponse
 
 from sleuth.api.auth.session import require_session
 from sleuth.api.schemas import ChatOut, CreateChatIn, MessageOut, SendMessageIn
+from sleuth.api.sse import sse_frame
 from sleuth.retrieve.answer import stream_answer
 from sleuth.store import (
     DEFAULT_CHAT_TITLE,
@@ -22,15 +23,9 @@ from sleuth.store import (
 
 router = APIRouter(dependencies=[Depends(require_session)])
 
-
-def _sse_frame(event: str | None, data: str) -> str:
-    # A generated token can contain a raw "\n" (e.g. after a code block's
-    # opening brace). SSE data fields can't carry an embedded newline on a
-    # single "data:" line — it terminates the field early and the rest is
-    # silently lost — so each physical line gets its own "data:" prefix.
-    prefix = f"event: {event}\n" if event else ""
-    lines = "".join(f"data: {line}\n" for line in data.split("\n"))
-    return f"{prefix}{lines}\n"
+# sse_frame moved to sleuth/api/sse.py so repos.py's progress stream can
+# share the same framing helper instead of duplicating it.
+_sse_frame = sse_frame
 
 
 @router.post("/chats", response_model=ChatOut)

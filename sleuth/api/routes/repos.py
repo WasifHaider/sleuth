@@ -1,10 +1,13 @@
 import asyncio
+import json
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
+from fastapi.responses import StreamingResponse
 
 from sleuth.api import progress_store
 from sleuth.api.auth.session import require_session
 from sleuth.api.schemas import AddRepoIn, RepoOut
+from sleuth.api.sse import sse_frame, sse_heartbeat
 from sleuth.ingest.pipeline import ingest_repo
 from sleuth.store import create_repo, delete_repo, get_repo, list_repos_full, update_repo_status
 
@@ -80,6 +83,72 @@ def get_progress(repo_id: str, request: Request, user: dict = Depends(require_se
     if progress is None:
         return {"step": repo["status"], "detail": {}, "log": [], "elapsed_seconds": 0}
     return progress
+
+
+_TERMINAL_STEPS = ("ready", "failed")
+# How often the SSE generator re-checks progress_store for a step change.
+# This is an in-process dict read (progress_store.py), not a network call —
+# cheap enough to poll tightly without reintroducing the actual cost problem
+# (repeated client->server HTTP requests) this endpoint replaces.
+_PROGRESS_POLL_INTERVAL = 0.5
+# How long the stream can go with no step change before it sends a bare
+# keepalive comment, so a reverse proxy/browser doesn't treat a quiet
+# stretch (e.g. a slow embedding batch) as a dead connection and close it.
+_HEARTBEAT_INTERVAL = 15.0
+
+
+@router.get("/repos/{repo_id}/progress/stream")
+async def stream_progress(repo_id: str, request: Request, user: dict = Depends(require_session)) -> StreamingResponse:
+    repo = get_repo(request.state.conn, repo_id, user_id=user["id"])
+    if repo is None:
+        raise HTTPException(status_code=404, detail="repo not found")
+
+    async def event_stream():
+        # Catch-up frame: fires immediately on (re)connect, before waiting on
+        # anything. Without this, a client that (re)connects mid-indexing —
+        # a page refresh being the common case, since a full reload always
+        # tears down the previous SSE connection and this route opens a
+        # fresh one from scratch — would see nothing at all until the NEXT
+        # step change, sitting on stale/blank state for however long that
+        # takes. A stateless GET (the plain /progress route above) never
+        # had this gap because every request just asks "what's the state
+        # right now" — this stream has to do that explicitly once up front.
+        current = progress_store.get(repo_id)
+        if current is None:
+            current = {"step": repo["status"], "detail": {}, "log": [], "elapsed_seconds": 0}
+        yield sse_frame("progress", json.dumps(current))
+        last_step = current["step"]
+        last_sent_at = asyncio.get_event_loop().time()
+
+        if last_step in _TERMINAL_STEPS:
+            yield sse_frame("done", "{}")
+            return
+
+        while True:
+            if await request.is_disconnected():
+                # Client navigated away (client-side route change) or
+                # aborted the fetch — stop polling progress_store for a
+                # connection nobody's reading anymore instead of running
+                # this loop forever in the background.
+                return
+
+            await asyncio.sleep(_PROGRESS_POLL_INTERVAL)
+            current = progress_store.get(repo_id)
+            if current is None:
+                continue
+            now = asyncio.get_event_loop().time()
+            if current["step"] != last_step:
+                yield sse_frame("progress", json.dumps(current))
+                last_step = current["step"]
+                last_sent_at = now
+                if last_step in _TERMINAL_STEPS:
+                    yield sse_frame("done", "{}")
+                    return
+            elif now - last_sent_at >= _HEARTBEAT_INTERVAL:
+                yield sse_heartbeat()
+                last_sent_at = now
+
+    return StreamingResponse(event_stream(), media_type="text/event-stream")
 
 
 @router.post("/repos/{repo_id}/retry", response_model=RepoOut)

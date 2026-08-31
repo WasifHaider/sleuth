@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { getProgress, getRepo, retryRepo } from '../api';
+import { getRepo, retryRepo, streamProgress } from '../api';
 import { IndexingScreenSkeleton } from './Skeleton';
 
 const STEP_LABELS = {
@@ -77,58 +77,94 @@ export default function IndexingScreen() {
   const { repoId } = useParams();
   const [repo, setRepo] = useState(null);
   const [progress, setProgress] = useState(null);
+  const [displayElapsed, setDisplayElapsed] = useState(0);
   const [retrying, setRetrying] = useState(false);
-  const [pollError, setPollError] = useState(null);
+  const [streamError, setStreamError] = useState(null);
   const [retryError, setRetryError] = useState(null);
-  const [pollGeneration, setPollGeneration] = useState(0);
-  const repoRef = useRef(null);
+  const [streamGeneration, setStreamGeneration] = useState(0);
+
+  // The server only pushes a "progress" frame when the pipeline's step
+  // actually changes (see repos.py::stream_progress) — that's the whole
+  // point of switching off a fixed-interval poll. But a step can legitimately
+  // run for many seconds (embedding a large batch), and the elapsed-time
+  // readout should still visibly tick every second in that gap rather than
+  // sitting frozen until the next real event. So the displayed value is
+  // computed locally from a (seconds, capturedAt) anchor that's re-synced
+  // to the server's real elapsed_seconds on every frame — a local 1s
+  // interval just extrapolates forward from that anchor between frames.
+  const elapsedAnchorRef = useRef({ seconds: 0, capturedAt: 0 });
+  const tickIntervalRef = useRef(null);
+
+  function startTicking() {
+    if (tickIntervalRef.current) return;
+    tickIntervalRef.current = setInterval(() => {
+      const { seconds, capturedAt } = elapsedAnchorRef.current;
+      setDisplayElapsed(seconds + (performance.now() - capturedAt) / 1000);
+    }, 1000);
+  }
+  function stopTicking() {
+    if (tickIntervalRef.current) {
+      clearInterval(tickIntervalRef.current);
+      tickIntervalRef.current = null;
+    }
+  }
 
   useEffect(() => {
     if (!repoId) return undefined;
     let cancelled = false;
-    async function poll() {
-      try {
-        const [r, p] = await Promise.all([getRepo(repoId), getProgress(repoId)]);
-        if (!cancelled) {
-          setRepo(r);
-          repoRef.current = r;
-          setProgress(p);
-          setPollError(null);
+
+    getRepo(repoId)
+      .then((r) => { if (!cancelled) setRepo(r); })
+      .catch((err) => { if (!cancelled) setStreamError(err.message); });
+
+    // streamProgress opens one long-lived connection instead of a request
+    // every 1.5s; the catch-up frame (see stream_progress's first yield)
+    // means this also handles a mid-index page refresh correctly — the new
+    // connection gets the current state immediately, not just future
+    // changes, so the screen never sits blank/stale after a reload.
+    const controller = streamProgress(repoId, {
+      onProgress: (p) => {
+        if (cancelled) return;
+        setProgress(p);
+        setStreamError(null);
+        elapsedAnchorRef.current = { seconds: p.elapsed_seconds, capturedAt: performance.now() };
+        setDisplayElapsed(p.elapsed_seconds);
+
+        const isTerminal = p.step === 'ready' || p.step === 'failed';
+        if (isTerminal) {
+          stopTicking();
+          // The pipeline's own final status/error_message live on the repo
+          // row (repos.status/error_message), not in progress_store — refetch
+          // once indexing actually finishes so the ready/failed banners below
+          // have the real error_message rather than stale queued-state repo data.
+          getRepo(repoId).then((r) => { if (!cancelled) setRepo(r); }).catch(() => {});
+        } else if (p.step !== 'pending') {
+          // Timer starts the moment a real pipeline step is observed —
+          // never while the repo is merely queued (step falls back to the
+          // repo's own "pending" status until progress_store has an entry).
+          startTicking();
         }
-      } catch (err) {
-        // Previously unhandled: a rejected poll (transient 500, repo
-        // deleted) left the 1500ms interval silently re-failing forever,
-        // with the screen stuck on the skeleton and no feedback at all.
-        if (!cancelled) setPollError(err.message);
-      }
-    }
-    poll();
-    // Indexing is done once status is ready/failed — polling every 1.5s
-    // forever after that has nothing left to observe and just wastes
-    // requests. clearInterval once repoRef confirms a terminal status;
-    // pollGeneration (bumped by handleRetry) re-runs this whole effect to
-    // start a fresh interval when a retry puts the repo back in flight —
-    // otherwise a stopped interval would stay stopped even after the
-    // retry moves status back to pending/indexing.
-    const interval = setInterval(() => {
-      if (repoRef.current && (repoRef.current.status === 'ready' || repoRef.current.status === 'failed')) {
-        clearInterval(interval);
-        return;
-      }
-      poll();
-    }, 1500);
+      },
+      onError: (err) => { if (!cancelled) setStreamError(err.message); },
+    });
+
     return () => {
       cancelled = true;
-      clearInterval(interval);
+      stopTicking();
+      // Client-side route change (SPA navigation) unmounts this component
+      // without a real page reload, which would otherwise leave the fetch
+      // running and its reader loop pulling bytes with nothing left to
+      // read them — abort explicitly so the connection actually closes.
+      controller.abort();
     };
-  }, [repoId, pollGeneration]);
+  }, [repoId, streamGeneration]);
 
   if (!repoId) {
     return <p style={{ color: 'var(--text-muted)' }}>Select a repo from the Repos screen to watch its indexing progress.</p>;
   }
   if (!repo || !progress) {
-    if (pollError) {
-      return <p style={{ color: 'var(--status-neutral)' }}>Couldn't load indexing status: {pollError}</p>;
+    if (streamError) {
+      return <p style={{ color: 'var(--status-neutral)' }}>Couldn't load indexing status: {streamError}</p>;
     }
     return <IndexingScreenSkeleton />;
   }
@@ -161,11 +197,14 @@ export default function IndexingScreen() {
       // was watching it anymore) while a duplicate entry for the same repo
       // piled up in the list on every retry.
       await retryRepo(repoId);
-      const [r, p] = await Promise.all([getRepo(repoId), getProgress(repoId)]);
+      const r = await getRepo(repoId);
       setRepo(r);
-      repoRef.current = r;
-      setProgress(p);
-      setPollGeneration((g) => g + 1);
+      setProgress(null);
+      // Bumps the main effect's dependency to close the old (now-terminal)
+      // SSE connection and open a fresh one against the just-restarted
+      // pipeline — a stream that already delivered "done" won't reopen
+      // itself on its own.
+      setStreamGeneration((g) => g + 1);
     } catch (err) {
       // Previously unhandled: addRepo throwing (duplicate URL, malformed
       // github_url now rejected by the backend's validator, a 4xx) left
@@ -188,7 +227,7 @@ export default function IndexingScreen() {
         </div>
         <div style={{ textAlign: 'right' }}>
           <div className="index-elapsed-label">Elapsed</div>
-          <div className="index-elapsed-value">{isQueued ? '—:—' : formatElapsed(progress.elapsed_seconds)}</div>
+          <div className="index-elapsed-value">{isQueued ? '—:—' : formatElapsed(displayElapsed)}</div>
         </div>
       </div>
 

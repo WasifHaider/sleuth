@@ -80,6 +80,65 @@ export function getProgress(repoId) {
   return apiGet(`/repos/${repoId}/progress`);
 }
 
+// Opens the progress SSE stream and dispatches parsed events via callbacks.
+// Returns an AbortController-like object: call .abort() to close the
+// connection (route-change cleanup — see IndexingScreen's effect cleanup).
+// A real page reload/tab close tears the connection down on its own; this
+// is only needed for client-side navigation within the SPA, where the
+// component unmounts but the underlying fetch would otherwise keep running
+// in the background with nothing left to read its output.
+export function streamProgress(repoId, { onProgress, onDone, onError }) {
+  const controller = new AbortController();
+
+  (async () => {
+    try {
+      const res = await fetch(apiUrl(`/repos/${repoId}/progress/stream`), {
+        credentials: 'include',
+        signal: controller.signal,
+      });
+      if (!res.ok) throw new Error(`progress stream failed: ${res.status}`);
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        let frameEnd;
+        while ((frameEnd = buffer.indexOf('\n\n')) !== -1) {
+          const frame = buffer.slice(0, frameEnd);
+          buffer = buffer.slice(frameEnd + 2);
+          const lines = frame.split('\n');
+          const eventLine = lines.find((l) => l.startsWith('event: '));
+          const eventType = eventLine ? eventLine.slice('event: '.length) : null;
+          const data = lines
+            .filter((l) => l.startsWith('data: '))
+            .map((l) => l.slice('data: '.length))
+            .join('\n');
+          // Bare ": keepalive" comment lines have no "event:"/"data:" — skip
+          // them, they exist purely to keep the connection alive.
+          if (eventType === 'progress') {
+            try {
+              onProgress(JSON.parse(data));
+            } catch {
+              // A malformed/partial frame shouldn't kill the whole stream.
+            }
+          } else if (eventType === 'done') {
+            onDone?.();
+          }
+        }
+      }
+    } catch (err) {
+      if (err.name !== 'AbortError') onError?.(err);
+    }
+  })();
+
+  return controller;
+}
+
 export async function retryRepo(repoId) {
   const res = await fetch(apiUrl(`/repos/${repoId}/retry`), { method: 'POST', credentials: 'include' });
   if (!res.ok) {
