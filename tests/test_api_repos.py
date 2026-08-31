@@ -19,6 +19,7 @@ def _config():
 
 def _logged_in_client() -> TestClient:
     client = TestClient(create_app(_config()))
+    client.__enter__()  # see tests/test_api_auth.py::_client for why
     client.post(
         "/auth/signup",
         json={"email": "repo-tester@example.com", "password": "correct horse", "name": "Repo Tester"},
@@ -28,6 +29,7 @@ def _logged_in_client() -> TestClient:
 
 def test_add_repo_requires_session(pg_conn):
     client = TestClient(create_app(_config()))
+    client.__enter__()
     resp = client.post("/repos", json={"github_url": "https://github.com/example/repo"})
     assert resp.status_code == 401
 
@@ -110,3 +112,73 @@ def test_progress_endpoint_reports_step(pg_conn, monkeypatch):
     assert progress is not None
     assert "log" in progress
     assert "elapsed_seconds" in progress
+
+
+@respx.mock
+def test_retry_repo_reuses_same_repo_id_no_duplicate_row(pg_conn, monkeypatch):
+    call_count = {"n": 0}
+
+    async def fake_ingest_repo(github_url, conn, config, on_event=None, repo_id=None):
+        from sleuth.store import update_repo_status
+
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            update_repo_status(conn, repo_id, "failed", "boom")
+        else:
+            update_repo_status(conn, repo_id, "ready")
+        conn.commit()
+        return repo_id
+
+    monkeypatch.setattr("sleuth.api.routes.repos.ingest_repo", fake_ingest_repo)
+    client = _logged_in_client()
+
+    repo_id = client.post("/repos", json={"github_url": "https://github.com/example/retry-repo"}).json()["id"]
+
+    for _ in range(50):
+        if client.get(f"/repos/{repo_id}").json()["status"] == "failed":
+            break
+        time.sleep(0.1)
+    assert client.get(f"/repos/{repo_id}").json()["status"] == "failed"
+
+    resp = client.post(f"/repos/{repo_id}/retry")
+    assert resp.status_code == 200
+    assert resp.json()["id"] == repo_id  # same row, not a new one
+
+    for _ in range(50):
+        if client.get(f"/repos/{repo_id}").json()["status"] == "ready":
+            break
+        time.sleep(0.1)
+
+    all_repos = client.get("/repos").json()
+    assert len([r for r in all_repos if r["github_url"] == "https://github.com/example/retry-repo"]) == 1
+
+
+def test_retry_repo_returns_404_for_unknown_repo(pg_conn):
+    resp = _logged_in_client().post("/repos/00000000-0000-0000-0000-000000000000/retry")
+    assert resp.status_code == 404
+
+
+def test_delete_repo_removes_it_from_list(pg_conn, monkeypatch):
+    async def fake_ingest_repo(github_url, conn, config, on_event=None, repo_id=None):
+        from sleuth.store import update_repo_status
+
+        update_repo_status(conn, repo_id, "ready")
+        conn.commit()
+        return repo_id
+
+    monkeypatch.setattr("sleuth.api.routes.repos.ingest_repo", fake_ingest_repo)
+    client = _logged_in_client()
+    repo_id = client.post("/repos", json={"github_url": "https://github.com/example/to-delete"}).json()["id"]
+
+    resp = client.delete(f"/repos/{repo_id}")
+    assert resp.status_code == 200
+    assert resp.json() == {"id": repo_id, "deleted": True}
+
+    assert client.get(f"/repos/{repo_id}").status_code == 404
+    all_repos = client.get("/repos").json()
+    assert all(r["id"] != repo_id for r in all_repos)
+
+
+def test_delete_repo_returns_404_for_unknown_repo(pg_conn):
+    resp = _logged_in_client().delete("/repos/00000000-0000-0000-0000-000000000000")
+    assert resp.status_code == 404

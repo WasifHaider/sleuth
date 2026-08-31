@@ -1,4 +1,6 @@
+import shutil
 import subprocess
+import time
 from pathlib import Path
 
 
@@ -6,16 +8,45 @@ class CloneError(Exception):
     pass
 
 
-def clone_repo(url: str, dest_dir: str) -> Path:
+# Substrings of known-transient git-clone failures: DNS/socket-thread hiccups
+# and momentary connection drops, not "repo genuinely doesn't exist/access
+# denied". Confirmed live: git-for-windows can fail a clone with
+# "getaddrinfo() thread failed to start" (a WinSock thread-pool exhaustion
+# bug, see git-for-windows/git#2495) that succeeds immediately on retry —
+# clone_repo previously had zero retry, so one blip failed the whole ingest.
+TRANSIENT_CLONE_ERROR_PATTERNS = (
+    "getaddrinfo",
+    "could not resolve host",
+    "connection timed out",
+    "connection refused",
+    "connection reset",
+    "recv failure",
+    "empty reply from server",
+)
+
+
+def clone_repo(url: str, dest_dir: str, retries: int = 2, backoff_seconds: float = 2.0) -> Path:
     dest = Path(dest_dir)
-    result = subprocess.run(
-        ["git", "clone", "--depth", "1", url, str(dest)],
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode != 0:
-        raise CloneError(result.stderr.strip())
-    return dest
+    attempt = 0
+    while True:
+        result = subprocess.run(
+            ["git", "clone", "--depth", "1", url, str(dest)],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            return dest
+
+        stderr = result.stderr.strip()
+        is_transient = any(pattern in stderr.lower() for pattern in TRANSIENT_CLONE_ERROR_PATTERNS)
+        if is_transient and attempt < retries:
+            if dest.exists():
+                shutil.rmtree(dest, ignore_errors=True)
+            time.sleep(backoff_seconds)
+            attempt += 1
+            continue
+
+        raise CloneError(stderr)
 
 
 def list_source_files(repo_path: Path, extensions: set[str]) -> list[Path]:

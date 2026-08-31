@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { addRepo, getProgress, getRepo } from '../api';
+import { getProgress, getRepo, retryRepo } from '../api';
+import { IndexingScreenSkeleton } from './Skeleton';
 
 const STEP_LABELS = {
   cloning: 'Clone', cloned: 'Clone',
@@ -27,7 +28,8 @@ const STEPS = [
 ];
 
 function stepIndex(step) {
-  const label = STEP_LABELS[step] || 'Clone';
+  const label = STEP_LABELS[step];
+  if (label === undefined) return -1;
   return STEPS.findIndex((s) => s.label === label);
 }
 
@@ -76,30 +78,59 @@ export default function IndexingScreen() {
   const [repo, setRepo] = useState(null);
   const [progress, setProgress] = useState(null);
   const [retrying, setRetrying] = useState(false);
+  const [pollError, setPollError] = useState(null);
+  const [retryError, setRetryError] = useState(null);
+  const [pollGeneration, setPollGeneration] = useState(0);
+  const repoRef = useRef(null);
 
   useEffect(() => {
     if (!repoId) return undefined;
     let cancelled = false;
     async function poll() {
-      const [r, p] = await Promise.all([getRepo(repoId), getProgress(repoId)]);
-      if (!cancelled) {
-        setRepo(r);
-        setProgress(p);
+      try {
+        const [r, p] = await Promise.all([getRepo(repoId), getProgress(repoId)]);
+        if (!cancelled) {
+          setRepo(r);
+          repoRef.current = r;
+          setProgress(p);
+          setPollError(null);
+        }
+      } catch (err) {
+        // Previously unhandled: a rejected poll (transient 500, repo
+        // deleted) left the 1500ms interval silently re-failing forever,
+        // with the screen stuck on the skeleton and no feedback at all.
+        if (!cancelled) setPollError(err.message);
       }
     }
     poll();
-    const interval = setInterval(poll, 1500);
+    // Indexing is done once status is ready/failed — polling every 1.5s
+    // forever after that has nothing left to observe and just wastes
+    // requests. clearInterval once repoRef confirms a terminal status;
+    // pollGeneration (bumped by handleRetry) re-runs this whole effect to
+    // start a fresh interval when a retry puts the repo back in flight —
+    // otherwise a stopped interval would stay stopped even after the
+    // retry moves status back to pending/indexing.
+    const interval = setInterval(() => {
+      if (repoRef.current && (repoRef.current.status === 'ready' || repoRef.current.status === 'failed')) {
+        clearInterval(interval);
+        return;
+      }
+      poll();
+    }, 1500);
     return () => {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [repoId]);
+  }, [repoId, pollGeneration]);
 
   if (!repoId) {
     return <p style={{ color: 'var(--text-muted)' }}>Select a repo from the Repos screen to watch its indexing progress.</p>;
   }
   if (!repo || !progress) {
-    return <p style={{ color: 'var(--text-muted)' }}>Loading…</p>;
+    if (pollError) {
+      return <p style={{ color: 'var(--status-neutral)' }}>Couldn't load indexing status: {pollError}</p>;
+    }
+    return <IndexingScreenSkeleton />;
   }
 
   const isQueued = repo.status === 'pending';
@@ -109,7 +140,8 @@ export default function IndexingScreen() {
 
   const bucketDetail = {};
   for (const entry of progress.log) {
-    const label = STEP_LABELS[entry.step] || 'Clone';
+    const label = STEP_LABELS[entry.step];
+    if (label === undefined) continue;
     const hasDetail = Object.keys(entry).length > 1;
     if (hasDetail || !bucketDetail[label]) bucketDetail[label] = entry;
   }
@@ -119,11 +151,26 @@ export default function IndexingScreen() {
 
   async function handleRetry() {
     setRetrying(true);
+    setRetryError(null);
     try {
-      await addRepo(repo.github_url);
+      // Hits POST /repos/{id}/retry — re-ingests THIS repo row in place.
+      // Previously called addRepo(repo.github_url), i.e. POST /repos again
+      // with the same URL: create_repo() has no uniqueness constraint on
+      // github_url, so every retry of a failed index silently inserted a
+      // brand new repo row — the failed one stayed failed forever (nobody
+      // was watching it anymore) while a duplicate entry for the same repo
+      // piled up in the list on every retry.
+      await retryRepo(repoId);
       const [r, p] = await Promise.all([getRepo(repoId), getProgress(repoId)]);
       setRepo(r);
+      repoRef.current = r;
       setProgress(p);
+      setPollGeneration((g) => g + 1);
+    } catch (err) {
+      // Previously unhandled: addRepo throwing (duplicate URL, malformed
+      // github_url now rejected by the backend's validator, a 4xx) left
+      // the button stuck on "Retrying…" forever with no explanation.
+      setRetryError(err.message);
     } finally {
       setRetrying(false);
     }
@@ -213,13 +260,16 @@ export default function IndexingScreen() {
       {isFailed && (
         <div className="index-banner failed">
           <div>
-            <div className="index-banner-title">Paused at &#8220;{STEPS[activeIdx]?.title || STEPS[0].title}&#8221;</div>
+            <div className="index-banner-title">Paused at &#8220;{STEPS[activeIdx]?.title || 'an unrecognized step'}&#8221;</div>
             <div className="index-banner-sub">{repo.error_message || 'Indexing hit an error.'} Retry to run it again from the start.</div>
           </div>
           <button type="button" className="btn-secondary" onClick={handleRetry} disabled={retrying}>
             {retrying ? 'Retrying…' : 'Retry indexing'}
           </button>
         </div>
+      )}
+      {retryError && (
+        <div className="repo-error-banner" style={{ marginTop: 12 }}>Retry failed: {retryError}</div>
       )}
     </div>
   );

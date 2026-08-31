@@ -1,0 +1,862 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SLEUTH — How Chat Works (A Question's Journey Through the Backend)</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff; --fg: #1a1a1a; --muted: #5c5c5c; --border: #e2e2e2;
+    --code-bg: #f5f5f5; --code-fg: #24292e;
+    --accent: #2563eb; --accent2: #0f766e;
+    --note-bg: #fff7e6; --note-border: #e8c064;
+    --concept-bg: #eef2ff; --concept-border: #6366f1;
+    --warn-bg: #fef2f2; --warn-border: #dc2626;
+    --step-bg: #eff6ff; --step-num: #2563eb;
+    --done: #15803d; --done-bg: #dcfce7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111318; --fg: #e8e8e8; --muted: #9a9a9a; --border: #2a2d34;
+      --code-bg: #1b1e24; --code-fg: #d8dee9;
+      --accent: #60a5fa; --accent2: #5eead4;
+      --note-bg: #26210f; --note-border: #7a5c1e;
+      --concept-bg: #1c1f3a; --concept-border: #818cf8;
+      --warn-bg: #2a1414; --warn-border: #f87171;
+      --step-bg: #101d33; --step-num: #60a5fa;
+      --done: #4ade80; --done-bg: #123320;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 2.5rem 1.25rem 6rem; background: var(--bg); color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    line-height: 1.65;
+  }
+  main { max-width: 920px; margin: 0 auto; }
+  h1 { font-size: 1.9rem; margin-bottom: 0.3rem; }
+  .subtitle { color: var(--muted); margin-top: 0; margin-bottom: 2rem; font-size: 0.98rem; max-width: 74ch; }
+  nav.toc { border: 1px solid var(--border); border-radius: 10px; padding: 1rem 1.25rem; margin-bottom: 3rem; font-size: 0.9rem; }
+  nav.toc h2 { margin: 0 0 0.6rem; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+  nav.toc ol { columns: 2; column-gap: 2rem; margin: 0; padding-left: 1.2rem; }
+  nav.toc li { break-inside: avoid; margin-bottom: 0.35rem; }
+  nav.toc a { color: var(--fg); text-decoration: none; }
+  nav.toc a:hover { color: var(--accent); text-decoration: underline; }
+
+  section.part { border-top: 3px solid var(--accent); padding-top: 1.5rem; margin-bottom: 4rem; }
+  section.part h2 { font-size: 1.5rem; margin: 0 0 0.2rem; }
+  .part-sub { color: var(--muted); font-size: 0.92rem; margin: 0 0 1.4rem; }
+
+  h3 { font-size: 1.15rem; margin: 2.2rem 0 0.6rem; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; }
+  h4 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--accent2); margin: 1.5rem 0 0.4rem; }
+  p { margin: 0.6rem 0; }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--code-bg); padding: 0.1rem 0.35rem; border-radius: 4px; font-size: 0.87em;
+  }
+  pre.code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--code-bg); color: var(--code-fg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 0.9rem 1.1rem; overflow-x: auto; font-size: 0.82rem; line-height: 1.55; margin: 0.4rem 0 1.1rem;
+  }
+  pre.code code { background: none; padding: 0; border-radius: 0; font-size: 1em; }
+  .explain { margin: 0.3rem 0 1.3rem; }
+  .explain ul { margin: 0.3rem 0; padding-left: 1.3rem; }
+  .explain li { margin-bottom: 0.4rem; }
+
+  .concept { background: var(--concept-bg); border-left: 4px solid var(--concept-border); border-radius: 6px; padding: 0.9rem 1.1rem; font-size: 0.92rem; margin: 1rem 0 1.4rem; }
+  .concept strong.tag { display: block; text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.72rem; color: var(--concept-border); margin-bottom: 0.4rem; }
+
+  .note { background: var(--note-bg); border: 1px solid var(--note-border); border-radius: 8px; padding: 0.85rem 1.05rem; font-size: 0.9rem; margin: 1rem 0; }
+  .note strong { display: inline-block; margin-bottom: 0.2rem; }
+
+  .warn { background: var(--warn-bg); border: 1px solid var(--warn-border); border-radius: 8px; padding: 0.85rem 1.05rem; font-size: 0.9rem; margin: 1rem 0; }
+  .warn strong { color: var(--warn-border); display: inline-block; margin-bottom: 0.2rem; }
+
+  .filebar { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.8rem; color: var(--muted); margin: 0.2rem 0 1rem; }
+  .filebar code { background: var(--code-bg); padding: 0.1rem 0.35rem; border-radius: 4px; }
+
+  table.walk { width: 100%; border-collapse: collapse; margin: 0.6rem 0 1.3rem; font-size: 0.87rem; }
+  table.walk th, table.walk td { border: 1px solid var(--border); padding: 0.5rem 0.7rem; text-align: left; vertical-align: top; }
+  table.walk th { background: var(--code-bg); }
+
+  .step { display: flex; gap: 0.9rem; margin: 1.1rem 0; padding: 0.9rem 1rem; background: var(--step-bg); border-radius: 8px; }
+  .step .num-badge { flex: 0 0 auto; width: 1.9rem; height: 1.9rem; border-radius: 50%; background: var(--step-num); color: var(--bg); font-weight: 700; font-size: 0.9rem; display: flex; align-items: center; justify-content: center; }
+  .step .step-body p:first-child { margin-top: 0; }
+  .step .step-body p:last-child { margin-bottom: 0; }
+
+  .diagram {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.8rem;
+    background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 1rem;
+    overflow-x: auto; white-space: pre; margin: 0.6rem 0 1.3rem; color: var(--code-fg);
+  }
+
+  footer.closing { border-top: 3px solid var(--accent2); padding-top: 1.5rem; }
+  footer.closing h2 { font-size: 1.35rem; }
+  a { color: var(--accent); }
+  .badge { display: inline-block; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.55rem; border-radius: 999px; background: var(--done-bg); color: var(--done); margin-left: 0.5rem; vertical-align: middle; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>SLEUTH — How Chat Works</h1>
+<p class="subtitle">
+  What actually happens, function by function, between the instant you press Enter in the chat box and
+  the moment an answer finishes streaming onto your screen. Same teaching style as its companion,
+  <code>docs/how-indexing-works.html</code>: every stage explains the idea first, then the real code
+  underneath it — with an eye toward you being able to trace any bug in this whole path back to the exact
+  line responsible, six months from now, without re-reading this document.
+</p>
+
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#p0">Part 0 — The big picture: RAG in one sentence</a></li>
+    <li><a href="#p1">Part 1 — The click: how the browser sends your question</a></li>
+    <li><a href="#p2">Part 2 — Server-Sent Events: how streaming actually works over HTTP</a></li>
+    <li><a href="#p3">Part 3 — The route: <code>POST /chat</code>, guard checks, and connection lifetime</a></li>
+    <li><a href="#p4">Part 4 — Embedding the question</a></li>
+    <li><a href="#p5">Part 5 — Vector search: finding the nearest chunks</a></li>
+    <li><a href="#p6">Part 6 — Local vs. global: the routing decision</a></li>
+    <li><a href="#p7">Part 7 — Building the prompt</a></li>
+    <li><a href="#p8">Part 8 — Generation: streaming tokens with a fallback chain</a></li>
+    <li><a href="#p9">Part 9 — Persisting the conversation</a></li>
+    <li><a href="#p10">Part 10 — Back on the frontend: reassembling the stream</a></li>
+    <li><a href="#p11">Part 11 — The other mode: agentic/live chat (no index required)</a></li>
+    <li><a href="#p12">Closing — the whole journey as one diagram</a></li>
+  </ol>
+</nav>
+
+<section class="part" id="p0">
+<h2>Part 0 — The big picture</h2>
+<p class="part-sub">One sentence, then everything after this is just filling in how.</p>
+
+<div class="concept">
+<strong class="tag">Concept — Retrieval-Augmented Generation, in one sentence</strong>
+Instead of asking an LLM a question and hoping it happens to already know the answer, SLEUTH first
+<strong>retrieves</strong> the handful of code chunks most relevant to your question (using the vector
+search built during indexing — see <code>how-indexing-works.html</code>), then <strong>generates</strong>
+an answer by handing the model your question <em>plus</em> those chunks as context, so it's answering from
+real evidence instead of guessing. Every part below is really just one of these two halves: Parts 4-6 are
+retrieval, Parts 7-8 are generation, and everything else is plumbing that makes those two halves usable
+from a real browser over a real network.
+</div>
+
+<p>There are two completely separate code paths for "answer a question," and this document is almost entirely about the first one:</p>
+<table class="walk">
+  <tr><th>Mode</th><th>When it's used</th><th>How it finds relevant code</th></tr>
+  <tr><td><strong>Indexed chat</strong> (this document, Parts 1-10)</td>
+      <td>Asking about a repo you already added via the web app or <code>sleuth add</code></td>
+      <td>Pre-computed: vector search against chunks embedded during indexing</td></tr>
+  <tr><td><strong>Agentic / live</strong> (Part 11, brief — has its own deep dive in <code>pipeline-deep-dive.html</code> Part 16)</td>
+      <td><code>sleuth agentic</code> against your current local directory, no upfront indexing</td>
+      <td>No embeddings, no DB. The LLM itself decides to call <code>grep</code>/<code>list_files</code>/<code>read_file</code> in a loop</td></tr>
+</table>
+
+</section>
+
+<section class="part" id="p1">
+<h2>Part 1 — The click: how the browser sends your question</h2>
+<p class="part-sub">What actually leaves the browser the instant you press Enter.</p>
+<p class="filebar">Files: <code>web/src/components/Composer.jsx</code>, <code>ChatScreen.jsx</code>, <code>web/src/api.js</code></p>
+
+<pre class="code"><code>export default function Composer({ onSend, disabled, repoLabel }) {
+  const [draft, setDraft] = useState('');
+  const canSend = draft.trim().length > 0 && !disabled;
+
+  function handleSubmit(e) {
+    e.preventDefault();
+    if (!canSend) return;
+    onSend(draft.trim());
+    setDraft('');
+  }
+  ...</code></pre>
+<p class="explain">
+<code>Composer</code> is a "dumb" component — it holds only the text you're currently typing
+(<code>draft</code>), and on submit it hands the trimmed text up to whatever function its parent
+(<code>ChatScreen.jsx</code>) gave it as <code>onSend</code>, then immediately clears the input. It has no
+idea what happens to that text next — that's <code>ChatScreen</code>'s job, and specifically
+<code>handleSend</code>:
+</p>
+
+<pre class="code"><code>async function handleSend(question) {
+  ...
+  let chatId = activeChatId;
+  if (!chatId) {
+    const chat = await createChat(repoId);   // POST /chats — makes one if this is the first message
+    ...
+  }
+
+  setMessages((prev) => [...prev, { id: `local-${Date.now()}`, role: 'user', content: question, sources: null }]);
+  setThinking(true);
+  ...
+
+  await streamChat(chatId, question, {
+    onSources: (sources) => { pendingSources = sources; },
+    onTitle: (title) => { ... },
+    onToken: (token) => { text += token; setStreamingText(text); },
+    onDone: () => { ...move `text` into the permanent messages list... },
+  });
+}</code></pre>
+<div class="explain">
+<ul>
+  <li>If this is the very first message in a fresh conversation, a chat row is created first
+      (<code>POST /chats</code>) — a chat needs to exist before a message can be attached to it.</li>
+  <li>The user's own question is immediately pushed into local React state (<code>setMessages</code>) so
+      it appears on screen instantly — this doesn't wait for the server at all, since there's nothing to
+      validate; the user obviously did type what they typed.</li>
+  <li><code>streamChat(...)</code> (<code>web/src/api.js</code>) is where the real network call happens —
+      covered fully in Part 2/10, since understanding <em>how</em> it reads the response requires
+      understanding the wire format the backend sends first.</li>
+</ul>
+</div>
+
+</section>
+
+<section class="part" id="p2">
+<h2>Part 2 — Server-Sent Events: how streaming actually works over HTTP</h2>
+<p class="part-sub">The mechanism that lets tokens appear on screen one at a time, like watching someone type, instead of the whole answer popping in at once.</p>
+<p class="filebar">Files: <code>sleuth/api/routes/chat.py::_sse_frame</code>, <code>web/src/api.js::streamChat</code></p>
+
+<div class="concept">
+<strong class="tag">Concept — why not just wait for the whole answer, then send it?</strong>
+An LLM generates text one token at a time internally regardless of how it's delivered — the only question
+is whether the server buffers all of that up before responding, or forwards each piece to the browser the
+moment it's produced. Buffering means staring at a blank screen for however many seconds the full answer
+takes to finish generating; forwarding each token immediately means the user sees progress right away,
+which feels dramatically faster even though the <em>total</em> time to finish is identical.
+<strong>Server-Sent Events (SSE)</strong> is a standard, simple HTTP mechanism for exactly this: a single
+long-lived HTTP response whose body is sent in small chunks over time, each one formatted as a tiny
+text protocol the browser (or, here, hand-rolled JavaScript) can parse incrementally as bytes arrive.
+</div>
+
+<pre class="code"><code>def _sse_frame(event: str | None, data: str) -&gt; str:
+    prefix = f"event: {event}\n" if event else ""
+    lines = "".join(f"data: {line}\n" for line in data.split("\n"))
+    return f"{prefix}{lines}\n"</code></pre>
+<p class="explain">
+The SSE spec's format is: an optional <code>event: &lt;name&gt;</code> line, one or more <code>data:
+&lt;text&gt;</code> lines, then one blank line to mark "this event is complete." A plain token
+(<code>event=None</code>) has no <code>event:</code> line at all — that's the default, unnamed event type,
+what the frontend treats as "just append this text." A named frame like <code>_sse_frame("sources",
+json.dumps(...))</code> lets the same one HTTP response carry multiple <em>kinds</em> of message: raw
+answer tokens, plus occasional structured events like "here are this answer's source citations" or "the
+chat's title just changed."
+</p>
+<div class="warn">
+<strong>A real bug this exact function fixes:</strong> a single generated token can itself contain a raw
+<code>"\n"</code> — completely normal right after a code block's opening brace, say. But the SSE spec says a
+<code>data:</code> line <em>cannot</em> contain an embedded newline — it terminates the field the instant
+it hits one. The original code did <code>yield f"data: {token}\n\n"</code> directly; if <code>token</code>
+happened to be <code>"{\n"</code>, that inner newline silently truncated the field and dropped everything
+after it, with no error anywhere — the bytes on the wire were still perfectly valid SSE, just wrong.
+<code>_sse_frame</code>'s fix is to <code>.split("\n")</code> the data and emit one <code>"data: "</code>-prefixed
+line per physical line, exactly as the spec allows for multi-line payloads — and the frontend has a matching
+fix (Part 10) that rejoins them.
+</div>
+
+</section>
+
+<section class="part" id="p3">
+<h2>Part 3 — The route: <code>POST /chat</code>, guard checks, and connection lifetime</h2>
+<p class="part-sub">Where the actual request lands on the backend, and a genuinely tricky connection-management problem this route has to solve.</p>
+<p class="filebar">Files: <code>sleuth/api/routes/chat.py</code>, <code>sleuth/api/schemas.py</code></p>
+
+<pre class="code"><code>class SendMessageIn(BaseModel):
+    chat_id: str
+    question: str = Field(max_length=8000)</code></pre>
+<p class="explain">
+Same Pydantic pattern as <code>AddRepoIn</code> in <code>how-indexing-works.html</code> Part 1: FastAPI
+validates the incoming JSON against this shape before the route body runs at all. <code>max_length=8000</code>
+exists because this field was previously unbounded — a client could post an arbitrarily large question
+straight into both the database and the LLM prompt, which is both a storage-bloat and a cost-control
+concern. 8000 characters is far beyond anything reasonable to type by hand, while still bounding worst-case
+payload size per request.
+</p>
+
+<pre class="code"><code>@router.post("/chat")
+async def post_chat(body: SendMessageIn, request: Request, user: dict = Depends(require_session)) -&gt; StreamingResponse:
+    conn = request.state.conn
+    config = request.state.config
+    chat = get_chat(conn, body.chat_id)
+    if chat is None:
+        raise HTTPException(status_code=404, detail="chat not found")
+    repo = get_repo(conn, chat["repo_id"], user_id=user["id"])
+    if repo is None:
+        raise HTTPException(status_code=404, detail="chat not found")
+    if repo["status"] != "ready":
+        raise HTTPException(status_code=409, detail=f"repo is {repo['status']}, not ready")
+
+    create_message(conn, body.chat_id, "user", body.question)
+    ...</code></pre>
+<div class="explain">
+<ul>
+  <li>Three guard checks, in order: does this chat even exist; does the repo it belongs to actually belong
+      to <em>this</em> logged-in user (returning the exact same 404 either way — "doesn't exist" and
+      "exists but isn't yours" are indistinguishable on purpose, so a caller can't use the response to
+      probe whether some other user's chat id happens to exist); and is that repo actually
+      <code>"ready"</code> yet (a repo still <code>"indexing"</code> has no chunks worth searching).</li>
+  <li>The user's own question is persisted to <code>messages</code> immediately, <em>before</em> any
+      retrieval or generation happens — so even if the LLM call fails downstream, the question itself is
+      never lost.</li>
+  <li>First message in a chat also triggers <code>derive_chat_title(question)</code> — a plain, truncated
+      version of the question becomes the chat's title, exactly like how ChatGPT/Claude auto-name new
+      conversations from your first message.</li>
+</ul>
+</div>
+
+<h4>The tricky part: releasing the database connection mid-stream</h4>
+<div class="concept">
+<strong class="tag">Concept — a database connection is a scarce, shared resource</strong>
+The connection pool this whole app shares has a hard cap — <code>max_size=10</code> — because a real
+Postgres server (especially a cross-region one like Supabase) can only sensibly serve so many concurrent
+connections at once. An LLM's answer can take many seconds to fully stream. If this route held onto its
+one borrowed connection for the <em>entire</em> duration of that stream just because it briefly touched the
+database at the very start (to embed the question and run the vector search), a handful of concurrent chats
+could exhaust the whole pool and starve every <em>other</em> request in the app — including something as
+unrelated as another browser tab's periodic "list my repos" poll.
+</div>
+<pre class="code"><code>retrieval_conn = await asyncio.to_thread(pool.getconn)
+retrieval_conn_released = False
+
+def on_sources(results):
+    nonlocal retrieval_conn_released
+    collected_sources.extend([...])
+    pending_frames.append(_sse_frame("sources", json.dumps(collected_sources)))
+    pool.putconn(retrieval_conn)
+    retrieval_conn_released = True
+
+try:
+    async for token in stream_answer(body.question, chat["repo_id"], retrieval_conn, config, on_sources=on_sources):
+        ...
+        yield _sse_frame(None, token)
+
+    write_conn = await asyncio.to_thread(pool.getconn)   # borrow a FRESH connection just to persist the final answer
+    try:
+        create_message(write_conn, body.chat_id, "assistant", "".join(answer_parts), sources=collected_sources)
+    finally:
+        await asyncio.to_thread(pool.putconn, write_conn)
+finally:
+    if not retrieval_conn_released:
+        await asyncio.to_thread(pool.putconn, retrieval_conn)</code></pre>
+<div class="explain">
+<ul>
+  <li>A connection is borrowed once, up front, purely for the retrieval half (the repo-status check plus
+      the vector search inside <code>stream_answer</code>, Parts 4-6).</li>
+  <li><code>on_sources</code> is a callback <code>stream_answer</code> calls exactly once, the instant
+      retrieval finishes and <em>before</em> the generation loop starts producing its first token. Because
+      an async generator function runs everything up to (and including) its first <code>yield</code> in one
+      uninterrupted stretch — including any plain synchronous callback it calls along the way — this
+      callback is <strong>guaranteed</strong> to have already run by the time the very first answer token
+      comes back. That guarantee is exactly what makes it safe to release the connection right there,
+      inside the callback, rather than needing some separate signal for "retrieval is done now."</li>
+  <li>Releasing the connection the instant retrieval finishes means it goes straight back into the shared
+      pool for someone else to borrow, for the entire multi-second stretch the LLM is actually generating
+      tokens — the part of this request that touches the database is now a tiny fraction of its total
+      wall-clock time.</li>
+  <li>Once the whole answer has streamed, a completely <em>fresh</em> connection is borrowed just long
+      enough to persist the finished message, then immediately returned.</li>
+  <li>The outer <code>finally: if not retrieval_conn_released: ...</code> exists because <code>on_sources</code>
+      only fires on the <em>happy</em> path — if <code>stream_answer</code> raised before ever reaching
+      retrieval (the ready-check race, an embedder throwing), the connection would otherwise never go back
+      to the pool at all. This is the safety net for that case.</li>
+</ul>
+</div>
+
+</section>
+
+<section class="part" id="p4">
+<h2>Part 4 — Embedding the question</h2>
+<p class="part-sub">The first real step of retrieval: turning your question into the exact same kind of vector the indexed code chunks already are.</p>
+<p class="filebar">Files: <code>sleuth/retrieve/answer.py</code>, <code>sleuth/ingest/embed.py</code></p>
+
+<pre class="code"><code>embedder = VoyageEmbedder(api_key=config.voyage_api_key)
+query_vector = (await embedder.embed_batch([question]))[0]</code></pre>
+<p class="explain">
+This is the exact same <code>VoyageEmbedder</code> class covered in full in
+<code>how-indexing-works.html</code> Part 8 — same model (<code>voyage-code-3</code>), same 1024-dimension
+output. That's not incidental: two texts can only be meaningfully compared by distance if they were both
+embedded by the <em>same</em> model into the <em>same</em> vector space — embedding the question with a
+different model than the one used to embed the stored chunks would produce vectors that simply aren't
+comparable at all, like trying to measure the distance between a point in inches and a point in
+kilometers. <code>embed_batch</code> always takes a <em>list</em> of texts and returns a list of vectors in
+the same order (Part 8 of the indexing doc explains why: it's designed for embedding hundreds of code
+chunks at once during ingestion) — here it's called with a list of exactly one question, and
+<code>[0]</code> just unwraps that single-element list back into one plain vector.
+</p>
+
+</section>
+
+<section class="part" id="p5">
+<h2>Part 5 — Vector search: finding the nearest chunks</h2>
+<p class="part-sub">The actual database query that turns "a vector" into "the 8 most relevant functions."</p>
+<p class="filebar">Files: <code>sleuth/retrieve/search.py</code></p>
+
+<pre class="code"><code>@dataclass
+class SearchResult:
+    file_path: str
+    symbol_name: str | None
+    kind: str
+    start_line: int
+    end_line: int
+    code_text: str
+    distance: float
+    is_doc: bool = False
+
+
+def search_chunks(conn, repo_id: str, query_embedding: list[float], top_k: int = 8, prefer_code: bool = True) -&gt; list[SearchResult]:
+    order_by = "is_doc, distance" if prefer_code else "distance"
+    rows = conn.execute(
+        f"""
+        SELECT file_path, symbol_name, kind, start_line, end_line, code_text,
+               embedding &lt;=&gt; %(query)s::vector AS distance, is_doc
+        FROM chunks
+        WHERE repo_id = %(repo_id)s
+        ORDER BY {order_by}
+        LIMIT %(top_k)s
+        """,
+        {"query": query_embedding, "repo_id": repo_id, "top_k": top_k},
+    ).fetchall()
+    return [SearchResult(*row) for row in rows]</code></pre>
+<div class="explain">
+<ul>
+  <li><code>embedding &lt;=&gt; %(query)s::vector</code> — <code>&lt;=&gt;</code> is pgvector's
+      <strong>cosine distance</strong> operator (the extension adds this operator to Postgres itself; it's
+      not a function call, it behaves like <code>+</code> or <code>&lt;</code>). For every chunk row that
+      belongs to this repo, this computes how far its stored embedding vector is from the question's
+      vector, geometrically — a smaller number means "more similar in meaning."</li>
+  <li><code>ORDER BY distance LIMIT %(top_k)s</code> is, in plain English, "give me the 8 closest matches."
+      Postgres's query planner is what actually decides to route this through the HNSW index built during
+      indexing (<code>how-indexing-works.html</code> Part 9) rather than computing the distance to every
+      single row in the table — that's why this single, simple-looking SQL statement runs in milliseconds
+      even against a repo with thousands of chunks.</li>
+  <li><code>WHERE repo_id = %(repo_id)s</code> is what keeps one user's question from ever searching across
+      a <em>different</em> repo's chunks — every search is always scoped to exactly the one repo the active
+      chat belongs to.</li>
+  <li><code>%(query)s</code>/<code>%(repo_id)s</code>/<code>%(top_k)s</code> — named parameter placeholders,
+      the same parameterized-SQL pattern used everywhere in this codebase (see
+      <code>how-indexing-works.html</code> Part 1's note on <code>%s</code>) — psycopg sends these values
+      separately from the query text itself, which is the standard defense against SQL injection.</li>
+</ul>
+</div>
+
+<h4><code>prefer_code</code>: a real production bug, fixed with one <code>ORDER BY</code> clause</h4>
+<div class="note">
+<strong>The bug:</strong> asking an architecture-flavored question against a repo that has both real source
+<em>and</em> hand-written architecture write-ups under a <code>docs/</code> directory (e.g.
+<code>docs/recruiter-authentication.html</code> — a real, parseable HTML file that gets chunked and
+embedded exactly like genuine source) returned <strong>only</strong> the documentation excerpts. The model
+correctly reported it had no actual source code to cite — because none was ever in its context. Root cause:
+prose <em>about</em> an architecture question can score a <em>closer</em> cosine match against that
+question than the real implementation does, and plain <code>ORDER BY distance</code> has no way to tell
+"real code" and "documentation about the code" apart — it just returns whichever wins on raw distance.
+</div>
+<p class="explain">
+<code>ORDER BY is_doc, distance</code> (the default, <code>prefer_code=True</code>) sorts by
+<code>is_doc</code> <em>first</em> — <code>false</code> sorts before <code>true</code> in SQL's ordering of
+booleans, so every real-code chunk (<code>is_doc = false</code>) ranks strictly ahead of every
+documentation chunk (<code>is_doc = true</code>), and only <em>within</em> each of those two groups does
+distance break ties. A genuinely doc-only question still gets an answer, because documentation chunks
+still surface — just only once every code chunk has been exhausted, never crowding out real code from a
+bounded top-8. This is belt-and-braces with a second fix in the prompt itself (Part 7): each excerpt is
+explicitly labeled <code>[CODE]</code> or <code>[DOCUMENTATION]</code>, and the system prompt tells the LLM
+to prefer citing code — the ranking fix stops documentation from crowding code out of the top-8 at all;
+the labeling fix is what stops the model from treating an included doc excerpt as equally authoritative to
+real code once both are in front of it.
+</p>
+
+</section>
+
+<section class="part" id="p6">
+<h2>Part 6 — Local vs. global: the routing decision <span class="badge">added post-launch</span></h2>
+<p class="part-sub">Why "rate my architecture" needs a completely different kind of context than "where is create_repo implemented."</p>
+<p class="filebar">Files: <code>sleuth/retrieve/routing.py</code>, <code>sleuth/store.py::get_repo_summary</code></p>
+
+<div class="concept">
+<strong class="tag">Concept — the gap vector search alone can't close</strong>
+Part 5's <code>search_chunks</code> is superb at "where is X implemented" — the nearest-neighbor chunks
+really are the answer. But there is no single chunk, or even any top-8 set of chunks, that <em>is</em> an
+answer to "summarize this whole project" — that question needs a bird's-eye view no 8 arbitrary functions
+can provide. <code>how-indexing-works.html</code> Part 10 covers the fix on the <em>write</em> side: one
+extra artifact, a whole-repo architecture summary, generated once during indexing and stored in
+<code>repo_summaries</code>. This part covers the <em>read</em> side: how a question gets classified as
+needing that summary in the first place.
+</div>
+
+<pre class="code"><code>_GLOBAL_PATTERNS = [
+    r"\barchitecture\b",
+    r"\boverall\b",
+    r"\bwhole (project|repo|repository|codebase)\b",
+    r"\bsummarize (the )?(whole|everything|this repo|this project)\b",
+    r"\brate (my|this) (architecture|codebase|project|design)\b",
+    ...
+]
+_GLOBAL_RE = re.compile("|".join(_GLOBAL_PATTERNS), re.IGNORECASE)
+
+
+def classify_question(question: str) -&gt; str:
+    return "global" if _GLOBAL_RE.search(question) else "local"</code></pre>
+<div class="explain">
+<ul>
+  <li>This is a plain regular expression check — <strong>deliberately not an LLM call</strong>. Classifying
+      every single incoming question with its own separate model round trip would add real latency and
+      cost to every question, just to decide which of two paths to take.</li>
+  <li>The key design insight is that <strong>both possible mistakes here are harmless</strong>. A false
+      positive (a perfectly normal question happens to match, say, the word "architecture" in passing)
+      just means the summary gets prepended to the prompt too — a little extra context, never wrong
+      information. A false negative (a genuinely broad question doesn't match any pattern) just means it
+      falls back to Part 5's plain top-8 search — today's pre-existing behavior, not a regression. Because
+      neither failure mode is actually harmful, a fast, free, zero-latency heuristic is the right tool here
+      — an LLM call would be solving a problem that doesn't need that much power.</li>
+</ul>
+</div>
+
+<pre class="code"><code>summary = None
+if classify_question(question) == "global":
+    summary = get_repo_summary(conn, repo_id)
+prompt = build_prompt(question, results, summary=summary)</code></pre>
+<p class="explain">
+This lives in <code>stream_answer</code> — the one shared function both the CLI and the web API funnel
+through — so the routing logic exists in exactly one place, not duplicated across two callers.
+<code>get_repo_summary</code> can return <code>None</code> (a repo indexed before this feature existed
+simply has no summary row yet — see <code>how-indexing-works.html</code> Part 10's caveat), and
+<code>build_prompt</code> (Part 7) handles that gracefully: no summary block is added at all, exactly as if
+this whole feature had never been built for that repo.
+</p>
+
+</section>
+
+<section class="part" id="p7">
+<h2>Part 7 — Building the prompt</h2>
+<p class="part-sub">Where the question, the retrieved code, and (sometimes) the whole-repo summary get glued into the single string the LLM actually receives.</p>
+<p class="filebar">Files: <code>sleuth/retrieve/answer.py</code></p>
+
+<pre class="code"><code>SYSTEM_PROMPT = (
+    "You are a code assistant. Answer the user's question about the repository "
+    "using only the provided excerpts. Excerpts are labeled CODE or DOCUMENTATION: "
+    "documentation is prose written by humans ABOUT the code, not the implementation "
+    "itself, and may be incomplete, stale, or wrong — always prefer and cite CODE "
+    "excerpts when answering questions about how something is actually implemented, "
+    "and only fall back to DOCUMENTATION excerpts when no relevant code excerpt is "
+    "present. If the excerpts don't contain the answer, say so explicitly rather "
+    "than guessing."
+)
+
+
+def build_prompt(question: str, results: list[SearchResult], summary: str | None = None) -&gt; str:
+    blocks = []
+    for r in results:
+        symbol = r.symbol_name or "(module level)"
+        label = "DOCUMENTATION" if r.is_doc else "CODE"
+        blocks.append(
+            f"# [{label}] File: {r.file_path}\n# {r.kind}: {symbol} (lines {r.start_line}-{r.end_line})\n\n{r.code_text}"
+        )
+    context = "\n\n---\n\n".join(blocks)
+    prompt = f"Question: {question}\n\n"
+    if summary:
+        prompt += (
+            "REPO SUMMARY (architecture-level overview, generated from the "
+            "repo's file/symbol listing — use this for broad/whole-repo "
+            "questions, and still ground specific implementation claims in "
+            "the excerpts below):\n\n" + summary + "\n\n---\n\n"
+        )
+    prompt += f"Relevant excerpts:\n\n{context}"
+    return prompt</code></pre>
+<div class="explain">
+<ul>
+  <li><code>SYSTEM_PROMPT</code> is sent once, separately from the user's actual question, as a special
+      <code>{"role": "system", ...}</code> message (Part 8) — this is how a chat LLM is told its
+      <em>behavior</em> and <em>constraints</em>, distinct from the specific question being asked. Telling
+      it explicitly to say "I don't know" rather than guess is a deliberate anti-hallucination instruction
+      — without it, a model asked something the excerpts genuinely don't cover might confidently invent a
+      plausible-sounding but wrong answer instead of admitting the gap.</li>
+  <li>Every retrieved chunk becomes one clearly delimited block: a comment-style header naming the file,
+      the kind of construct, and its line range, then the chunk's actual source text. Line ranges matter —
+      they're what let the model say "see lines 42-58 of <code>auth.py</code>" in its answer, something a
+      human reading the response can go verify directly.</li>
+  <li>The <code>[CODE]</code>/<code>[DOCUMENTATION]</code> label on every single block is the prompt-level
+      half of the doc-vs-code fix from Part 5 — belt-and-braces with the ranking fix, since even a
+      correctly-ranked-lower doc chunk that still makes it into the top-8 needs to be visibly distinguishable
+      from real code once it's sitting in front of the model.</li>
+  <li>The optional <code>REPO SUMMARY</code> block (Part 6) is inserted <em>before</em> the per-chunk
+      excerpts, with its own explicit instruction about when to use it — broad questions should lean on it,
+      but specific implementation claims should still be grounded in the actual excerpts below it, not
+      just the summary's own (necessarily higher-level, less precise) prose.</li>
+  <li>Blocks are joined with <code>"\n\n---\n\n"</code> — a plain visual separator that has no special
+      meaning to the LLM API itself; it's purely there so the model (and a human reading a captured prompt
+      while debugging) can clearly tell where one excerpt ends and the next begins.</li>
+</ul>
+</div>
+
+</section>
+
+<section class="part" id="p8">
+<h2>Part 8 — Generation: streaming tokens with a fallback chain</h2>
+<p class="part-sub">Where the assembled prompt actually goes to a real language model, and what happens if that model is down.</p>
+<p class="filebar">Files: <code>sleuth/llm/generate.py</code></p>
+
+<pre class="code"><code>class Generator(ABC):
+    model_name: str
+    timeout: float = DEFAULT_TIMEOUT
+
+    async def chat(self, messages: list[dict], stream: bool = True):
+        async with httpx.AsyncClient(timeout=self.timeout) as client:
+            if stream:
+                async for token in self._stream_chat(client, messages):
+                    yield token
+            else:
+                yield await self._chat_once(client, messages)
+
+    @abstractmethod
+    def _url(self) -&gt; str: ...
+
+
+class GroqGenerator(Generator):
+    model_name = "openai/gpt-oss-120b"
+    def _url(self) -&gt; str: return GROQ_URL
+
+
+class NimGenerator(Generator):
+    model_name = "meta/llama-3.1-70b-instruct"
+    timeout = 120
+    def _url(self) -&gt; str: return NIM_URL</code></pre>
+<div class="explain">
+<ul>
+  <li><code>Generator</code> is an <strong>Abstract Base Class</strong> — the same pattern as
+      <code>Embedder</code> in <code>how-indexing-works.html</code> Part 8: shared logic
+      (<code>chat</code>, the streaming/non-streaming branching) lives once on the base class, and each
+      concrete subclass only supplies what's genuinely different — its model name and its API URL. Groq
+      and NIM speak a nearly identical OpenAI-style chat completions API, so almost nothing needs to be
+      reimplemented per provider.</li>
+  <li><code>stream=True</code> (used for real user-facing chat) delegates to
+      <code>_stream_chat</code> — an <strong>async generator</strong> that reads Server-Sent Events off the
+      LLM provider's own streaming response and <code>yield</code>s just the text token from each event,
+      exactly the same generator pattern <code>_sse_frame</code>'s output gets read back with on the
+      frontend (Part 10). <code>stream=False</code> (used by the eval harness, and for the whole-repo
+      summarization step in <code>how-indexing-works.html</code> Part 10, where nobody is watching tokens
+      arrive live) waits for the complete response and yields it once.</li>
+</ul>
+</div>
+
+<h4>The fallback chain</h4>
+<pre class="code"><code>def get_fallback_chain(config: Config) -&gt; list[Generator]:
+    chain = [get_generator(config)]
+    if config.generation_provider == "groq" and config.nim_api_key:
+        chain.append(NimGenerator(api_key=config.nim_api_key))
+    return chain
+
+
+async def chat_with_fallback(chain: list[Generator], messages: list[dict], stream: bool = True):
+    last_error = None
+    for generator in chain:
+        try:
+            async for token in generator.chat(messages, stream=stream):
+                yield token
+            return
+        except (httpx.HTTPStatusError, httpx.TransportError) as exc:
+            last_error = exc
+            continue
+    raise RuntimeError(f"All generators in fallback chain failed: {last_error}")</code></pre>
+<div class="concept">
+<strong class="tag">Concept — why have a fallback provider at all?</strong>
+Any single external API can have an outage, a rate limit, or a transient network blip — and generation is
+the one part of this whole pipeline with no local fallback (unlike, say, a retried HTTP call for a single
+request). If Groq is the default provider and it's briefly unavailable, SLEUTH doesn't have to fail the
+whole question — if a NIM API key is configured, it tries that provider next, automatically, with no user
+action needed.
+</div>
+<div class="explain">
+<ul>
+  <li>The chain is just an ordered list: Groq first (if that's the configured default), NIM appended only
+      if an NIM key is actually set — no key, no fallback attempt, since there'd be nothing to call.</li>
+  <li>The loop tries each generator in order; the moment one succeeds (its <code>async for</code> loop
+      finishes without raising), the function <code>return</code>s immediately, never touching the rest of
+      the chain.</li>
+  <li>Only <code>httpx.HTTPStatusError</code>/<code>httpx.TransportError</code> — actual HTTP/network-level
+      failures — trigger a fallback attempt; anything else (a bug, an unexpected response shape) propagates
+      immediately rather than being silently swallowed and retried against a different provider that would
+      likely just fail the exact same way.</li>
+</ul>
+</div>
+<div class="warn">
+<strong>A known, documented gap:</strong> if the <em>first</em> provider fails partway through streaming —
+after it has already yielded several real tokens to the caller — the fallback to the next provider starts
+completely over from the beginning of the answer. A caller that's already displayed those partial tokens
+(exactly what the chat UI does, appending each token as it arrives) would end up showing the first
+provider's partial answer immediately followed by the second provider's <em>full</em> answer, visibly
+duplicated on screen. This is flagged rather than silently accepted: the actual fix would need the caller
+to track and discard already-yielded tokens on a fallback, which isn't built yet.
+</div>
+
+</section>
+
+<section class="part" id="p9">
+<h2>Part 9 — Persisting the conversation</h2>
+<p class="part-sub">Making sure the question and the finished answer both survive after the browser tab closes.</p>
+<p class="filebar">Files: <code>sleuth/store.py</code>, <code>schema.sql</code></p>
+
+<pre class="code"><code>CREATE TABLE IF NOT EXISTS messages (
+    id         uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+    chat_id    uuid NOT NULL REFERENCES chats(id) ON DELETE CASCADE,
+    role       text NOT NULL CHECK (role IN ('user', 'assistant')),
+    content    text NOT NULL,
+    sources    jsonb,
+    created_at timestamptz NOT NULL DEFAULT now()
+);</code></pre>
+<div class="explain">
+<ul>
+  <li>Two rows get written per exchange: the user's question (persisted immediately in Part 3, before
+      retrieval even starts) and, once the full answer has finished streaming, the assistant's message —
+      with a <code>sources</code> column recording exactly which chunks were retrieved for it, as JSON.</li>
+  <li><code>sources jsonb</code> is what lets the chat UI show "this answer cited these 8 files/lines" even
+      after a page reload, days later — without <code>sources</code>, re-opening an old conversation would
+      only show the text of past answers, with no way to see what evidence they were actually grounded in.</li>
+  <li><code>CHECK (role IN ('user', 'assistant'))</code> is a database-level constraint — Postgres itself
+      refuses any row with a different value in that column, an extra layer of correctness that doesn't
+      depend on every single application code path remembering to validate it first.</li>
+</ul>
+</div>
+
+</section>
+
+<section class="part" id="p10">
+<h2>Part 10 — Back on the frontend: reassembling the stream</h2>
+<p class="part-sub">Closing the loop: how the raw SSE bytes from Part 2 turn back into the live, token-by-token chat UI.</p>
+<p class="filebar">Files: <code>web/src/api.js::streamChat</code></p>
+
+<pre class="code"><code>const reader = res.body.getReader();
+const decoder = new TextDecoder();
+let buffer = '';
+
+while (true) {
+  const { done, value } = await reader.read();
+  if (done) break;
+  buffer += decoder.decode(value, { stream: true });
+
+  let frameEnd;
+  while ((frameEnd = buffer.indexOf('\n\n')) !== -1) {
+    const frame = buffer.slice(0, frameEnd);
+    buffer = buffer.slice(frameEnd + 2);
+    const lines = frame.split('\n');
+    const eventLine = lines.find((l) =&gt; l.startsWith('event: '));
+    const eventType = eventLine ? eventLine.slice('event: '.length) : 'message';
+    const data = lines
+      .filter((l) =&gt; l.startsWith('data: '))
+      .map((l) =&gt; l.slice('data: '.length))
+      .join('\n');
+
+    if (eventType === 'sources') { onSources(JSON.parse(data)); }
+    else if (eventType === 'title') { onTitle?.(JSON.parse(data).title); }
+    else if (eventType === 'done') onDone();
+    else onToken(data);
+  }
+}</code></pre>
+<div class="explain">
+<ul>
+  <li><code>res.body.getReader()</code> is the browser's native <strong>streaming</strong> Fetch API — it
+      hands back chunks of bytes as they arrive over the network, rather than waiting for the entire
+      response body to finish downloading before any of it is accessible to JavaScript at all. Without
+      this API, streaming server-side would be pointless — the browser would just buffer the whole thing
+      anyway before handing it over.</li>
+  <li><code>buffer</code> exists because network chunks don't respect message boundaries — a single chunk
+      of bytes from <code>reader.read()</code> might contain half of one SSE frame and half of the next, or
+      several complete frames at once. Everything gets appended to one running buffer, and the code repeatedly
+      looks for the next <code>"\n\n"</code> (the blank-line frame terminator from Part 2's
+      <code>_sse_frame</code>) — extracting and processing one complete frame at a time, and leaving
+      whatever's left (a partial frame, if the chunk boundary landed mid-frame) in the buffer for the next
+      read to complete.</li>
+  <li>The multi-line <code>data:</code> rejoin (<code>.filter(...).map(...).join('\n')</code>) is the exact
+      frontend half of the newline-in-a-token fix from Part 2 — reversing <code>_sse_frame</code>'s split
+      to recover the token's original text, embedded newline intact.</li>
+  <li>Dispatching by <code>eventType</code> is what lets one single HTTP stream carry several different
+      <em>kinds</em> of update — plain tokens append to the visible answer text live
+      (<code>onToken</code>), a <code>sources</code> event populates the citation cards shown under the
+      finished answer, a <code>title</code> event live-updates the sidebar the moment the backend renames a
+      fresh chat, and <code>done</code> is what finally moves the accumulated streamed text out of "still
+      streaming" state and into the permanent message list.</li>
+</ul>
+</div>
+
+</section>
+
+<section class="part" id="p11">
+<h2>Part 11 — The other mode: agentic/live chat</h2>
+<p class="part-sub">Briefly — this mode skips almost everything above entirely. Full treatment lives in <code>pipeline-deep-dive.html</code> Part 16.</p>
+<p class="filebar">Files: <code>sleuth/retrieve/agentic.py</code></p>
+
+<p>
+<code>sleuth agentic</code> answers questions about your <em>current local directory</em>, with zero
+upfront indexing wait — no cloning, no chunking, no embeddings, no Postgres involvement at all. Instead of
+Part 4-5's "embed the question, vector-search pre-computed chunks," the LLM itself is given three tools —
+<code>grep</code>, <code>list_files</code>, <code>read_file</code> — and runs in a loop: it can request a
+tool call (a small structured text protocol, <code>TOOL: &lt;name&gt; {json}</code>), get the tool's real
+output fed back to it, and decide whether it now has enough to answer or needs to look at something else,
+capped at 6 iterations. This is the same fundamental RAG idea (find relevant evidence, then answer from it)
+but with the LLM doing its own retrieval decisions turn by turn, like a human exploring an unfamiliar repo,
+rather than one fixed vector-search step. Trade-off: nothing to wait for up front, but no incremental
+re-indexing benefit and a hard iteration cap on how much it can look at per question.
+</p>
+
+</section>
+
+<section class="part" id="p12">
+<h2>Closing — the whole journey, one diagram</h2>
+
+<div class="diagram">
+Browser: type a question, press Enter
+   │
+   ▼  (Part 1)   Composer/ChatScreen — question pushed into local UI state instantly, no network wait
+   │
+   ▼  (Part 1/2) streamChat() — POST /chat, body = {chat_id, question}, response read as a byte stream
+   │
+   ▼  (Part 3)   POST /chat route — 404/409 guard checks, user's question persisted to `messages` immediately
+   │             ONE connection borrowed just for retrieval, released the instant it's done (Part 3 detail)
+   │
+   ▼  (Part 4)   VoyageEmbedder.embed_batch([question]) — same model/vector-space as indexed chunks
+   │
+   ▼  (Part 5)   search_chunks() — cosine distance ORDER BY (is_doc, distance) LIMIT 8, HNSW does the work
+   │
+   ▼  (Part 6)   classify_question() — "local" (top-8 only) or "global" (also fetch the stored repo summary)
+   │
+   ▼  (Part 7)   build_prompt() — question + [optional REPO SUMMARY] + labeled [CODE]/[DOCUMENTATION] excerpts
+   │
+   ▼  (Part 8)   chat_with_fallback() — Groq streams tokens; NIM is tried automatically if Groq fails
+   │             each token: yield _sse_frame(None, token)  ── sent over the wire AS IT'S GENERATED
+   │
+   ▼  (Part 9)   once the full answer is done: a FRESH connection persists the assistant message + sources
+   │
+   ▼  (Part 10)  browser's streamChat() reassembles frames byte-by-byte, dispatches onToken/onSources/onDone
+   │
+   ▼             ChatScreen appends each token to the visible bubble live, then finalizes it into the
+                 permanent message list once the `done` event arrives
+</div>
+
+<p>
+That's the entire request lifecycle. Notice how little of it is actually "AI magic" — most of the real
+engineering is in the plumbing around the two genuinely intelligent steps (embedding and generation):
+connection lifetime management, a wire protocol for streaming partial results, a fallback chain for when a
+provider goes down, and a cheap heuristic for routing between two different kinds of question. That's a
+deliberate reflection of this project's whole philosophy: no vendor RAG SDK doing any of this invisibly —
+every one of these steps is a plain function you've now seen in full.
+</p>
+
+</section>
+
+<footer class="closing">
+<h2>What to do next</h2>
+<p>
+Read this once straight through alongside <code>docs/how-indexing-works.html</code> — together they cover
+the entire system end to end, from "paste a URL" to "get a cited answer." For the deepest line-by-line
+treatment of the underlying Python mechanics both documents lean on constantly (dataclasses, ABCs,
+async/await, generators, the tree-sitter/pgvector specifics), see
+<code>docs/pipeline-deep-dive.html</code>, which this update also brought current with everything built
+since Plan 1 — the web app, the doc-vs-code ranking fix, and the global/architecture retrieval work covered
+in Part 6 above.
+</p>
+</footer>
+
+</main>
+</body>
+</html>

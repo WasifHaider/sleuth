@@ -1,29 +1,62 @@
+/* 5 themes, exact hex/rgba values ported from docs/design/Sleuth Rail.dc.html
+   and Sleuth Chat.dc.html's `[data-theme="..."]` blocks (identical across
+   every .dc.html source file). data-theme is set on <html> by AppShell once
+   the signed-in user's theme_preference loads (Task 11); unattributed
+   documents (landing/login, before that ever runs) fall back to storm via
+   the bare `:root` half of the first selector. */
+/* Only storm (dark) and ivory (light) are offered — see NavRail.jsx's
+   THEMES list and sleuth/api/schemas.py's Theme literal. midnight/edition/
+   leaf variants existed earlier (Task 11) but were dropped by product
+   decision; kept storm as the unattributed :root fallback for landing/login
+   documents that never set data-theme. */
 :root, [data-theme="storm"] {
   --bg: #0F372F;
   --panel: #143F36;
   --panel-alt: #0A2621;
   --text: #F2F5F2;
-  --text-secondary: rgba(242,245,242,0.75);
   --text-muted: rgba(242,245,242,0.58);
   --text-faint: rgba(242,245,242,0.30);
   --border: rgba(242,245,242,0.13);
   --border-strong: rgba(242,245,242,0.26);
   --accent: #ECBC6B;
-  --accent-hover: #F0C97E;
   --accent-wash: rgba(236,188,107,0.16);
   --accent-on: #0F372F;
-  --status-ready: #ECBC6B;
-  --status-ready-wash: rgba(236,188,107,0.16);
   --status-neutral: #C89B6A;
   --status-neutral-wash: rgba(200,155,106,0.14);
+  --status-neutral-border: rgba(200,155,106,0.42);
+}
+
+[data-theme="ivory"] {
+  --bg: #F3EEE1;
+  --panel: #FBF8F1;
+  --panel-alt: #E7E0CF;
+  --text: #101E28;
+  --text-muted: rgba(16,30,40,0.62);
+  --text-faint: rgba(16,30,40,0.34);
+  --border: rgba(16,30,40,0.14);
+  --border-strong: rgba(16,30,40,0.28);
+  --accent: #0061A4;
+  --accent-wash: rgba(0,97,164,0.12);
+  --accent-on: #F7F4EC;
+  --status-neutral: #A8703E;
+  --status-neutral-wash: rgba(168,112,62,0.13);
+  --status-neutral-border: rgba(168,112,62,0.3);
+}
+
+/* Tokens the design never had to define per-theme, because they're always
+   derived from one of the above rather than an independent brand choice —
+   kept as single global rules instead of 5 copy-pasted near-duplicates.
+   status-ready === accent in every .dc.html source's own "Indexed" pill
+   markup (background: var(--accent)), never a separate literal. */
+:root {
+  --text-secondary: color-mix(in srgb, var(--text) 75%, transparent);
+  --accent-hover: color-mix(in srgb, var(--accent) 88%, white);
+  --status-ready: var(--accent);
+  --status-ready-wash: var(--accent-wash);
   --font-mono: 'JetBrains Mono', monospace;
   --font-sans: 'Space Grotesk', system-ui, sans-serif;
   --font-head: 'Big Shoulders Display', sans-serif;
 }
-
-/* midnight/ivory/leaf/edition blocks: same variable names, new values —
-   filled in for real in Task 11 (theme switcher). Stub with just storm
-   here so Tasks 6-10 have a working default to build against. */
 
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--text); font-family: var(--font-sans); }
@@ -35,22 +68,53 @@ a:hover { color: var(--accent-hover); }
 
 .sleuth-rail { width: 272px; height: 100%; background: var(--panel-alt); border-right: 1px solid var(--border);
   display: flex; flex-direction: column; flex-shrink: 0; transition: width .32s cubic-bezier(.2,.7,.2,1); }
+.rail-logo { display: flex; align-items: center; gap: 9px; padding: 18px 16px 6px; color: var(--text); }
+.rail-logo .logo-word { font-size: 19px; }
 .rail-nav { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; }
 .rail-nav .navitem { display: flex; align-items: center; padding: 10px; border-left: 2px solid transparent;
   color: var(--text-muted); font-size: 14px; }
 .rail-nav .navitem.active { border-left-color: var(--accent); color: var(--text); font-weight: 600; }
 .rail-nav .navitem:hover { background: var(--panel); }
-.rail-account { margin-top: auto; border-top: 1px solid var(--border); padding: 10px; }
+.rail-account { position: relative; margin-top: auto; border-top: 1px solid var(--border); padding: 10px; }
+.rail-account-btn { width: 100%; display: flex; align-items: center; gap: 10px; background: transparent;
+  border: 0; border-radius: 2px; padding: 6px; cursor: pointer; color: var(--text); text-align: left; }
+.rail-account-btn:hover { background: var(--panel); }
+.rail-avatar { flex: none; width: 28px; height: 28px; border-radius: 50%; background: var(--accent);
+  color: var(--accent-on); font-family: var(--font-head); font-weight: 700; font-size: 12px;
+  display: flex; align-items: center; justify-content: center; }
+.rail-account-name { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
+.rail-account-menu { position: absolute; bottom: calc(100% + 6px); left: 10px; right: 10px; z-index: 85;
+  background: var(--panel); border: 1px solid var(--border); box-shadow: 0 20px 50px rgba(0,0,0,0.28);
+  padding: 6px; display: flex; flex-direction: column; }
+.rail-theme-label { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--text-faint); padding: 9px 10px 7px; }
+.rail-theme-swatches { display: flex; flex-wrap: wrap; gap: 5px; padding: 0 10px 9px; }
+.rail-theme-swatch { font-family: var(--font-sans); font-size: 10.5px; padding: 5px 9px;
+  border: 1px solid var(--border); border-radius: 999px; background: transparent; color: var(--text-faint);
+  cursor: pointer; }
+.rail-theme-swatch:hover { color: var(--text); }
+.rail-theme-swatch.active { background: var(--accent); color: var(--accent-on); border-color: var(--accent); }
+.rail-menu-divider { height: 1px; background: var(--border); margin: 4px 4px; }
+.rail-menu-link { text-align: left; width: 100%; background: transparent; border: 0; padding: 9px 10px;
+  font-size: 13px; color: var(--text-muted); border-radius: 2px; cursor: pointer; }
+.rail-menu-link:hover { background: var(--panel-alt); color: var(--text); }
 
 .app-shell { display: flex; height: 100vh; overflow: hidden; }
 .app-content { flex: 1; overflow-y: auto; padding: 48px 56px; }
+/* Full-bleed screens (chat) manage their own internal scrolling (sidebar,
+   message list) and must not also scroll inside the padded app-content box —
+   that double scroll container left extra blank space scrollable past the
+   actual UI. Flush this container instead of relying on a negative-margin
+   hack on .chat-shell. */
+.app-content:has(> .chat-shell) { padding: 0; overflow: hidden; }
 
 .card { background: var(--panel); border: 1px solid var(--border-strong); border-radius: 2px; }
 .pill { display: inline-flex; align-items: center; gap: 7px; padding: 6px 12px; border-radius: 100px;
   font-size: 11.5px; font-weight: 600; white-space: nowrap; }
 .pill-ready { background: var(--accent); color: var(--accent-on); }
 .pill-indexing { border: 1px solid var(--border-strong); color: var(--accent); }
-.pill-failed { background: var(--status-neutral-wash); border: 1px solid var(--status-neutral); color: var(--status-neutral); opacity: 0.9; }
+.pill-failed { background: var(--status-neutral-wash); border: 1px solid var(--status-neutral-border); color: var(--status-neutral); opacity: 0.9; }
 .pill-pending { border: 1px dashed var(--border); color: var(--text-faint); }
 .dot { width: 6px; height: 6px; border-radius: 50%; }
 .dot-pulse { animation: pulse 1.4s ease-in-out infinite; }
@@ -273,7 +337,25 @@ a:hover { color: var(--accent-hover); }
   transition: opacity .3s ease, transform .3s cubic-bezier(.2,.7,.2,1), box-shadow .3s ease; }
 .repo-row:hover .repo-action { opacity: 1; transform: scale(1); }
 .repo-action:hover { box-shadow: 0 10px 26px var(--accent-wash); transform: translateY(-2px) scale(1.03); }
+/* Delete/Cancel need to read as secondary next to the accent-colored
+   primary action (Chat/Watch/Retry) — same pill shape, but a plain
+   bordered/transparent surface so they don't compete for attention, and a
+   dedicated danger variant for the actual destructive confirm step so
+   it's unmistakably different from every other pill on the row. Always
+   visible (no opacity-0-until-hover) since a confirm-in-progress row
+   needs its Confirm/Cancel buttons visible without a mouseover. */
+.repo-action-secondary { opacity: 1; transform: none; background: transparent; border: 1px solid var(--border-strong);
+  color: var(--text-muted); }
+.repo-action-secondary:hover { border-color: var(--accent); color: var(--accent); box-shadow: none; transform: none; }
+.repo-action-danger { opacity: 1; transform: none; background: transparent; border: 1px solid var(--status-neutral-border);
+  color: var(--status-neutral); }
+.repo-action-danger:hover { background: var(--status-neutral); color: var(--status-neutral-wash); box-shadow: none; transform: none; }
+.repo-action:disabled { opacity: 0.5; cursor: not-allowed; }
 .repo-empty-filter { padding: 34px 18px; text-align: center; font-size: 13.5px; color: var(--text-faint); }
+.repo-error-banner { grid-column: 1 / -1; margin-top: 14px; padding: 10px 14px;
+  background: var(--status-neutral-wash); border: 1px solid var(--status-neutral-border);
+  border-radius: 2px; color: var(--status-neutral); font-family: var(--font-mono); font-size: 12px;
+  line-height: 1.5; word-break: break-word; }
 
 .repos-empty { position: relative; min-height: 50vh; display: flex; align-items: center; justify-content: center;
   overflow: hidden; border: 1px solid var(--border); }
@@ -357,7 +439,7 @@ a:hover { color: var(--accent-hover); }
 .index-banner { margin-top: 28px; border: 1px solid var(--border-strong); padding: 26px 28px; display: flex;
   align-items: center; justify-content: space-between; gap: 24px; flex-wrap: wrap; }
 .index-banner.ready { background: var(--accent-wash); }
-.index-banner.failed { background: var(--status-neutral-wash); border-color: var(--status-neutral); }
+.index-banner.failed { background: var(--status-neutral-wash); border-color: var(--status-neutral-border); }
 .index-banner-title { font-family: var(--font-head); font-weight: 800; font-size: 22px; margin-bottom: 6px; }
 .index-banner-sub { font-size: 14px; color: var(--text-muted); max-width: 56ch; }
 .index-banner button, .index-banner a.btn-primary { flex: none; }
@@ -366,3 +448,275 @@ a:hover { color: var(--accent-hover); }
   .index-grid { grid-template-columns: 1fr; }
   .log-panel { height: 260px; }
 }
+
+/* chat screen — ported from docs/design/Sleuth Chat.dc.html
+   (dropped the mockup's inline citation pills + right-side code panel —
+   the real /chat SSE response has no code text or in-answer citation
+   markers, only a flat sources[] list, so citations render as cards
+   under the answer instead) */
+.chat-shell { display: flex; height: 100%; overflow: hidden; }
+
+.chat-sidebar { width: 260px; flex: none; display: flex; flex-direction: column;
+  border-right: 1px solid var(--border); overflow: hidden; }
+.chat-sidebar-section { flex: none; padding: 16px 14px 14px; }
+.chat-sidebar-toprow { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+.chat-sidebar-label { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.1em;
+  text-transform: uppercase; color: var(--text-faint); margin: 0; }
+.chat-sidebar-icon-btn { background: transparent; border: 0; color: var(--text-faint); cursor: pointer;
+  padding: 4px; display: flex; align-items: center; justify-content: center; border-radius: 2px; }
+.chat-sidebar-icon-btn:hover { color: var(--text); }
+
+.chat-repo-select { position: relative; }
+.chat-repo-select-btn { width: 100%; display: flex; align-items: center; justify-content: space-between;
+  gap: 8px; border: 1px solid var(--border); border-radius: 2px; padding: 10px 12px; background: transparent;
+  color: var(--text); cursor: pointer; text-align: left; }
+.chat-repo-select-btn:hover:not(:disabled) { border-color: var(--border-strong); }
+.chat-repo-select-btn:disabled { cursor: default; }
+.chat-repo-select-name { min-width: 0; font-weight: 600; font-size: 13.5px; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
+.chat-repo-select-btn svg { flex: none; color: var(--text-faint); }
+.chat-repo-menu { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 65;
+  background: var(--panel); border: 1px solid var(--border); box-shadow: 0 20px 50px rgba(0, 0, 0, 0.22);
+  padding: 6px; display: flex; flex-direction: column; }
+.chat-repo-menu-item { text-align: left; background: transparent; border: 0; padding: 9px 10px; border-radius: 2px;
+  cursor: pointer; color: var(--text); font-size: 13px; }
+.chat-repo-menu-item:hover { background: var(--accent-wash); }
+.chat-repo-menu-item.disabled { cursor: not-allowed; opacity: 0.5; }
+
+.chat-sidebar-chats { flex: 1; min-height: 0; overflow-y: auto; padding: 0 8px 16px; }
+.chat-new-btn { width: calc(100% - 12px); margin: 0 6px 16px; display: flex; align-items: center; gap: 8px;
+  justify-content: center; border: 1px solid var(--border-strong); background: transparent; color: var(--text);
+  padding: 9px 12px; border-radius: 2px; font-size: 13px; font-weight: 600; cursor: pointer; }
+.chat-new-btn:hover { border-color: var(--accent); color: var(--accent); }
+.chat-new-btn svg { flex: none; }
+.chat-sidebar-empty { font-size: 12.5px; color: var(--text-faint); padding: 0 10px; }
+.chat-history-group { margin-bottom: 14px; }
+.chat-history-group .chat-sidebar-label { padding: 8px 8px 6px; }
+.chat-history-item { display: block; width: 100%; text-align: left; background: transparent; border: 0;
+  border-radius: 2px; padding: 9px 10px; cursor: pointer; margin-bottom: 2px; }
+.chat-history-item:hover { background: var(--panel); }
+.chat-history-item.active { background: var(--accent-wash); }
+.chat-history-title { font-size: 12.5px; line-height: 1.4; color: var(--text-secondary); white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
+.chat-history-item.active .chat-history-title { color: var(--text); }
+
+/* Wraps the chat button + its delete affordance so the row can hold both
+   without the button itself growing a second click target inside it —
+   .chat-history-item stays a plain full-width button for the "open this
+   chat" action, and the delete icon/confirm live beside it in the same
+   flex row instead. */
+.chat-history-row { position: relative; display: flex; align-items: center; gap: 4px; }
+.chat-history-row .chat-history-item { flex: 1; min-width: 0; margin-bottom: 0; }
+.chat-history-row.active .chat-history-item { background: var(--accent-wash); }
+.chat-history-delete-btn { flex: none; opacity: 0; background: transparent; border: 0; cursor: pointer;
+  color: var(--text-faint); padding: 6px; border-radius: 2px; display: flex; align-items: center; justify-content: center;
+  transition: opacity .15s ease, color .15s ease; }
+.chat-history-row:hover .chat-history-delete-btn { opacity: 1; }
+.chat-history-delete-btn:hover { color: var(--status-neutral); }
+.chat-history-confirm { flex: none; display: flex; gap: 4px; }
+.chat-history-confirm-btn { font-size: 11px; font-weight: 600; background: transparent; cursor: pointer;
+  border: 1px solid var(--border-strong); border-radius: 2px; padding: 4px 8px; color: var(--text-muted);
+  white-space: nowrap; }
+.chat-history-confirm-btn:first-child { border-color: var(--status-neutral-border); color: var(--status-neutral); }
+.chat-history-confirm-btn:hover { border-color: var(--accent); color: var(--accent); }
+.chat-history-confirm-btn:first-child:hover { background: var(--status-neutral); color: var(--status-neutral-wash); }
+
+.chat-sidebar-collapsed { width: 60px; align-items: center; padding: 16px 0; gap: 14px; }
+.chat-sidebar-collapsed .chat-sidebar-icon-btn { border: 1px solid var(--border); border-radius: 2px; padding: 6px; }
+.chat-sidebar-collapsed .chat-sidebar-icon-btn:hover { color: var(--accent); border-color: var(--accent); }
+
+.chat-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.chat-header { flex: none; display: flex; align-items: center; gap: 10px; padding: 16px 28px;
+  border-bottom: 1px solid var(--border); font-size: 13.5px; }
+.chat-header-repo { font-weight: 600; }
+.chat-header-title { color: var(--text-faint); font-size: 12px; }
+
+.chat-messages { flex: 1; min-height: 0; overflow-y: auto; padding: 28px clamp(16px, 4vw, 48px) 20px;
+  display: flex; flex-direction: column; gap: 26px; }
+.chat-row { display: flex; flex-direction: column; max-width: 78%; }
+.chat-row.user { align-self: flex-end; align-items: flex-end; max-width: 68%; }
+.chat-row.assistant { align-self: flex-start; }
+.chat-bubble { font-size: 14.5px; line-height: 1.6; }
+.chat-bubble.user { background: var(--panel); border: 1px solid var(--border); border-radius: 2px; padding: 12px 16px; }
+.chat-bubble.assistant { font-size: 15px; line-height: 1.7; }
+
+/* LLM answers come back as markdown (headings, bold, lists, tables, code
+   fences) — rendering it as a raw string left literal "**"/"##"/"|---|"
+   characters on screen instead of formatted text. */
+.chat-markdown { }
+.chat-markdown > *:first-child { margin-top: 0; }
+.chat-markdown > *:last-child { margin-bottom: 0; }
+.chat-markdown p { margin: 0 0 12px; }
+.chat-markdown h1, .chat-markdown h2, .chat-markdown h3 { font-family: var(--font-head); font-weight: 700;
+  line-height: 1.3; margin: 20px 0 10px; }
+.chat-markdown h1 { font-size: 19px; }
+.chat-markdown h2 { font-size: 17px; }
+.chat-markdown h3 { font-size: 15px; }
+.chat-markdown ul, .chat-markdown ol { margin: 0 0 12px; padding-left: 22px; }
+.chat-markdown li { margin-bottom: 4px; }
+.chat-markdown strong { color: var(--text); font-weight: 700; }
+.chat-markdown hr { border: 0; border-top: 1px solid var(--border); margin: 18px 0; }
+.chat-markdown code { font-family: var(--font-mono); font-size: 0.88em; background: var(--panel);
+  border: 1px solid var(--border); border-radius: 3px; padding: 1px 5px; }
+.chat-markdown pre { background: var(--panel-alt); border: 1px solid var(--border); border-radius: 6px;
+  padding: 12px 14px; overflow-x: auto; margin: 0 0 12px; }
+.chat-markdown pre code { background: none; border: 0; padding: 0; font-size: 12.5px; }
+.chat-markdown table { border-collapse: collapse; width: 100%; margin: 0 0 12px; font-size: 13px; }
+.chat-markdown th, .chat-markdown td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+.chat-markdown th { background: var(--panel); font-weight: 600; }
+.chat-markdown a { color: var(--accent); }
+/* Shared brand mark used as the working-indicator mascot in chat (see
+   LogoMarkPulse in Logo.jsx). The bars "breathe" out of sync with each
+   other and the whole mark gently rocks, so it reads as a small character
+   at work rather than a spinner borrowed from somewhere else. */
+.logo-mark-pulse { animation: mark-rock 2.4s ease-in-out infinite; }
+.logo-mark-pulse .bar-top { animation: bar-breathe 1.3s ease-in-out infinite; }
+.logo-mark-pulse .bar-v { animation: bar-breathe 1.3s ease-in-out infinite .25s; }
+.logo-mark-pulse .bar-h { animation: bar-breathe 1.3s ease-in-out infinite .5s; }
+@keyframes mark-rock {
+  0%, 100% { transform: rotate(0deg); }
+  25% { transform: rotate(-6deg); }
+  75% { transform: rotate(6deg); }
+}
+@keyframes bar-breathe {
+  0%, 100% { opacity: 0.35; transform: scaleX(1); }
+  50% { opacity: 1; transform: scaleX(1.15); }
+}
+.chat-thinking-row { display: inline-flex; align-items: center; gap: 10px; }
+.chat-thinking-row .logo-mark { width: 18px; height: 18px; }
+.chat-thinking-row .logo-mark .bar-top { inset: 4px 4px auto 4px; }
+.chat-thinking-row .logo-mark .bar-v { left: 4px; top: 9px; height: 5px; }
+.chat-thinking-row .logo-mark .bar-h { left: 4px; top: 12px; width: 6px; }
+/* Shimmering "thinking" label text (Claude-style): a soft light band
+   sweeps left-to-right across the label text via an animated
+   background-position on a background-clip:text gradient, plus an
+   animated "..." via ::after so the sweep and the dots read as one
+   continuous "still working" cue alongside the mascot mark above. */
+.chat-thinking {
+  display: inline-block;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  background: linear-gradient(
+    90deg,
+    var(--text-faint) 0%,
+    var(--text-faint) 40%,
+    var(--text) 50%,
+    var(--text-faint) 60%,
+    var(--text-faint) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: thinking-shimmer 1.8s linear infinite;
+}
+.chat-thinking::after {
+  content: '...';
+  display: inline-block;
+  width: 0;
+  text-align: left;
+  animation: thinking-dots 1.2s steps(4, end) infinite;
+  overflow: hidden;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+@keyframes thinking-shimmer { 0% { background-position: 150% 0; } 100% { background-position: -50% 0; } }
+@keyframes thinking-dots { 0% { width: 0; } 100% { width: 3ch; } }
+.chat-caret { display: inline-block; width: 7px; height: 15px; margin-left: 2px; background: var(--accent);
+  animation: caret 1.2s steps(1) infinite; vertical-align: text-bottom; }
+@keyframes caret { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+
+.chat-sources { margin-top: 14px; max-width: 560px; }
+.chat-sources-label { font-family: var(--font-mono); font-size: 10.5px; letter-spacing: 0.08em;
+  text-transform: uppercase; color: var(--text-faint); margin-bottom: 8px; }
+.chat-sources-list { display: flex; flex-direction: column; gap: 6px; }
+.chat-source-pill { display: flex; align-items: center; gap: 10px; padding: 8px 12px; width: 100%;
+  background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+  font: inherit; cursor: pointer; text-align: left; transition: border-color .15s ease, background .15s ease; }
+.chat-source-pill:hover { border-color: var(--accent); background: var(--panel-alt); }
+.chat-source-pill .dot { background: var(--accent); flex: none; }
+.chat-source-file { font-family: var(--font-mono); font-size: 12px; color: var(--text-secondary);
+  flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  /* truncate from the START so the filename (end of the path) stays visible
+     instead of a long apps\backend\docs\... prefix eating the useful part */
+  direction: rtl; text-align: left; unicode-bidi: plaintext; }
+.chat-source-lines { font-family: var(--font-mono); font-size: 11px; color: var(--text-faint); white-space: nowrap; }
+.chat-source-doc-badge { flex: none; font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--status-neutral); background: var(--status-neutral-wash);
+  border: 1px solid var(--status-neutral-border); border-radius: 999px; padding: 2px 7px; }
+.chat-sources-toggle { display: block; margin-top: 8px; background: transparent; border: 0; padding: 0;
+  font-family: var(--font-mono); font-size: 11.5px; color: var(--accent); cursor: pointer; }
+.chat-sources-toggle:hover { text-decoration: underline; }
+
+.chat-empty { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: 22px; text-align: center; padding: 40px 20px; }
+.chat-empty h1 { font-family: var(--font-head); font-weight: 800; font-size: clamp(26px, 3.4vw, 38px);
+  margin: 0; letter-spacing: -0.01em; }
+.chat-empty p { margin: 0; color: var(--text-muted); font-size: 14.5px; max-width: 52ch; }
+.chat-suggestions { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; max-width: 640px; }
+.chat-suggestion-pill { border: 1px solid var(--border); border-radius: 999px; background: transparent;
+  color: var(--text-muted); font-size: 13px; padding: 10px 16px; cursor: pointer; }
+.chat-suggestion-pill:hover { border-color: var(--accent); color: var(--text); }
+
+.chat-composer { flex: none; border-top: 1px solid var(--border); padding: 14px clamp(16px, 4vw, 48px) 22px; }
+.chat-composer-status { display: inline-flex; align-items: center; gap: 7px; border: 1px solid var(--border);
+  border-radius: 999px; padding: 5px 12px; font-family: var(--font-mono); font-size: 11.5px;
+  color: var(--text-muted); margin-bottom: 10px; }
+.chat-composer-form { display: flex; align-items: center; gap: 10px; }
+.chat-composer-form .btn-primary { flex: none; width: 42px; height: 42px; padding: 0;
+  display: flex; align-items: center; justify-content: center; border-radius: 2px; font-size: 16px; }
+
+@media (max-width: 900px) {
+  .chat-sidebar { position: fixed; left: 0; top: 0; bottom: 0; z-index: 60; width: 240px; }
+}
+
+/* --- source-click code drawer --- */
+.code-drawer-backdrop { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.35); z-index: 90;
+  animation: drawer-fade-in .2s ease both; }
+.code-drawer { position: fixed; top: 0; right: 0; bottom: 0; z-index: 91; width: min(560px, 92vw);
+  background: var(--panel-alt); border-left: 1px solid var(--border); box-shadow: -24px 0 60px rgba(0, 0, 0, 0.3);
+  display: flex; flex-direction: column; animation: drawer-slide-in .28s cubic-bezier(.2, .7, .2, 1) both; }
+@keyframes drawer-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes drawer-slide-in { from { transform: translateX(100%); } to { transform: translateX(0); } }
+
+.code-drawer-header { flex: none; display: flex; align-items: flex-start; justify-content: space-between;
+  gap: 12px; padding: 16px 18px; border-bottom: 1px solid var(--border); }
+.code-drawer-title-block { min-width: 0; }
+.code-drawer-title { font-family: var(--font-mono); font-size: 13.5px; font-weight: 600;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.code-drawer-meta { font-family: var(--font-mono); font-size: 11.5px; color: var(--text-faint); margin-top: 4px; }
+.code-drawer-close { flex: none; background: transparent; border: 0; color: var(--text-faint);
+  font-size: 22px; line-height: 1; cursor: pointer; padding: 2px 6px; }
+.code-drawer-close:hover { color: var(--text); }
+.code-drawer-body { flex: 1; min-height: 0; overflow: auto; padding: 10px 0; }
+.code-drawer-line { display: flex; }
+.code-drawer-lineno { flex: none; width: 42px; text-align: right; padding: 2px 12px 2px 0;
+  font-family: var(--font-mono); font-size: 11.5px; color: var(--text-faint); user-select: none; }
+.code-drawer-linetext { flex: 1; padding: 2px 16px 2px 4px; font-family: var(--font-mono); font-size: 12.5px;
+  color: var(--text); white-space: pre; overflow-x: auto; }
+.code-drawer-linetext.code-line-comment { color: var(--text-faint); font-style: italic; }
+
+/* skeleton loaders + full-screen loader */
+@keyframes skeleton-shimmer { 0% { background-position: 0% 0; } 100% { background-position: -135% 0; } }
+
+.skeleton-block { display: inline-block; background: linear-gradient(100deg, var(--border) 8%, var(--border-strong) 18%, var(--border) 33%);
+  background-size: 200% 100%; animation: skeleton-shimmer 1.4s ease-in-out infinite; border-radius: 3px; }
+
+.skeleton-add-repo { height: 46px; border: 1px solid var(--border); margin-bottom: 28px; background: var(--panel-alt); opacity: 0.6; }
+
+.fullscreen-loader { position: fixed; inset: 0; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 18px; background: var(--bg); z-index: 1000; }
+.fullscreen-loader-spinner { width: 34px; height: 34px; border-radius: 50%; border: 2.5px solid var(--border);
+  border-top-color: var(--accent); animation: fullscreen-spin 0.8s linear infinite; }
+.fullscreen-loader-label { font-family: var(--font-mono); font-size: 12.5px; letter-spacing: 0.06em;
+  text-transform: uppercase; color: var(--text-faint); }
+@keyframes fullscreen-spin { to { transform: rotate(360deg); } }
+
+/* inline loader for switching between existing chats — smaller than the
+   full-screen one above, sits inside the message pane instead of covering it */
+.chat-messages-loading { flex: 1; display: flex; flex-direction: column; align-items: center;
+  justify-content: center; gap: 14px; }
+.chat-messages-loading-spinner { width: 24px; height: 24px; border-radius: 50%; border: 2px solid var(--border);
+  border-top-color: var(--accent); animation: fullscreen-spin 0.8s linear infinite; }
+.chat-messages-loading-label { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.05em;
+  text-transform: uppercase; color: var(--text-faint); }

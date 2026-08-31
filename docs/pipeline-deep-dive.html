@@ -184,9 +184,12 @@
   not just skimming it. Every section explains <em>the concept first</em> (why this idea exists at all,
   in plain English, sometimes with a real-world analogy), <em>then</em> the Python mechanism used to
   implement it (dataclasses, ABCs, async/await, generators — for a reader who knows Python but hasn't
-  used these particular features much), <em>then</em> the actual SLEUTH code doing it. Companion to
-  <code>docs/plan1-walkthrough.html</code> (drier, closer to a code review) and <code>docs/progress.html</code>
-  (short build log). This one is meant to be read start to finish, once, slowly.
+  used these particular features much), <em>then</em> the actual SLEUTH code doing it. Now covers Plan 1
+  (core pipeline + CLI) <em>and</em> Plan 2 (the FastAPI + React web app), plus every real fix/feature
+  layered on since. Two focused companions now exist for a single, slower pass through each half of the
+  request lifecycle: <code>docs/how-indexing-works.html</code> (repo URL → searchable code) and
+  <code>docs/how-chat-works.html</code> (a question → a cited, streamed answer) — read those first if you
+  want the story in order; come back to this one for the deepest dive on any individual mechanism.
 </p>
 
 <nav class="toc">
@@ -211,7 +214,15 @@
     <li><a href="#p16">Part 16 — Agentic mode: the tool-use loop</a></li>
     <li><a href="#p17">Part 17 — Eval harness: measuring if any of this actually works</a></li>
     <li><a href="#p18">Part 18 — Multi-language chunking: CSS, JSX/TSX, Vue, HTML</a></li>
-    <li><a href="#p19">Closing — the full request lifecycle, end to end</a></li>
+    <li><a href="#p19">Part 19 — Closing (Plan 1): the full request lifecycle, end to end</a></li>
+    <li><a href="#p20">Part 20 — Plan 2: from CLI to a real web app (FastAPI + React)</a></li>
+    <li><a href="#p21">Part 21 — Auth: sessions, cookies, and per-user ownership</a></li>
+    <li><a href="#p22">Part 22 — Connection pools and background tasks: serving many browsers at once</a></li>
+    <li><a href="#p23">Part 23 — Streaming to a browser: Server-Sent Events</a></li>
+    <li><a href="#p24">Part 24 — Two real bugs found in production: doc-vs-code ranking &amp; retry duplication</a></li>
+    <li><a href="#p25">Part 25 — Global/architecture-question retrieval: teaching the system to zoom out</a></li>
+    <li><a href="#p26">Part 26 — The repo/chat lifecycle: retry, delete, and cascading foreign keys</a></li>
+    <li><a href="#p27">Closing (project complete) — the system as it stands today</a></li>
     <li><a href="#pq">Questions for you</a></li>
   </ol>
 </nav>
@@ -2894,7 +2905,7 @@ copy-pasted and left to drift.
 
 
 <section class="part" id="p19">
-<h2>Closing — the full request lifecycle, end to end</h2>
+<h2>Part 19 — Closing (Plan 1): the full request lifecycle, end to end</h2>
 
 <p>
 Put every part together, and here's literally everything that happens, in order, when you run:
@@ -2922,6 +2933,370 @@ sleuth ask &lt;repo_id&gt; "how does the retry logic work?"</code></pre>
 That's the whole system. Every one of those twelve steps is a plain function you can open, read start to
 finish in under a minute, and reason about without any framework magic — which was the whole point of
 building it this way.
+</p>
+
+</section>
+
+<section class="part" id="p20">
+<h2>Part 20 — Plan 2: from CLI to a real web app</h2>
+<p class="part-sub">Everything in Parts 1-19 above is still exactly true today — Plan 2 didn't replace any of it, it wrapped it.</p>
+<p class="filebar">Files: <code>sleuth/api/</code>, <code>web/</code></p>
+
+<div class="concept">
+<strong class="tag">Concept — what actually changes when a CLI becomes a web app?</strong>
+The CLI (Part 15) already does everything the core product needs: clone, chunk, embed, store, search,
+generate. A web app doesn't reinvent any of that logic — it wraps it behind an HTTP API (FastAPI) so a
+browser can trigger it, and gives it a visual surface (React) so a human doesn't have to type shell
+commands. The genuinely <em>new</em> problems a web app introduces are the ones a single-shot CLI command
+never has to think about: multiple people using the app <em>at the same time</em> (so every piece of data
+needs an <em>owner</em>), a request that has to respond <em>immediately</em> even though the real work
+takes minutes (background tasks), a browser that wants to see progress <em>live</em> instead of waiting for
+one final printout (streaming), and requests arriving concurrently that all need a database connection at
+once (pooling). Parts 21-23 below are entirely about those new problems — none of the RAG logic itself
+changed.
+</div>
+
+<p>
+Two real architectural facts worth internalizing before the deeper parts below:
+</p>
+<table class="walk">
+<tr><th>Fact</th><th>Why it matters</th></tr>
+<tr><td><code>stream_answer</code> (Part 14) is the <strong>one</strong> function both the CLI's <code>sleuth ask</code> and the web API's <code>POST /chat</code> call</td>
+    <td>Retrieval, routing (Part 25), and prompt-building logic exists in exactly one place — a bug fix or improvement made there benefits the CLI and the web app simultaneously, by construction, not by remembering to update two copies</td></tr>
+<tr><td><code>ingest_repo</code> (Part 11) is the <strong>one</strong> function both <code>sleuth add</code> and the web API's background ingest task call</td>
+    <td>Same reasoning — the entire indexing pipeline is unchanged code, just invoked from a different caller with an optional progress callback wired in</td></tr>
+</table>
+
+</section>
+
+<section class="part" id="p21">
+<h2>Part 21 — Auth: sessions, cookies, and per-user ownership</h2>
+<p class="part-sub">A CLI has one implicit user: whoever's running the terminal. A web app serving strangers over the internet needs to actually know who's asking.</p>
+<p class="filebar">Files: <code>sleuth/api/routes/auth.py</code>, <code>sleuth/api/auth/session.py</code>, <code>sleuth/store.py</code></p>
+
+<div class="concept">
+<strong class="tag">Concept — why a signed cookie, not just "remember the user server-side"?</strong>
+HTTP is <strong>stateless</strong> — every request arrives with no memory of any previous request. To know
+"this request is from the user who signed up as alice@example.com," the server needs some piece of evidence
+the browser sends back on every subsequent request. A <strong>session cookie</strong> is that evidence: a
+small piece of data the browser stores and automatically resends. The word <strong>signed</strong> is doing
+the real security work here — the cookie isn't just "the user's id in plain text" (which anyone could
+forge by typing a different id into their own cookie), it's cryptographically signed with a secret only the
+server knows, so the server can verify "this cookie's contents were genuinely produced by me, and haven't
+been tampered with," without needing a database lookup on every single request just to check session
+validity.
+</div>
+
+<pre class="code"><code>from itsdangerous import URLSafeTimedSerializer
+
+def create_session_cookie(user: dict, secret: str) -&gt; str:
+    serializer = URLSafeTimedSerializer(secret)
+    return serializer.dumps({"id": user["id"], "email": user["email"], ...})
+
+def read_session_cookie(cookie_value: str, secret: str) -&gt; dict | None:
+    serializer = URLSafeTimedSerializer(secret)
+    try:
+        return serializer.loads(cookie_value, max_age=SESSION_MAX_AGE_SECONDS)
+    except (BadSignature, SignatureExpired):
+        return None</code></pre>
+<div class="explain">
+<ul>
+  <li><code>URLSafeTimedSerializer(secret)</code> — <code>itsdangerous</code> is a small, well-audited
+      library purpose-built for exactly this: sign a small blob of data, embed an expiry timestamp, encode
+      it into a URL/cookie-safe string. <code>.dumps(...)</code> serializes the dict and signs it;
+      <code>.loads(..., max_age=...)</code> verifies the signature <em>and</em> checks it hasn't expired,
+      raising a specific exception either way if something's wrong.</li>
+  <li>A tampered cookie (anyone editing the <code>id</code> field by hand, without knowing the secret)
+      fails signature verification instantly — <code>read_session_cookie</code> returns <code>None</code>,
+      and <code>require_session</code> (the FastAPI dependency every protected route uses) turns that
+      into a 401, with zero database round trips needed to detect the forgery.</li>
+</ul>
+</div>
+
+<h4>Ownership: the fix for "any user could see any repo"</h4>
+<p>
+Every table that represents something a user "has" — <code>repos</code>, transitively <code>chats</code>
+and <code>messages</code> through it — carries a <code>user_id</code> column, and every store function that
+reads one of these rows takes an explicit <code>user_id</code> and scopes its query by it:
+</p>
+<pre class="code"><code>def get_repo(conn, repo_id: str, user_id: str | None = None) -&gt; dict | None:
+    if user_id is not None:
+        row = conn.execute(
+            "SELECT ... FROM repos WHERE id = %s AND user_id = %s", (repo_id, user_id),
+        ).fetchone()
+    else:
+        row = conn.execute("SELECT ... FROM repos WHERE id = %s", (repo_id,)).fetchone()
+    ...</code></pre>
+<div class="note">
+<strong>A real bug this fixes:</strong> <code>repos</code>/<code>chats</code>/<code>messages</code>
+initially had <em>no</em> ownership concept at all — confirmed live, two separate signups both saw the
+identical global repo list, because nothing was ever filtering by who created what. Every web route now
+passes the logged-in user's id through to <code>get_repo</code>/<code>list_repos_full</code>, and every one
+of them returns the exact same "not found" response whether a repo genuinely doesn't exist or exists but
+belongs to someone else — deliberately indistinguishable, so a caller can't use the response to probe
+whether some other user's repo id happens to be valid.
+</div>
+<p class="explain">
+<code>user_id: str | None = None</code> exists specifically because the <strong>CLI has no concept of users
+at all</strong> — <code>sleuth ask</code> just operates on whatever repo id you give it, no auth, no
+ownership. Making this parameter optional (rather than writing two entirely separate functions) is what
+lets both callers share the exact same store function.
+</p>
+
+</section>
+
+<section class="part" id="p22">
+<h2>Part 22 — Connection pools and background tasks: serving many browsers at once</h2>
+<p class="part-sub">The CLI opens one database connection and uses it once. A web server has to juggle many browsers, all at once, all wanting a connection.</p>
+<p class="filebar">Files: <code>sleuth/db.py</code>, <code>sleuth/api/main.py</code></p>
+
+<div class="concept">
+<strong class="tag">Concept — why a pool instead of "open a connection per request"?</strong>
+Opening a fresh Postgres connection is a real, relatively slow operation — a TCP handshake, TLS negotiation,
+authentication — especially against a cross-region database like Supabase in production. Doing that inside
+an <code>async def</code> route handler blocks the entire event loop for that handshake, which means every
+<em>other</em> in-flight request — even completely unrelated ones, like a different browser tab's routine
+"list my repos" poll — visibly queues up behind it. A <strong>connection pool</strong>
+(<code>psycopg_pool.ConnectionPool</code>) opens a handful of connections once, up front, and hands existing
+ones out on a fast in-process borrow — no network handshake needed per request, just picking an
+already-open connection out of a small pile.
+</div>
+
+<pre class="code"><code>def create_pool(database_url: str, *, min_size: int = 1, max_size: int = 10) -&gt; ConnectionPool:
+    return ConnectionPool(
+        conninfo=database_url, min_size=min_size, max_size=max_size,
+        kwargs={"autocommit": True}, configure=_configure_pooled_connection, open=True,
+    )</code></pre>
+<div class="explain">
+<ul>
+  <li><code>max_size=10</code> — a hard cap on how many connections this one server process will ever hold
+      open simultaneously. This number is exactly why <code>how-chat-works.html</code> Part 3 goes to the
+      trouble of releasing its retrieval connection early, mid-stream — 10 is not a large number, and a
+      handful of concurrent long-running chats holding a connection each for their entire streaming
+      duration could genuinely exhaust it.</li>
+  <li><code>autocommit=True</code> — every statement commits itself the instant it runs, rather than the
+      psycopg default of implicitly opening a transaction on the first query that then has to be explicitly
+      committed or rolled back. Before this, a read-only <code>GET</code> route that only ever queries (no
+      writes, so never calls <code>commit()</code>) still left its connection in an open transaction when
+      it went back to the pool — the pool then had to roll that transaction back before the next borrow
+      could reuse it, a second hidden network round trip on top of the original query, for every single
+      request. Measured impact against this project's actual Supabase instance: roughly 0.7-0.8s per
+      request instead of ~0.2s.</li>
+  <li><code>configure=_configure_pooled_connection</code> runs once <em>per physical connection the pool
+      opens</em> (not once per borrow) — registering pgvector's type handler and setting
+      <code>lock_timeout</code> only pays that setup cost <code>min_size</code>..<code>max_size</code>
+      times total for the whole server's lifetime, not once per HTTP request.</li>
+</ul>
+</div>
+
+<h4>Background tasks: the other half of "respond fast, work later"</h4>
+<p>
+<code>how-indexing-works.html</code> Part 2 covers FastAPI's <code>BackgroundTasks</code> in full — it's
+the mechanism that lets <code>POST /repos</code> return an instant response while the actual clone/chunk/
+embed work runs afterward, on a connection it borrows for itself from this exact pool. That document is the
+canonical reference for this mechanism; it's mentioned here only to place it in context alongside the pool
+it depends on.
+</p>
+
+</section>
+
+<section class="part" id="p23">
+<h2>Part 23 — Streaming to a browser: Server-Sent Events</h2>
+<p class="part-sub">The CLI prints tokens to a terminal as they arrive — trivial, since the terminal and the generator loop are the same process. Getting that same live feeling across a real network connection needs an actual protocol.</p>
+<p class="filebar">Files: <code>sleuth/api/routes/chat.py</code>, <code>web/src/api.js</code></p>
+
+<p>
+This entire mechanism — the wire format, the newline-in-a-token bug and its fix, and how the browser
+reconstructs the stream byte-by-byte — has its own full, dedicated treatment in
+<code>docs/how-chat-works.html</code> Parts 2 and 10. Rather than duplicate that explanation here, the
+short version: FastAPI's route returns a <code>StreamingResponse</code> wrapping an async generator; each
+token gets wrapped in a tiny SSE-formatted frame (<code>_sse_frame</code>) and <code>yield</code>ed the
+instant it's produced by the LLM; the browser reads the HTTP response as a byte stream via
+<code>res.body.getReader()</code> and reassembles frames as they arrive. If you want the full walkthrough —
+including the real production bug where an embedded newline inside a token silently truncated an SSE field
+— read <code>how-chat-works.html</code> next; this part exists purely to place streaming in context among
+the other web-app-specific concerns (auth, pooling, background tasks) covered in this section of the
+document.
+</p>
+
+</section>
+
+<section class="part" id="p24">
+<h2>Part 24 — Two real bugs found in production: doc-vs-code ranking &amp; retry duplication</h2>
+<p class="part-sub">Both fixed. Both are exactly the kind of bug that only shows up once real users start actually using the thing.</p>
+<p class="filebar">Files: <code>sleuth/chunking.py</code>, <code>sleuth/retrieve/search.py</code>, <code>sleuth/api/routes/repos.py</code></p>
+
+<h3>Bug 1: documentation crowding out real code</h3>
+<div class="warn">
+<strong>What happened:</strong> asking an architecture-flavored question against a repo containing both
+real source <em>and</em> hand-written architecture write-ups under a <code>docs/</code> directory (e.g.
+<code>docs/recruiter-authentication.html</code> — a genuine, parseable HTML file, chunked and embedded
+exactly like real source) returned <em>only</em> documentation excerpts. The model correctly said it had no
+actual source code to cite — because none was ever retrieved into its context at all.
+</div>
+<p class="explain">
+Root cause: prose <em>about</em> an architecture question can score a <strong>closer</strong> cosine match
+against that same question than the real implementation does — a write-up literally titled "how
+authentication works," phrased conversationally, can be semantically nearer to "how does auth work?" than
+the terse, jargon-dense actual code implementing it. Plain <code>ORDER BY distance</code> has no way to
+distinguish "real code" from "documentation about the code" — it just returns whichever wins on raw
+geometric distance. The fix touched four layers, each closing a different part of the gap: a new
+<code>Chunk.is_doc</code> property (true for anything under a <code>docs</code>/<code>doc</code>/
+<code>documentation</code> directory at any depth), a new <code>is_doc boolean</code> column persisted
+alongside every chunk, <code>search_chunks</code>'s <code>ORDER BY is_doc, distance</code> ranking real code
+strictly ahead of documentation (falling back to docs only once every code chunk is exhausted, so a
+genuinely doc-only question still gets answered), and an explicit <code>[CODE]</code>/<code>[DOCUMENTATION]</code>
+label on every excerpt in the prompt itself, with the system prompt telling the model to prefer citing code.
+Full code-level walkthrough: <code>docs/how-chat-works.html</code> Part 5.
+</p>
+
+<h3>Bug 2: retrying a failed index silently duplicated the repo</h3>
+<div class="warn">
+<strong>What happened:</strong> retrying a failed index used to just call <code>POST /repos</code> again
+with the exact same URL — and since <code>create_repo</code> has no uniqueness constraint on
+<code>github_url</code> (deliberately: nothing should stop two different users, or the same user twice,
+from legitimately indexing the same public repo), every retry silently inserted a <em>second</em>, brand-new
+repo row. The originally failed row just sat there forever, un-retried, un-watched, while a duplicate entry
+for the same repo piled up in the list on every subsequent attempt.
+</div>
+<p class="explain">
+The fix: a dedicated <code>POST /repos/{repo_id}/retry</code> endpoint that always operates on the
+<em>existing</em> row (looked up by the id in the URL path, its <code>github_url</code> read back from that
+same row rather than trusted from the client), resetting its status and re-running the identical background
+ingest task against that one row. There is no code path in this endpoint capable of creating a second row
+for the same repo — the fix closes the ambiguity structurally rather than bolting a workaround onto the old
+endpoint. Full code-level walkthrough: <code>docs/how-indexing-works.html</code> Part 12.
+</p>
+
+</section>
+
+<section class="part" id="p25">
+<h2>Part 25 — Global/architecture-question retrieval: teaching the system to zoom out</h2>
+<p class="part-sub">Vector search finds fragments. Some questions need the whole picture.</p>
+<p class="filebar">Files: <code>sleuth/summarize.py</code>, <code>sleuth/retrieve/routing.py</code>, <code>sleuth/retrieve/answer.py</code></p>
+
+<div class="concept">
+<strong class="tag">Concept — why "rate my architecture" is structurally a different kind of question</strong>
+Every part of retrieval covered so far (Parts 10, 12, and <code>how-chat-works.html</code> Parts 4-5) is
+built around finding the <em>k</em> chunks nearest to a question. That's exactly the right tool for "where
+is X implemented" — the nearest chunk really is a good answer. But there is no single chunk, or any
+top-8 set of chunks, that <em>is</em> a good answer to "summarize this whole project" — broad questions need
+synthesis across most of the repo, not 8 arbitrary nearest neighbors. This was a real, reported production
+gap, closed with the smallest fix that actually addresses it: give the system one new artifact that
+<em>does</em> describe the whole repo, and a cheap way to know when to reach for it.
+</div>
+
+<p>
+The mechanism is genuinely small — one new table, one new prompt, one regex. Full line-by-line treatment,
+including the deliberate "flat metadata listing instead of a full hierarchical summarization pass" scoping
+decision and its trade-offs, lives in <code>docs/how-indexing-works.html</code> Part 10 (the write side —
+generating and storing the summary during ingestion) and <code>docs/how-chat-works.html</code> Part 6 (the
+read side — the keyword classifier that decides when to use it). The short version, for context alongside
+everything else in this master document:
+</p>
+<table class="walk">
+<tr><th>Piece</th><th>What it does</th></tr>
+<tr><td><code>repo_summaries</code> table</td><td>One row per repo — an LLM-written architecture summary, generated once per (re-)index from a cheap file/symbol/kind listing, not full source text</td></tr>
+<tr><td><code>classify_question(question)</code></td><td>A plain keyword regex (no LLM call) tagging a question <code>"local"</code> or <code>"global"</code> — both possible mistakes are harmless, so a free heuristic beats spending a model call classifying every question</td></tr>
+<tr><td><code>build_prompt(..., summary=...)</code></td><td>For a <code>"global"</code> question, the stored summary is prepended to the prompt, clearly labeled, ahead of the normal top-8 excerpts</td></tr>
+</table>
+<p class="explain">
+Notice the pattern: this is the third time this document has shown "add one clearly-labeled block to the
+prompt, plus a cheap classifier to decide when it applies" as the fix for a retrieval gap (doc-vs-code
+labeling in Part 24 was the same shape of fix). That's not a coincidence — it's the natural shape of fixing
+"the model doesn't have the right context" problems in a system built around one shared
+<code>build_prompt</code> function: extend what goes into the prompt, gate it behind a cheap decision, and
+every caller (CLI and web app alike) benefits automatically, exactly the "one shared function, many
+callers" principle from Part 20.
+</p>
+
+</section>
+
+<section class="part" id="p26">
+<h2>Part 26 — The repo/chat lifecycle: retry, delete, and cascading foreign keys</h2>
+<p class="part-sub">A repo isn't just created and left alone forever — it can fail, get retried, or get deleted, and a chat can be deleted independently of its repo.</p>
+<p class="filebar">Files: <code>sleuth/store.py</code>, <code>schema.sql</code>, <code>sleuth/api/routes/repos.py</code>, <code>sleuth/api/routes/chat.py</code></p>
+
+<div class="concept">
+<strong class="tag">Concept — cascading deletes: letting the database enforce its own consistency</strong>
+Once <code>chunks</code>, <code>repo_summaries</code>, and <code>chats</code> all reference
+<code>repos.id</code> via a foreign key, a real question arises: what should happen to a repo's chunks and
+conversations when the repo itself is deleted? The naive answer is application code that remembers to
+manually <code>DELETE FROM chunks WHERE repo_id = ...</code>, then <code>DELETE FROM chats WHERE
+repo_id = ...</code>, then <code>DELETE FROM messages WHERE chat_id IN (...)</code>, in the right order,
+every single place a repo might ever get deleted from. <code>ON DELETE CASCADE</code> moves that
+responsibility into the schema itself — declared once, on the foreign key, it becomes structurally
+impossible to forget: Postgres guarantees it, atomically, no matter which code path triggers the delete.
+</div>
+
+<pre class="code"><code>CREATE TABLE IF NOT EXISTS chunks (
+    ..., repo_id uuid NOT NULL REFERENCES repos(id) ON DELETE CASCADE, ...
+);
+CREATE TABLE IF NOT EXISTS repo_summaries (
+    repo_id uuid PRIMARY KEY REFERENCES repos(id) ON DELETE CASCADE, ...
+);
+CREATE TABLE IF NOT EXISTS chats (
+    ..., repo_id uuid NOT NULL REFERENCES repos(id) ON DELETE CASCADE, ...
+);
+CREATE TABLE IF NOT EXISTS messages (
+    ..., chat_id uuid NOT NULL REFERENCES chats(id) ON DELETE CASCADE, ...
+);
+
+def delete_repo(conn, repo_id: str) -&gt; None:
+    conn.execute("DELETE FROM repos WHERE id = %s", (repo_id,))</code></pre>
+<p class="explain">
+One <code>DELETE FROM repos</code> statement is enough to remove the repo's chunks, its stored architecture
+summary, every chat about it, and (transitively, since <code>messages</code> cascades off <code>chats</code>
+which cascades off <code>repos</code>) every message in every one of those chats — all in one atomic
+operation. <code>delete_chat</code> is the same one-line pattern at a smaller scope: deleting a single chat
+row takes its messages with it, without touching the repo it belonged to at all.
+</p>
+<div class="note">
+<strong>Why this is a hard delete with no undo:</strong> the (not-yet-built) Repo Settings screen's own
+design copy already frames disconnecting a repo as destructive — "its index is deleted and past
+conversations about it become read-only" — so a hard cascading delete matches the feature's intended
+semantics, rather than adding a soft-delete/undo layer nothing in the design ever called for. The frontend
+gates both repo and chat deletion behind an inline click-to-confirm precisely because there's no way back.
+</div>
+
+<p>
+Retry (covered fully in Part 24 above and <code>how-indexing-works.html</code> Part 12) is the other
+lifecycle event worth internalizing here: it reuses the exact same <code>_run_ingest</code> background task
+that a fresh <code>POST /repos</code> uses, just pointed at an existing row instead of a new one — one more
+example of this codebase preferring "reuse the same function with different inputs" over writing a parallel
+implementation for a closely related case.
+</p>
+
+</section>
+
+<section class="part" id="p27">
+<h2>Closing (project complete) — the system as it stands today</h2>
+
+<p>
+Both Plan 1 (core pipeline + CLI, 14 tasks) and Plan 2 (FastAPI + React web app, 13 tasks) are done, plus
+three rounds of real production fixes and additions layered on top: doc-vs-code retrieval ranking,
+global/architecture-question retrieval, and the repo/chat lifecycle work (retry-without-duplication,
+cascading delete, a chat picker that only shows usable repos). Nothing described in Parts 1-19 above
+changed to make any of that possible — every later addition slotted into the same shared functions
+(<code>ingest_repo</code>, <code>stream_answer</code>, <code>build_prompt</code>) the original 14-task plan
+already established, which is exactly the payoff of building those functions as single, well-defined
+seams in the first place.
+</p>
+
+<p>
+Two companion documents now exist alongside this one, and are genuinely the better starting point if you
+want the full step-by-step story of either half of the system rather than this document's exhaustive,
+concept-plus-mechanism-plus-code treatment of every individual piece:
+</p>
+<table class="walk">
+<tr><th>Document</th><th>What it covers</th></tr>
+<tr><td><code>docs/how-indexing-works.html</code></td><td>Everything that happens between pasting a GitHub URL and a repo reaching <code>status = "ready"</code> — clone, parse, chunk, hash, embed, store, summarize, plus failure/retry/delete</td></tr>
+<tr><td><code>docs/how-chat-works.html</code></td><td>Everything that happens between pressing Enter on a question and a cited answer finishing on screen — embed, search, route, prompt, generate, stream, persist</td></tr>
+</table>
+<p>
+This document remains the place for the deepest dive on the underlying Python/Postgres/tree-sitter
+mechanics (Parts 1-9) and the multi-language chunking internals (Parts 15-18) that the other two documents
+deliberately don't re-explain in full each time they reference them.
 </p>
 
 </section>
@@ -2956,17 +3331,23 @@ building it this way.
   (Part 16) — leave it flagged, or fix it together as practice?
 </div>
 <div class="question">
-  <strong>8.</strong> Overall: after a first read-through, is this the right depth/pacing, or should future
-  additions (e.g. once Plan 2 — FastAPI + React — starts) go deeper, lighter, or stay about the same?
+  <strong>8.</strong> Now that Plan 1 + Plan 2 + the three post-launch feature rounds (Parts 20-26) are
+  all done — is this depth/pacing still right, or would future additions (e.g. the call-graph structural
+  index that's drafted but unstarted) be better served as their own fourth companion doc rather than more
+  parts bolted onto this one, now that it's genuinely long?
 </div>
 </section>
 
 <footer class="closing">
 <h2>What's next</h2>
 <p>
-This covers all 14 tasks of Plan 1 at the code level. When Plan 2 (the FastAPI + React web app) starts,
-the natural move is a new set of parts appended here (or a fresh sibling doc) covering the API layer and
-frontend state management with the same treatment — concept, then Python/JS mechanism, then actual code.
+This now covers the entire system as it stands: all 14 tasks of Plan 1, all 13 tasks of Plan 2, and every
+real production fix/feature layered on afterward (doc-vs-code ranking, global/architecture retrieval,
+repo/chat lifecycle). Two companion documents — <code>docs/how-indexing-works.html</code> and
+<code>docs/how-chat-works.html</code> — now exist specifically for a slower, single-pass walk through each
+half of the request lifecycle; this document remains the exhaustive reference for the underlying mechanics
+(Parts 1-9) and the full multi-language chunking internals (Parts 15-18) both companions lean on without
+re-explaining.
 </p>
 <p>
 Read through it, then come back with whatever's fuzzy — including anything not explicitly flagged as a

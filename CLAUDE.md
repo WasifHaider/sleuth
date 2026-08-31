@@ -15,7 +15,7 @@ Implementation plan (14 tasks, TDD, real code per step): `docs/superpowers/plans
 their own Tasks 13-14) and checked against v2 design for pluggable providers.
 
 Plan 1 (below) is core pipeline + CLI only, **done** (all 14 tasks). Plan 2
-(FastAPI + React web app) is now **in progress** — plan doc:
+(FastAPI + React web app) is now **done** (all 13 tasks, Task 0-12) — plan doc:
 `docs/superpowers/plans/2026-08-19-rag-web-app-fastapi-react.md`. See
 "Progress — Plan 2" below.
 
@@ -77,9 +77,133 @@ Plan doc: `docs/superpowers/plans/2026-08-19-rag-web-app-fastapi-react.md` (13 t
 - **Task 4 (chat SSE streaming endpoint)**: done. `stream_answer(..., on_sources=None)` — optional callback fired once with the retrieved `SearchResult` list before generation starts. `POST /chat` (`sleuth/api/routes/chat.py`) persists the user question, streams `event: sources` → per-token `data:` → `event: done` over SSE, then persists the assembled answer + sources. `tests/test_answer.py`, `tests/test_api_chat.py`. Caught and fixed a real bug: `main.py`'s `attach_conn` middleware closes the per-request DB connection in `finally` right after `call_next` returns, but a `StreamingResponse` body generator runs *after* that point — same connection-lifetime class of bug as Task 2's background task. Fixed by having `event_stream()` open and close its own connection, independent of the middleware's.
 - **Task 5 (Vite scaffold + design tokens + routing shell)**: done. `web/` — Vite + React 19 + `react-router-dom` v7. `web/src/theme.css` (design system as CSS custom properties, `storm` theme only for now), `web/src/api.js` (`apiGet`/`apiPost`/`logout`, all with `credentials: 'include'` for the session cookie), `web/src/App.jsx` (route shell: bare `/` landing, `/app/*` nested under `AppShell`), `NavRail`/`AppShell` components, stub screens for Repos/Chat/Indexing/Settings (real content lands Tasks 6-11). Fixed two real gaps in the plan doc: `api.js`'s draft never defined `logout`, which `NavRail.jsx` imports (would have failed at build); and the draft's fetch calls didn't set `credentials: 'include'`, which would have silently broken every authenticated call once the frontend actually talks to the API (session cookie is same-site but cross-origin, needs explicit credentials). Verified `npm run build` (clean) and `npm run dev` serving valid HTML at `/` and `/app/repos` via curl — could **not** get a real rendered-browser check working (Playwright's Chromium needs shared libs this WSL sandbox doesn't have and installing them needs `sudo`, unavailable here) — worth a real click-through from an environment with a working browser before Task 6 builds on top.
 - **Task 6 (login screen + auth-aware routing)**: done, **rebuilt from scratch against real backend** — plan doc's Task 6 draft targets the abandoned GitHub OAuth + email magic-link design. `web/src/components/LoginPage.jsx` (new) is a single login/signup-toggle form calling real `login`/`signup` (`POST /auth/login` / `POST /auth/signup`). `web/src/App.jsx` gained `RequireAuth` (calls `GET /me` on mount, redirects to `/login` on 401) wrapping the `/app` route tree. `web/src/api.js` gained `getMe`/`updateMe`/`login`/`signup` plus a new `apiPatch` helper. Verified by running the real `uvicorn` backend + Vite dev server together and driving the exact cookie/CORS sequence the React code makes via `curl` (signup → cookie set → `/me` ok → logout → `/me` 401 → login → cookie re-set) — confirms the wire contract; still no rendered-browser check (Playwright/Chromium blocked on missing shared libs + no `sudo` in this WSL sandbox, same as Task 5).
-- **Tasks 7-12** (landing/repos/indexing/chat screens, theme switcher, polish): not started yet.
-- Not yet run in this session: could not execute `pytest tests/test_api_auth.py tests/test_api_repos.py` end-to-end here — native-Windows Python (`.venv-win`) couldn't reach the Docker Postgres container on `localhost:5433` (connection timeout from PowerShell/`.venv-win`, but reachable from a Windows-side `python3` stub run through the Bash tool) — looks like a host-networking quirk specific to this check, not a code defect; verified Task 0/1 by reading code + `docs/progress.html` + `schema.sql` instead. Worth a clean re-run before Task 2.
+- **Task 7 (landing page)**: done, rebuilt against the real design source `docs/design/Sleuth Landing.dc.html` (found and added to `docs/design/` this task) after an initial pass without it — ported hero animation, copy, layout exactly; fixed a node/line desync bug in the background animation plus oversized `clamp()` text and grid overflow at narrow widths. `web/src/components/LandingPage.jsx`, `web/src/theme.css` (landing rule set). See `docs/progress.html` for the full writeup (including the two follow-up responsiveness fixes).
+- **Task 8 (Repos screen, real data)**: done. `web/src/components/RepoList.jsx`/`AddRepoForm.jsx`/`RepoStatusBadge.jsx`, `api.js` (`listRepos`/`addRepo`). Ported `docs/design/Sleuth Dashboard.dc.html` but dropped mockup-only fields the real `repos` row doesn't have (branch, file/symbol counts, commit SHA) and the OAuth "connect" wizard (Task 0 already dropped GitHub OAuth) — just a URL field posting straight to `POST /repos`. Also fixed a real WSL environment gap: `web/node_modules` only had the Windows `@rolldown` native binding since every prior `npm install` ran from Windows-side tooling; reinstalled from WSL.
+- **Task 9 (Indexing screen, real data)**: done. `web/src/components/IndexingScreen.jsx`, `api.js` (`getRepo`/`getProgress`). Ported `docs/design/Sleuth Indexing Status.dc.html`'s 5-stage tracker but swapped the mockup's Clone/Parse/**Relate**/Embed/Index steps (Relate = not-yet-built call-graph feature) for the pipeline's real Clone/Parse/Chunk/Embed/Store events. Caught and fixed a real bug live: `ingest_repo` ignored the `repo_id` the API route already had and re-derived one via a bare `SELECT ... WHERE github_url = %s` lookup with no uniqueness guarantee — a retry (or any duplicate URL) could update the *wrong* row, leaving the polled row stuck at `pending` forever. Fixed by threading an optional `repo_id` kwarg through `ingest_repo` that skips the lookup when the caller already knows the row.
+- **Task 10 (Chat screen, real data)**: done. `web/src/components/ChatScreen.jsx`/`ChatSidebar.jsx`/`MessageList.jsx`/`Composer.jsx`, `api.js` (`listChats`/`createChat`/`getMessages`/`streamChat`). Ported `docs/design/Sleuth Chat.dc.html` but dropped the mockup's inline citation pills + slide-out code panel — the real `/chat` SSE contract has no code text or in-answer citation markers, only a flat `sources[]` array, so sources render as plain cards under the answer. Caught and fixed a real bug in Task 4's SSE framing: a streamed token can contain a raw `"\n"` (normal tokenizer behavior around code blocks), but `event_stream()` did `yield f"data: {token}\n\n"` — since an SSE `data:` field can't carry an embedded newline on one line, that newline silently truncated the field and dropped everything after it in that token, with no error. Fixed with a `_sse_frame()` helper that splits multi-line data across repeated `data:` lines per spec, plus a matching frontend fix in `streamChat` to rejoin them. Verified byte-for-byte against a real captured SSE response (reassembled text matched the Postgres-persisted message exactly).
+- **Task 11 (theme switcher, account menu)**: done. `web/src/theme.css` gained real `[data-theme="midnight"|"edition"|"leaf"|"ivory"]` blocks (exact hex/rgba ported from `docs/design/Sleuth Rail.dc.html`, which also turned out to define the exact per-theme `--warn`/`--warnBg`/`--warnBorder` triplet Task 8 had eyeballed for storm as `--status-neutral*` — confirmed correct). `--accent-hover`/`--text-secondary` (not real design tokens) collapsed to single global `color-mix()` rules derived from `--accent`/`--text` instead of 5 more guessed hex values; `--status-ready(-wash)` collapsed to a `:root` alias of `--accent`/`--accent-wash` since every source file's own pill markup already renders that way. `NavRail.jsx` rewritten with an avatar/account-menu button (theme swatch row + logout); `AppShell.jsx` now loads `theme_preference` via `GET /me` on mount and syncs it to `document.documentElement.dataset.theme`, so the existing CSS-custom-property components re-theme with zero per-component changes. Verified the `GET /me` → `PATCH /me` → `GET /me` persistence round-trip against the real backend.
+- **Task 12 (polish: error states + README)**: done. `web/src/components/RepoList.jsx` — failed repos now render a `.repo-error-banner` (real `error_message`, `var(--status-neutral)` on `var(--status-neutral-wash)`, spans the full row via `grid-column: 1 / -1`) plus a "Retry" action link to the Indexing screen (previously failed rows had no action at all). `ChatScreen.jsx`/`ChatSidebar.jsx` — the repo picker now shows *all* repos, not just `ready` ones (previously non-ready repos were silently absent from the list); non-ready pills are disabled with a `title` tooltip naming the actual status (queued/indexing/failed). Top-level `README.md` (new). Caught and fixed a real theme bug while in `theme.css` for the disabled-pill styling: 4 hover/background rules (`chat-repo-pill`, `chat-history-item` ×2, `chat-source-pill`) used hardcoded `rgba(255,255,255,...)` overlays — correct direction for the 3 dark themes, backwards (near-invisible) on `leaf`/`ivory`, undermining Task 11's "whole app re-themes correctly" claim for exactly the 2 light themes. Fixed by switching all 4 to `var(--panel)`, matching the theme-aware hover convention already used elsewhere in the same file (`.navitem:hover`). Verified live: deliberately indexed `https://github.com/does-not-exist/nope-12345`, confirmed it settles on `failed` (not stuck indexing) with the real git clone stderr in `error_message`, matching exactly what the new banner renders.
+- **All 13 tasks of Plan 2 done.** Full suite green: 127/127 passing as of last check. `npm run build` clean.
+- **Not yet run in this session**: could not execute `pytest tests/test_api_auth.py tests/test_api_repos.py` end-to-end here — native-Windows Python (`.venv-win`) couldn't reach the Docker Postgres container on `localhost:5433` (connection timeout from PowerShell/`.venv-win`, but reachable from a Windows-side `python3` stub run through the Bash tool) — looks like a host-networking quirk specific to this check, not a code defect; verified Task 0/1 by reading code + `docs/progress.html` + `schema.sql` instead. Worth a clean re-run before Task 2.
 - Also present, not part of Plan 2, not started: `docs/superpowers/specs/2026-08-24-call-graph-extraction-design.md` + matching plan `docs/superpowers/plans/2026-08-24-call-graph-extraction.md` — a separate future feature, added same day as the auth simplification, no code written against it yet.
+
+## Doc-vs-code retrieval fix (2026-08-29)
+
+Real bug found in production use (not from the plan): asking an
+architecture-flavored question against a repo that has both real source AND
+hand-written architecture write-ups under a `docs/` directory (e.g.
+`docs/recruiter-authentication.html`) returned ONLY the documentation
+excerpts — the LLM correctly reported it had no source code to cite,
+because none was ever in its context. Root cause: those write-ups are real,
+parseable `.html` files, so the ingest pipeline chunked/embedded them
+exactly like genuine templates, and prose ABOUT an architecture question
+can score a **closer** cosine match than the actual implementation against
+that same question — `search_chunks` had no way to tell "real code" and
+"documentation about the code" apart, so it just returned whichever won on
+raw distance.
+
+Fixed end-to-end, not just prompt-level: `sleuth/chunking.py` gained
+`is_doc_path()`/`Chunk.is_doc` (true for any file under a `docs`/`doc`/
+`documentation` directory at any depth, any extension). `schema.sql`'s
+`chunks` table gained an `is_doc boolean NOT NULL DEFAULT false` column;
+`store.py::upsert_chunks` persists it. `search.py::search_chunks` gained
+`prefer_code: bool = True` — orders real code strictly ahead of
+documentation (`ORDER BY is_doc, distance`), falling back to docs only once
+every code chunk is exhausted, so a genuinely doc-only question still gets
+an answer. `SearchResult` gained `is_doc`. `answer.py`'s prompt now labels
+every excerpt `[CODE]`/`[DOCUMENTATION]` and the system prompt explicitly
+tells the LLM to prefer and cite code over documentation — belt-and-braces
+with the ranking change, since a labeled-but-unranked doc chunk could still
+crowd out real code from a bounded top-k. `api/routes/chat.py` forwards
+`is_doc` in each source dict; `MessageList.jsx` renders a small "docs"
+badge on doc-sourced pills so the UI itself shows which excerpts are prose
+vs. real code. Covered by new tests: `test_chunking.py` (path detection,
+Windows separators, the `Chunk.is_doc` property),
+`test_search.py::test_search_ranks_code_ahead_of_docs_even_when_docs_are_closer`
+(constructs embeddings where the doc chunk is the closer match on purpose,
+asserts code still ranks first) + a `prefer_code=False` fallback test,
+`test_answer.py::test_build_prompt_labels_doc_vs_code_excerpts`. Full suite:
+116/116 passing (the pre-existing 21 API/db-lock failures noted above are
+unrelated environment issues, not regressions from this change).
+
+**Caveat**: `is_doc` is only ever correct as of the ingest run that computed
+it — an already-indexed repo's existing chunk rows default to `is_doc =
+false` until that repo is re-indexed (Retry indexing from the UI, or `sleuth
+add` against the same URL again from the CLI).
+
+## Global/architecture-question retrieval, Phase 1+2+5 (2026-08-30)
+
+Implements the recommended first slice of
+`docs/superpowers/plans/2026-08-29-global-architecture-question-retrieval.md`
+(6-phase plan addressing SLEUTH's chatbot being structurally unable to
+answer broad questions like "rate my architecture" or "summarize the whole
+project" — plain top-k vector search only finds fragments, never an
+artifact that IS an answer to a whole-repo question). Detailed
+implementation plan: `.hermes/plans/2026-08-30-global-architecture-retrieval-phase1-2-5.md`.
+
+Built: `schema.sql` gained a `repo_summaries` table (one row per repo).
+`sleuth/summarize.py` (new) builds a cheap "repo map" — file path/kind/
+symbol for every non-doc chunk, not full source text — and sends it to the
+existing Groq/NIM `Generator` in one call during ingest
+(`sleuth/ingest/pipeline.py`, right after chunking); deliberately
+non-fatal (its own try/except, failure just skips storing a summary and
+emits `summary_failed`, never fails the whole repo). `sleuth/retrieve/
+routing.py` (new) — `classify_question`, a pure keyword regex (no LLM
+call, by design — false positive/negative are both harmless) tagging a
+question `local` vs `global`. `sleuth/retrieve/answer.py::stream_answer`
+(the one place both CLI and API funnel through) routes `global` questions
+to prepend the stored summary, labeled `REPO SUMMARY`, ahead of the normal
+top-k excerpts; `local` questions are untouched. No API/frontend changes
+needed — `build_prompt`'s new `summary` param defaults to `None`.
+
+Deliberately narrower than the source plan's Phase 1 wording (a single flat
+repo-map summary, not a hierarchical per-directory→module→repo pass) —
+confirmed as an acceptable simplification given a flat listing already
+fixes the reported failure case, revisit as "Phase 1b" only if a repo's
+own file/symbol listing gets too large for one prompt. Phases 3
+(agentic global mode, `list_directory_tree` tool, batch map-reduce "deep
+analysis"), 4 (call-graph structural index — separate plan/design docs,
+untouched), and 6 (UI signal that global mode ran) are explicitly out of
+scope for this pass. Task 8 (eval harness coverage, source plan's Phase 5)
+deferred pending a scope decision: `sleuth/eval/runner.py::run_eval` calls
+`build_prompt` directly today, not `stream_answer`, so Task 6's routing
+doesn't automatically reach it.
+
+Full suite: 134 passed, 21 failed (all 21 are the pre-existing `TestClient`
+lifespan gap + `test_db.py` lock-timeout test, both already known, no new
+regressions from this change).
+
+## Repo/chat deletion, no-duplicate-retry, ready-only chat picker (2026-08-30)
+
+Three user-reported gaps closed: (1) retrying a failed index used to call
+`POST /repos` again with the same URL, and since `create_repo` has no
+uniqueness constraint on `github_url`, this silently created a duplicate
+repo row on every retry — fixed with a dedicated `POST /repos/{id}/retry`
+that re-ingests the existing row (`sleuth/api/routes/repos.py`). (2) Repos
+and chats can now be deleted (`DELETE /repos/{id}`, `DELETE /chats/{id}`,
+`sleuth/store.py::delete_repo`/`delete_chat`) — deleting a repo cascades to
+its chunks/summary/chats/messages via schema.sql's existing `ON DELETE
+CASCADE` chain. Frontend: Delete action on Repos screen rows and a trash
+icon per chat history item, both behind inline click-to-confirm. (3) The
+chat repo picker (`ChatSidebar.jsx`) now only lists `status = 'ready'`
+repos instead of showing every repo with non-ready ones merely disabled.
+
+While verifying this, found and fixed a real pre-existing bug: every test
+in `test_api_auth.py`/`test_api_repos.py`/`test_api_chat.py` constructed
+`TestClient(create_app(...))` without entering it as a context manager, so
+FastAPI's `lifespan` (which sets up `app.state.pool`) never ran and every
+route hit `AttributeError: 'State' object has no attribute 'pool'` — this
+was the whole "21 known pre-existing failures" from the previous session,
+not actually investigated until now. Fixed by calling `client.__enter__()`
+in each file's client-building helper. That then surfaced a second,
+previously-masked bug: several chat tests created their repo directly via
+`create_repo(pg_conn, url)` with no `user_id`, so the session-scoped
+`/chats` route correctly 404'd it (ownership-scoping working as designed)
+— fixed by creating those repos under the logged-in test user. Also fixed
+`test_db.py`'s lock-timeout test (bare `LOCK TABLE` on an autocommit
+connection needs an explicit `BEGIN` first). Full suite is now **164
+passed, 0 failed** — every test in the suite actually runs and passes for
+the first time.
 
 ## Environment notes
 

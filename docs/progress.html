@@ -802,6 +802,171 @@ tests/test_api_chat.py::test_post_chat_rejects_unknown_chat PASSED
     <p>Full backend suite: 127/127 passing after the fix. <code>npm run build</code> clean (35 modules). Ran the real backend + frontend dev server together and drove the exact polling <code>IndexingScreen.jsx</code> does: added a real tiny GitHub repo (<code>octocat/Spoon-Knife</code>) and watched <code>GET /repos/{id}/progress</code> move through every real event name in order, ending at <code>ready</code> with genuine counters (2 files, 8 chunks, 8 upserted, 0 skipped) — hand-traced the component's per-step counter logic against that exact captured JSON and caught a second bug before it shipped: the terminal <code>ready</code> log entry (bucketed under "Store" alongside <code>stored</code>) carries no <code>upserted</code>/<code>skipped_unchanged</code> fields, so a naive "last event per bucket wins" reducer would blank out the Store step's counters the moment indexing actually finished. Fixed by only letting a bucket's tracked entry be overwritten by a later one that actually carries detail fields, re-verified against the same captured payload by hand. Also drove the real failure + retry path via curl (bad URL, confirm <code>failed</code> + real git stderr in <code>error_message</code>, repost, confirm the second row updates correctly instead of sticking at <code>pending</code>). No rendered-browser screenshot (same sandbox gap as every prior frontend task).</p>
   </section>
 
+  <section class="task">
+    <div class="task-header">
+      <h2>Plan 2 — Task 10 — Chat screen (real data)</h2>
+      <span class="status">done</span>
+    </div>
+    <div class="files">
+      <code>web/src/components/ChatScreen.jsx</code>, <code>ChatSidebar.jsx</code>, <code>MessageList.jsx</code>, <code>Composer.jsx</code> (new) · <code>web/src/api.js</code> (<code>listChats</code>, <code>createChat</code>, <code>getMessages</code>, <code>streamChat</code>) · <code>web/src/theme.css</code> (chat-screen rule set) · <code>sleuth/api/routes/chat.py</code> (real bug fix, see below)
+    </div>
+
+    <h3>What it does</h3>
+    <p><code>/app/chat/:repoId</code> is the actual chat UI: a left rail lists ready repos as pills and that repo's chat history (<code>GET /chats?repo_id=</code>), "New chat" creates one (<code>POST /chats</code>), picking a chat loads its history (<code>GET /chats/{id}/messages</code>). Sending a question streams the answer token-by-token from <code>POST /chat</code>'s SSE endpoint — a "searching the repository…" indicator shows until the first token, then tokens append live into the assistant bubble with a blinking caret, then a sources list (file path, symbol, line range) appears once the stream's <code>sources</code> event lands. An empty chat shows three canned suggestion questions the user can click straight into <code>handleSend</code>.</p>
+
+    <h3>Why it's built this way</h3>
+    <p>Ported the real design source, <code>docs/design/Sleuth Chat.dc.html</code> — repo-switcher rail, chat history list, message bubbles, composer with the repo status pill — but dropped the mockup's inline citation pills woven into the answer text and the right-side slide-out code panel. Both assume the generator emits citation markers inline in its output and that the app can show real file content for a click; the actual <code>/chat</code> SSE contract (Task 4) returns plain generated text plus one flat <code>sources[]</code> array with no code text attached, so there's nothing to weave inline and nothing to show in a code panel without fabricating it. Sources render as plain cards under the answer instead — same "port the visual language, never invent a field the backend can't produce" rule Tasks 8 and 9 already established for the Dashboard and Indexing Status mockups.</p>
+
+    <h3>A real bug found and fixed: streamed newlines were silently dropped</h3>
+    <p>Manually driving the real <code>/chat</code> endpoint (see Verification) to check the wire format, a question that produced a fenced code block came back with the code block's line breaks missing — everything collapsed onto fewer lines than the model actually generated. Root cause is in Task 4's <code>event_stream()</code>: individual streamed tokens can contain a raw <code>"\n"</code> (a tokenizer emitting <code>" {\n"</code> as one piece is normal), and the code just did <code>yield f"data: {token}\n\n"</code>. Per the SSE spec a <code>data:</code> field ends at the first line break — it can't carry an embedded newline on one line, only as multiple repeated <code>data:</code> lines — so that raw <code>\n</code> inside the token terminated the field early, and everything after it in that token was lost, with no error anywhere since the resulting bytes are still syntactically valid SSE.</p>
+    <p>Fixed with a small <code>_sse_frame(event, data)</code> helper that splits <code>data</code> on <code>"\n"</code> and emits one <code>"data: "</code>-prefixed line per physical line before the terminating blank line, and a matching frontend fix in <code>streamChat</code>: instead of taking only the first line starting with <code>"data: "</code>, it now collects every such line in the frame and rejoins them with <code>"\n"</code> to recover the exact token text. Confirmed byte-for-byte: captured a real raw SSE response to a code-block-producing question, ran the exact reassembly logic from <code>api.js</code> against it in Node, and diffed the result against the message text actually persisted to Postgres — identical.</p>
+
+    <h3>Verification</h3>
+    <p>Full backend suite: 127/127 passing after the fix. <code>npm run build</code> clean (38 modules). Ran the real backend against the actual Supabase dev database (not the test DB) end to end: signed up a test user, indexed a real tiny GitHub repo (<code>sindresorhus/is-obj</code>) through the full clone→chunk→embed pipeline, created a chat, and streamed two real questions through <code>POST /chat</code> — one plain, one that produced a fenced code block — driving the exact same <code>createChat</code>/<code>getMessages</code>/<code>streamChat</code> calls <code>ChatScreen.jsx</code> makes. Verified the <code>sources</code> event shape matches <code>SourcePill</code>'s expectations field-for-field, the reassembled streamed text matches the persisted message exactly (see bug above), and cleaned up the test user/repos from the dev database afterward. No rendered-browser screenshot (same Playwright/Chromium sandbox gap as every prior frontend task).</p>
+  </section>
+
+  <section class="task">
+    <div class="task-header">
+      <h2>Plan 2 — Task 11 — Theme switcher (account menu)</h2>
+      <span class="status">done</span>
+    </div>
+    <div class="files">
+      <code>web/src/theme.css</code> (5 real <code>[data-theme="..."]</code> blocks, account-menu rule set) · <code>web/src/components/NavRail.jsx</code> (account menu, rewritten) · <code>web/src/components/AppShell.jsx</code> (owns theme state, syncs <code>&lt;html data-theme&gt;</code>)
+    </div>
+
+    <h3>What it does</h3>
+    <p>The rail's plain "Log out" button is now an avatar + name button that opens an account menu: five theme swatch pills (Storm/Midnight/Ivory/Leaf/Edition, active one highlighted) plus Log out. Clicking a swatch re-themes the whole app instantly (optimistic <code>setState</code> before the network round-trip) and persists via <code>PATCH /me</code> — <code>AppShell</code> loads <code>theme_preference</code> from <code>GET /me</code> on mount and writes it to <code>document.documentElement.dataset.theme</code>, so every existing component that already reads CSS custom properties (<code>--bg</code>, <code>--panel</code>, <code>--accent</code>, etc.) re-themes for free, no per-component changes needed.</p>
+
+    <h3>Why it's built this way</h3>
+    <p>Copied the exact hex/rgba values for all 5 themes from <code>docs/design/Sleuth Rail.dc.html</code>'s <code>[data-sleuthrail][data-theme="..."]</code> blocks (cross-checked identical against <code>Sleuth Chat.dc.html</code>) — nothing guessed. Rail.dc.html also turned out to define an exact per-theme <code>--warn</code>/<code>--warnBg</code>/<code>--warnBorder</code> triplet for the failed-repo state, which line up with the <code>--status-neutral</code> values Task 8 had already invented for storm by eye — good sign that guess was right, and now all 5 themes have the real values instead of one theme's guess repeated everywhere.</p>
+    <p>Not every var got a literal per-theme value, though: <code>--accent-hover</code> and <code>--text-secondary</code> aren't design tokens at all — the mockups don't define a hover color (buttons animate via transform/shadow, not a color shift) and never needed a "between text and muted" shade. Rather than inventing 10 more hex values (2 per theme) with no source to check them against, both are single global rules derived from the real tokens via <code>color-mix()</code> — <code>color-mix(in srgb, var(--accent) 88%, white)</code> for hover, <code>color-mix(in srgb, var(--text) 75%, transparent)</code> for the secondary text shade — so they're correct by construction for whichever theme is active instead of being 5 more places to keep in sync. Same logic collapsed <code>--status-ready</code>/<code>--status-ready-wash</code> from 5 duplicated blocks down to one <code>:root</code> alias to <code>--accent</code>/<code>--accent-wash</code> — every source file's own "Indexed" pill markup already renders with <code>background: var(--accent)</code> directly, confirming the alias isn't a shortcut so much as what the design already does.</p>
+
+    <h3>Verification</h3>
+    <p>Full backend suite unaffected by this frontend-only task: 127/127 passing. <code>npm run build</code> clean (38 modules); grepped the built CSS to confirm all 5 <code>data-theme=</code> selectors and the <code>color-mix()</code> rules survived minification intact. Ran the real backend, signed up a test user, and drove the exact round-trip <code>AppShell</code>'s theme switch performs: <code>GET /me</code> (default <code>storm</code>) → <code>PATCH /me</code> with <code>theme_preference: "leaf"</code> → a second <code>GET /me</code> (simulating the reload-persistence check the plan's manual-test step asks for) came back <code>"leaf"</code>, confirming the round-trip is wired correctly end to end. Test user cleaned up from the dev database afterward. Still no rendered-browser check (Playwright/Chromium sandbox gap, unchanged since Task 5) — the CSS cascade logic itself (unattributed root falls back to storm's half of the first selector; an explicit <code>data-theme</code> on <code>&lt;html&gt;</code> overrides it) was verified by inspection rather than a live screenshot.</p>
+  </section>
+
+  <section class="task">
+    <div class="task-header">
+      <h2>Plan 2 — Task 12 — Polish: error states + README</h2>
+      <span class="status">done</span>
+    </div>
+    <div class="files">
+      <code>web/src/components/RepoList.jsx</code> (failed-repo banner) · <code>ChatScreen.jsx</code>, <code>ChatSidebar.jsx</code> (repo picker shows all repos, non-ready disabled with tooltip) · <code>web/src/theme.css</code> (banner rule set + real theme bug fix, see below) · top-level <code>README.md</code> (new)
+    </div>
+
+    <h3>What it does</h3>
+    <p>Two silent-failure UX gaps closed. First: a <code>failed</code> repo on <code>/app/repos</code> previously only showed its error as a single line of muted text truncated by ellipsis — now it gets a distinct red-tinted banner (real <code>error_message</code>, spans the full row) plus a "Retry" link to the Indexing screen, where the retry mechanism already lived from Task 9. Second: the chat repo-picker only ever listed <code>ready</code> repos, so a repo still indexing (or one that failed) just silently never appeared — no error, no explanation, it simply wasn't there. Now every repo shows as a pill; non-<code>ready</code> ones are disabled with a <code>title</code> tooltip naming the actual reason ("Still indexing — not ready to chat yet", "Indexing failed — visit Repos to retry", etc.) instead of vanishing.</p>
+
+    <h3>A real theme bug found and fixed while in the same file</h3>
+    <p>Adding the disabled-pill style in <code>theme.css</code> surfaced a bug in code Task 10 wrote before Task 11's real 5-theme palette existed: four hover/background rules (<code>.chat-repo-pill</code>, <code>.chat-history-item</code> ×2, <code>.chat-source-pill</code>) used a hardcoded <code>rgba(255,255,255,0.05)</code> "lighten it a little" overlay. That's the right direction on the 3 dark themes (storm/midnight/edition), but backwards on the 2 light ones Task 11 just wired up — a near-white tint on an already-near-white <code>leaf</code>/<code>ivory</code> background is nearly invisible, quietly breaking exactly the two themes that were hardest to verify without a real browser. Fixed by switching all four to <code>var(--panel)</code>, the same theme-aware hover treatment <code>.navitem:hover</code> already used elsewhere in this file — correct by construction for whichever theme is active, no more per-theme guessing.</p>
+
+    <h3>Why it's built this way</h3>
+    <p>Grid layout for the banner: <code>.repo-row</code> is a 3-column CSS grid (<code>2.2fr 1fr auto</code>, collapsing to a 2-area mobile layout at 768px); the banner is a 4th child with <code>grid-column: 1 / -1</code> so it spans full-width and auto-flows onto its own row at both breakpoints without touching the existing column/area definitions. The repo-picker fix moves the ready-filter from "which repos get passed to the sidebar at all" (Task 10's original approach) to "which repos in the full list get disabled" — a small but real shift in whose job the filtering is: the component that renders the picker is also the one responsible for explaining an absence, so it needs to see what's missing, not just what's available.</p>
+
+    <h3>Verification</h3>
+    <p>Full backend suite: 127/127 passing (backend untouched by this task, confirms nothing else broke). <code>npm run build</code> clean (38 modules). Ran the real backend and did the plan's own manual test verbatim: added <code>https://github.com/does-not-exist/nope-12345</code> via <code>POST /repos</code>, polled <code>GET /repos/{id}</code>, confirmed it settles on <code>failed</code> (not stuck "indexing" forever) with the real <code>git clone</code> stderr in <code>error_message</code> — <code>fatal: could not read Username for 'https://github.com'</code> — exactly the text <code>RepoList.jsx</code>'s new banner renders. Test user and the one repo row this session created were cleaned up from the dev database afterward. No rendered-browser screenshot (same Playwright/Chromium sandbox gap as every prior frontend task in this plan) — the theme-bug fix in particular is exactly the kind of thing that check would have caught faster, worth prioritizing a working browser environment before Repo Settings or any future frontend work.</p>
+
+    <h3>Plan 2 complete</h3>
+    <p>All 13 tasks (Task 0-12) done. Full backend suite: 127/127 passing. <code>npm run build</code> clean. The FastAPI + React web app now covers auth, repo management, live indexing progress, persisted multi-chat with SSE streaming, a 5-theme color switcher, and basic error-state polish — everything in the plan doc except the Repo Settings screen (branch switch / re-index / disconnect), which the plan's own Self-Review Notes deliberately left as a follow-on task rather than detailing step-by-step.</p>
+  </section>
+
+  <section class="task">
+    <div class="task-header">
+      <h2>Global/Architecture-Question Retrieval — Phase 1+2+5</h2>
+      <span class="status">done</span>
+    </div>
+    <div class="files">
+      <code>schema.sql</code> (new <code>repo_summaries</code> table) · <code>sleuth/store.py</code> (<code>upsert_repo_summary</code>, <code>get_repo_summary</code>) · <code>sleuth/summarize.py</code> (new — <code>build_repo_map</code>, <code>summarize_repo</code>) · <code>sleuth/ingest/pipeline.py</code> (non-fatal summarization step) · <code>sleuth/retrieve/routing.py</code> (new — <code>classify_question</code>) · <code>sleuth/retrieve/answer.py</code> (<code>build_prompt</code> gains <code>summary</code>, <code>stream_answer</code> routes global questions) · tests: <code>test_store.py</code>, <code>test_summarize.py</code> (new), <code>test_pipeline.py</code>, <code>test_routing.py</code> (new), <code>test_answer.py</code>
+    </div>
+
+    <h3>What it does</h3>
+    <p>Fixes the reported gap that plain top-k vector search structurally can't answer broad questions like "rate my architecture" or "summarize the whole project" — there was never a single chunk that <em>is</em> an answer to a whole-repo question, only fragments. Now, during ingest, right after chunking, a cheap "repo map" (every non-doc chunk's file path + kind + symbol name — not full source text) is sent to the existing Groq/NIM <code>Generator</code> in one call, and the resulting architecture summary is stored one-per-repo in a new <code>repo_summaries</code> table. When a question comes in, a fast keyword classifier (<code>classify_question</code>, no LLM call) tags it <code>local</code> or <code>global</code>; <code>local</code> questions ("where is X implemented") behave exactly as before, while <code>global</code> questions ("what's the overall architecture", "rate my architecture", "summarize the whole project") get that stored summary prepended to the prompt, clearly labeled <code>REPO SUMMARY</code>, ahead of the normal top-k code excerpts.</p>
+
+    <h3>Why it's built this way</h3>
+    <p>This implements Phases 1, 2, and 5 of the source design (<code>docs/superpowers/plans/2026-08-29-global-architecture-question-retrieval.md</code>) — the "cheapest/most useful first" slice — and deliberately stops there; Phase 3 (deeper agentic global handling, a <code>list_directory_tree</code> tool, batch map-reduce "deep analysis"), Phase 4 (the call-graph structural index, already separately drafted), and Phase 6 (a UI signal that global mode ran) are explicitly out of scope for this pass.</p>
+    <p>The summary is built from a metadata listing, not the source-plan's originally-worded "hierarchical per-directory → per-module → repo-level" pass, deliberately: the reported failure is that <em>zero</em> artifacts describe the whole repo, so going from zero to one summary already fixes it, and a flat file/symbol/kind listing is cheap enough text that a many-thousand-chunk repo would need to hit real prompt-size limits before a hierarchical map-reduce actually earns its cost (several more LLM calls per ingest). Kept as a clean seam to add later (Phase 1b) without touching storage or routing.</p>
+    <p>Summarization is deliberately non-fatal: it runs in its own <code>try/except</code> inside <code>_run_ingest_steps</code>, and a failure just skips storing a summary and emits a <code>summary_failed</code> progress event rather than propagating up to <code>ingest_repo</code>'s outer wrapper — which would otherwise mark the <em>whole</em> repo <code>failed</code> over what's really an optional add-on. Local-search chat (the thing that already works) must keep working even if Groq is down or rate-limited during ingest.</p>
+    <p>Routing lives once, in <code>stream_answer</code> — the single place both the CLI (<code>sleuth ask</code>) and the API (<code>POST /chat</code>) funnel through — so there's no duplicated classification logic in two callers. <code>classify_question</code> is a plain keyword regex, not an LLM call: a false positive (a normal question matches a global pattern) just means it gets a harmless extra summary block; a false negative just means a broad question falls back to today's existing plain top-k behavior. Both failure modes are safe, so a fast heuristic beats spending an extra LLM round-trip classifying every single question. No API or frontend changes were needed — <code>build_prompt</code>'s new <code>summary</code> param defaults to <code>None</code>, and the SSE/<code>sources[]</code> contract is untouched, so this is a pure backend capability change.</p>
+
+    <h3>Caveat</h3>
+    <p>Same backfill caveat as the existing <code>is_doc</code> column: <code>repo_summaries</code> only gets a row on a repo's <em>next</em> ingest run after this change — an already-<code>ready</code> repo indexed before this shipped has no summary until it's re-indexed (Retry indexing from the UI, or <code>sleuth add</code> against the same URL again). Until then, a global question against that repo just silently gets no summary block prepended (identical to the routing never having existed), not an error.</p>
+
+    <h3>Verification</h3>
+    <p>TDD throughout: each new function had a failing test confirmed before implementation. Ran the new/changed test files directly (<code>test_store.py</code>, <code>test_summarize.py</code>, <code>test_routing.py</code>, <code>test_pipeline.py</code>, <code>test_answer.py</code>) — 33/33 passing, including new coverage for: summary upsert/overwrite/absent-returns-None, repo-map excludes doc chunks, summarize_repo's empty-input short-circuit, ingest storing a real summary end-to-end (mocked Groq), ingest staying <code>ready</code> when summarization mock raises a connection error, prompt correctly prepending/omitting the summary block, and <code>stream_answer</code> actually including vs. omitting the stored summary in the Groq request body depending on <code>classify_question</code>'s verdict for that question. Full suite: 134 passed, 21 failed — the 21 failures are the pre-existing <code>TestClient</code> lifespan gap (auth/chat/repos API tests) and the pre-existing <code>test_db.py</code> lock-timeout test, both already known before this work and unrelated to it; no new regressions. Task 8 (eval harness coverage for global questions, part of source-plan Phase 5) was scoped in the implementation plan but deferred pending a scope decision on whether <code>sleuth/eval/runner.py::run_eval</code> should also route through <code>get_repo_summary</code> (it calls <code>build_prompt</code> directly today, not <code>stream_answer</code>) — left for a follow-up decision with the user rather than guessed.</p>
+  </section>
+
+  <section class="task">
+    <div class="task-header">
+      <h2>Repo/chat deletion, no-duplicate-retry, ready-only chat picker</h2>
+      <span class="status">done</span>
+    </div>
+    <div class="files">
+      <code>sleuth/store.py</code> (<code>delete_repo</code>, <code>delete_chat</code>) · <code>sleuth/api/routes/repos.py</code> (<code>POST /repos/{id}/retry</code>, <code>DELETE /repos/{id}</code>) · <code>sleuth/api/routes/chat.py</code> (<code>DELETE /chats/{id}</code>) · <code>web/src/api.js</code> (<code>retryRepo</code>, <code>deleteRepo</code>, <code>deleteChat</code>) · <code>web/src/components/RepoList.jsx</code> (Delete action, click-to-confirm) · <code>web/src/components/IndexingScreen.jsx</code> (retry now hits the new endpoint) · <code>web/src/components/ChatSidebar.jsx</code>/<code>ChatScreen.jsx</code> (per-chat delete, repo picker shows ready repos only) · <code>web/src/theme.css</code> (new action/confirm rule sets) · plus a real pre-existing test-infra bug fixed along the way (see below): <code>tests/test_api_auth.py</code>, <code>test_api_repos.py</code>, <code>test_api_chat.py</code>, <code>test_db.py</code>
+    </div>
+
+    <h3>What it does</h3>
+    <p>Three user-reported gaps closed. First: retrying a failed index used to just call <code>POST /repos</code> again with the same URL — since <code>create_repo</code> has no uniqueness constraint on <code>github_url</code>, every retry silently inserted a brand-new repo row, leaving duplicate entries for the same repo in the list. A dedicated <code>POST /repos/{id}/retry</code> endpoint re-ingests the existing row in place; there is no code path in it that can create a second row for the same repo. Second: repos and chats can now actually be deleted — a "Delete" action on each repo row (Repos screen) and a trash icon on each chat history item (Chat sidebar), both behind a lightweight inline click-to-confirm (no modal library in this app, so this follows the existing "confirm inline, in place" convention already used elsewhere). Deleting a repo cascades to its chunks, its stored architecture summary, and every chat/message about it (schema.sql's <code>ON DELETE CASCADE</code> chain already existed; the only gap was that nothing ever called <code>DELETE FROM repos</code>). Third: the chat screen's repo picker now only lists repos with <code>status = 'ready'</code> — previously every repo appeared there with non-ready ones merely disabled-and-tooltipped, which read as a broken entry in a menu whose only real job is "which repo do you want to talk to."</p>
+
+    <h3>Why it's built this way</h3>
+    <p>The retry-duplication bug is really a request-shape problem, not a repo-uniqueness problem: <code>POST /repos</code> is "create a new repo," and asking it to also mean "re-run this existing one" is what let the ambiguity in. A separate endpoint that takes the existing <code>repo_id</code> closes the ambiguity off structurally instead of bolting a uniqueness check onto <code>github_url</code> (which the app deliberately doesn't want anyway — nothing stops two different users, or the same user twice, from legitimately indexing the same public repo). Delete is a hard, synchronous <code>DELETE FROM repos</code> — no soft-delete/undo, since the design doc for the (unbuilt) Repo Settings screen already frames disconnecting a repo as destructive ("its index is deleted and past conversations about it become read-only"), and cascading through Postgres foreign keys is simpler and more reliable than re-implementing that fan-out by hand in application code. The chat picker fix moved the filter from "disable what's not usable" to "only show what's usable" — disabling still left a dead-looking row in a list whose entire purpose is picking something to act on.</p>
+
+    <h3>A real pre-existing bug found and fixed while verifying this: the whole API test suite was silently broken</h3>
+    <p>Every test in <code>test_api_auth.py</code>/<code>test_api_repos.py</code>/<code>test_api_chat.py</code> constructed <code>TestClient(create_app(config))</code> directly rather than as a context manager — FastAPI's <code>TestClient</code> only runs the app's <code>lifespan</code> (which sets up <code>app.state.pool</code>, see <code>sleuth/api/main.py</code>) when entered via <code>with</code>. Every one of these tests was hitting <code>AttributeError: 'State' object has no attribute 'pool'</code> the instant any route touched the DB — 18 tests across 3 files, all failing the same way, previously written off as a "known pre-existing issue" rather than actually fixed. Fixed by calling <code>client.__enter__()</code> right after construction in each file's client-building helper (never exited — each test gets a fresh app/pool that's fine to let the process clean up). That surfaced a second, previously-masked bug once the routes could actually run: several chat tests created their test repo directly via <code>create_repo(pg_conn, url)</code> with no <code>user_id</code>, then tried to use it through the session-scoped <code>/chats</code> route — <code>list_repos_full</code>/<code>get_repo</code> correctly 404 a repo with no owner for any authenticated caller (the ownership-scoping fix from Plan 2 Task 1 working exactly as designed), so those tests were quietly exercising a 404 path instead of the behavior they claimed to test. Fixed by creating those repos under the same user the test's client is logged in as. Separately, <code>test_db.py::test_connection_lock_timeout_fails_fast_instead_of_hanging</code> called bare <code>LOCK TABLE</code> on an autocommit connection — Postgres rejects that outright (<code>NoActiveSqlTransaction</code>) since there's no transaction for the lock to attach to; fixed with an explicit <code>BEGIN</code> before the lock statement.</p>
+
+    <h3>Verification</h3>
+    <p>TDD throughout for the new endpoints/store functions: <code>test_store.py</code> (delete cascade assertions against real chunk/summary/chat rows), <code>test_api_repos.py</code> (retry reuses the same <code>repo_id</code> and the repo list has exactly one row for the URL afterward; delete removes the repo and a subsequent <code>GET</code> 404s), <code>test_api_chat.py</code> (delete removes the chat from its repo's chat list; 404 for an unknown chat). Full suite: <b>164 passed, 0 failed</b> — the previously-reported 21 known failures are entirely gone, not just unaffected; fixing the <code>TestClient</code>/lock-timeout bugs above means every test in the suite is now actually running and green, for the first time since those files were written. <code>npm run build</code> clean (290 modules).</p>
+  </section>
+
+  <section class="task">
+    <div class="task-header">
+      <h2>Teaching docs: how indexing works, how chat works, deep-dive updated</h2>
+      <span class="status">done</span>
+    </div>
+    <div class="files">
+      <code>docs/how-indexing-works.html</code> (new) · <code>docs/how-chat-works.html</code> (new) · <code>docs/pipeline-deep-dive.html</code> (extended: Parts 20-27, subtitle, closing footer, Q8 refreshed)
+    </div>
+
+    <h3>What it does</h3>
+    <p>Two new self-contained HTML documents walk the two halves of the system end to end, each written to
+    teach rather than just describe: concept first (why the problem exists, often with a plain-English
+    analogy), then the actual mechanism, then the real code with real file references — same visual
+    language and pedagogy as <code>pipeline-deep-dive.html</code> (concept callouts, code blocks, warning/
+    note boxes, a closing ASCII diagram tying every part back together). <code>how-indexing-works.html</code>
+    covers everything from pasting a GitHub URL through <code>status = "ready"</code>: the click, background
+    tasks, cloning, file walking, parsing, chunking, the incremental re-index hash check, embedding, the
+    Postgres upsert/HNSW index, the new repo-summarization step, live progress polling, and the
+    failure/retry/delete lifecycle. <code>how-chat-works.html</code> covers everything from pressing Enter
+    on a question through a finished, cited, streamed answer: the click, Server-Sent Events as a wire
+    protocol, the <code>POST /chat</code> route's connection-lifetime handling, embedding the question,
+    vector search and the doc-vs-code ranking fix, the local/global routing decision, prompt assembly, the
+    Groq/NIM fallback chain, persistence, and the frontend's frame-reassembly logic — plus a short pointer
+    to agentic/live mode as the other, structurally different answer path.</p>
+
+    <h3>Why it's built this way</h3>
+    <p><code>pipeline-deep-dive.html</code> was already the exhaustive, part-by-part reference for every
+    individual mechanism in the codebase, but reading it start to finish to answer "what actually happens
+    when I add a repo" means threading together pieces from a dozen scattered parts written for a different
+    purpose (Python fundamentals, then a strict tour of files in build order). The two new documents instead
+    organize around the two things a user of this project actually asks about — "how does adding a repo
+    work" and "how does asking a question work" — as their own linear, single-pass narratives, cross-
+    referencing back into <code>pipeline-deep-dive.html</code> for anything genuinely reusable (the Voyage
+    embedder mechanics, the <code>Generator</code> ABC, tree-sitter parsing) rather than re-explaining those
+    from scratch. <code>pipeline-deep-dive.html</code> itself was then extended with 8 new parts (20-27)
+    covering everything built since its last update — Plan 2's web app (auth/sessions, connection pooling,
+    background tasks, SSE), the two real production bugs found and fixed (doc-vs-code ranking, retry
+    duplication), the global/architecture-question retrieval feature, and the repo/chat lifecycle
+    (cascading deletes) — so it remains current with the actual state of the finished project instead of
+    stopping at Plan 1. Its stale "companion to plan1-walkthrough.html" framing and Q8 ("once Plan 2
+    starts...") were also updated to reflect that both plans are now complete.</p>
+
+    <h3>Verification</h3>
+    <p>All three HTML files checked for balanced <code>&lt;section&gt;</code>/<code>&lt;div&gt;</code>
+    tag counts (open == close in every file) since a single unclosed tag in a document this long can
+    silently break layout for everything after it. Every code excerpt quoted in the two new documents was
+    copied from the actual current source files listed in each part's file-bar, not reconstructed from
+    memory. No test suite changes — this task is documentation only.</p>
+  </section>
+
 </main>
 </body>
 </html>

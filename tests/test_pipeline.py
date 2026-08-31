@@ -40,6 +40,16 @@ def _mock_voyage():
     respx.post("https://api.voyageai.com/v1/embeddings").mock(side_effect=handler)
 
 
+def _mock_groq(response_text="This repo does X."):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"content": response_text}}]},
+        )
+
+    respx.post("https://api.groq.com/openai/v1/chat/completions").mock(side_effect=handler)
+
+
 @pytest.mark.asyncio
 @respx.mock
 async def test_ingest_repo_creates_chunks_and_marks_ready(pg_conn, local_git_repo):
@@ -105,6 +115,7 @@ async def test_ingest_repo_marks_failed_on_clone_error(pg_conn, tmp_path):
 @respx.mock
 async def test_ingest_repo_emits_progress_events(pg_conn, local_git_repo):
     _mock_voyage()
+    _mock_groq()
     config = _config()
     events = []
 
@@ -116,3 +127,34 @@ async def test_ingest_repo_emits_progress_events(pg_conn, local_git_repo):
     steps = [step for step, _detail in events]
     assert "cloned" in steps
     assert "ready" in steps
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_ingest_repo_stores_repo_summary(pg_conn, local_git_repo):
+    _mock_voyage()
+    _mock_groq("This repo has foo() and bar().")
+    config = _config()
+
+    repo_id = await ingest_repo(str(local_git_repo), pg_conn, config)
+
+    from sleuth.store import get_repo_summary
+    assert get_repo_summary(pg_conn, repo_id) == "This repo has foo() and bar()."
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_ingest_repo_still_marks_ready_when_summarization_fails(pg_conn, local_git_repo):
+    _mock_voyage()
+    respx.post("https://api.groq.com/openai/v1/chat/completions").mock(
+        side_effect=httpx.ConnectError("boom")
+    )
+    config = _config()
+
+    repo_id = await ingest_repo(str(local_git_repo), pg_conn, config)
+
+    row = pg_conn.execute("SELECT status FROM repos WHERE id = %s", (repo_id,)).fetchone()
+    assert row[0] == "ready"  # summarization failure must not fail the whole index
+
+    from sleuth.store import get_repo_summary
+    assert get_repo_summary(pg_conn, repo_id) is None

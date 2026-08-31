@@ -37,6 +37,18 @@ class Generator(ABC):
         response = await post_with_retry(
             client,
             self._url(),
+            # Explicit, conservative retry budget for generation — the
+            # module-level default (retries=5, exponential backoff up to
+            # 60s) is tuned for VoyageEmbedder's single-provider ingest
+            # path, where waiting out a rate limit is the only option.
+            # Generation has a FALLBACK CHAIN (chat_with_fallback tries the
+            # next provider on any failure) — retrying the same provider
+            # for up to a minute before ever trying the fallback defeats
+            # the point of having one. One quick retry here, then let
+            # chat_with_fallback move on to the next provider.
+            retries=1,
+            backoff_seconds=1.0,
+            max_backoff_seconds=2.0,
             headers={"Authorization": f"Bearer {self.api_key}"},
             json={"model": self.model_name, "messages": messages},
         )

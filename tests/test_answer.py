@@ -27,6 +27,29 @@ def test_build_prompt_includes_question_and_chunks():
     assert "X = 1" in prompt
 
 
+def test_build_prompt_labels_doc_vs_code_excerpts():
+    results = [
+        SearchResult("sleuth/auth.py", "sign", "function", 1, 2, "def sign(): ...", 0.1, is_doc=False),
+        SearchResult("docs/auth.html", None, "element", 1, 2, "<p>Auth uses JWT</p>", 0.2, is_doc=True),
+    ]
+
+    prompt = build_prompt("How does auth work?", results)
+
+    assert "[CODE] File: sleuth/auth.py" in prompt
+    assert "[DOCUMENTATION] File: docs/auth.html" in prompt
+
+
+def test_build_prompt_prepends_summary_for_global_questions():
+    prompt = build_prompt("Rate my architecture", [], summary="This is a RAG chatbot.")
+    assert prompt.index("This is a RAG chatbot.") < prompt.index("Relevant excerpts")
+    assert "REPO SUMMARY" in prompt
+
+
+def test_build_prompt_omits_summary_block_when_none():
+    prompt = build_prompt("Where is X?", [])
+    assert "REPO SUMMARY" not in prompt
+
+
 @pytest.mark.asyncio
 @respx.mock
 async def test_get_answer_rejects_repo_not_ready(pg_conn):
@@ -107,3 +130,65 @@ async def test_stream_answer_reports_sources_via_callback(pg_conn):
     assert "".join(tokens) == "hi"
     assert len(captured) == 1
     assert captured[0][0].file_path == "f.py"
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_stream_answer_includes_stored_summary_for_global_question(pg_conn):
+    repo_id = create_repo(pg_conn, "https://github.com/example/repo")
+    update_repo_status(pg_conn, repo_id, "ready")
+    upsert_chunks(
+        pg_conn, repo_id,
+        [(Chunk("f.py", "foo", "function", 1, 2, "def foo():\n    return 1\n"), [0.1] * 1024)],
+    )
+    from sleuth.store import upsert_repo_summary
+    upsert_repo_summary(pg_conn, repo_id, "This repo is a small RAG chatbot backend.")
+    pg_conn.commit()
+
+    respx.post("https://api.voyageai.com/v1/embeddings").mock(
+        return_value=httpx.Response(200, json={"data": [{"embedding": [0.1] * 1024, "index": 0}]})
+    )
+
+    def groq_handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert any("This repo is a small RAG chatbot backend." in m["content"] for m in body["messages"])
+        sse = 'data: {"choices":[{"delta":{"content":"It is a RAG chatbot."}}]}\n\ndata: [DONE]\n\n'
+        return httpx.Response(200, content=sse.encode())
+
+    respx.post("https://api.groq.com/openai/v1/chat/completions").mock(side_effect=groq_handler)
+
+    config = Config(voyage_api_key="k", groq_api_key="k", groq_model="m", database_url="unused")
+    answer = await get_answer("Rate my overall architecture", repo_id, pg_conn, config)
+
+    assert answer == "It is a RAG chatbot."
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_stream_answer_omits_summary_for_local_question(pg_conn):
+    repo_id = create_repo(pg_conn, "https://github.com/example/repo")
+    update_repo_status(pg_conn, repo_id, "ready")
+    upsert_chunks(
+        pg_conn, repo_id,
+        [(Chunk("f.py", "foo", "function", 1, 2, "def foo():\n    return 1\n"), [0.1] * 1024)],
+    )
+    from sleuth.store import upsert_repo_summary
+    upsert_repo_summary(pg_conn, repo_id, "This repo is a small RAG chatbot backend.")
+    pg_conn.commit()
+
+    respx.post("https://api.voyageai.com/v1/embeddings").mock(
+        return_value=httpx.Response(200, json={"data": [{"embedding": [0.1] * 1024, "index": 0}]})
+    )
+
+    def groq_handler(request: httpx.Request) -> httpx.Response:
+        body = json.loads(request.content)
+        assert not any("This repo is a small RAG chatbot backend." in m["content"] for m in body["messages"])
+        sse = 'data: {"choices":[{"delta":{"content":"foo returns 1."}}]}\n\ndata: [DONE]\n\n'
+        return httpx.Response(200, content=sse.encode())
+
+    respx.post("https://api.groq.com/openai/v1/chat/completions").mock(side_effect=groq_handler)
+
+    config = Config(voyage_api_key="k", groq_api_key="k", groq_model="m", database_url="unused")
+    answer = await get_answer("What does foo do?", repo_id, pg_conn, config)
+
+    assert answer == "foo returns 1."

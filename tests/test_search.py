@@ -55,3 +55,51 @@ def test_search_scopes_to_repo_id(pg_conn):
 
     assert len(results) == 1
     assert results[0].code_text == "code a"
+
+
+def test_search_ranks_code_ahead_of_docs_even_when_docs_are_closer(pg_conn):
+    # The actual bug this guards: docs/*.html architecture write-ups are
+    # real, parseable files that can score a CLOSER cosine match than the
+    # real implementation against an architecture-flavored question — left
+    # unranked, that silently crowds the real code out of the top-k results
+    # an LLM is ever shown.
+    repo_id = create_repo(pg_conn, "https://github.com/example/repo")
+    pg_conn.commit()
+
+    doc_chunk = Chunk("docs/auth-architecture.html", None, "element", 1, 5, "<p>Auth uses JWT...</p>")
+    code_chunk = Chunk("sleuth/api/auth/session.py", "sign_session", "function", 1, 10, "def sign_session(): ...")
+
+    # doc_chunk is embedded CLOSER to the query vector than code_chunk —
+    # on raw distance alone it would rank first.
+    upsert_chunks(
+        pg_conn,
+        repo_id,
+        [(doc_chunk, [1.0] + [0.0] * 1023), (code_chunk, [0.9] + [0.1] + [0.0] * 1022)],
+    )
+    pg_conn.commit()
+
+    results = search_chunks(pg_conn, repo_id, [1.0] + [0.0] * 1023, top_k=8)
+
+    assert results[0].file_path == "sleuth/api/auth/session.py"
+    assert results[0].is_doc is False
+    assert results[1].file_path == "docs/auth-architecture.html"
+    assert results[1].is_doc is True
+
+
+def test_search_prefer_code_false_falls_back_to_raw_distance(pg_conn):
+    repo_id = create_repo(pg_conn, "https://github.com/example/repo")
+    pg_conn.commit()
+
+    doc_chunk = Chunk("docs/auth-architecture.html", None, "element", 1, 5, "<p>Auth uses JWT...</p>")
+    code_chunk = Chunk("sleuth/api/auth/session.py", "sign_session", "function", 1, 10, "def sign_session(): ...")
+
+    upsert_chunks(
+        pg_conn,
+        repo_id,
+        [(doc_chunk, [1.0] + [0.0] * 1023), (code_chunk, [0.9] + [0.1] + [0.0] * 1022)],
+    )
+    pg_conn.commit()
+
+    results = search_chunks(pg_conn, repo_id, [1.0] + [0.0] * 1023, top_k=8, prefer_code=False)
+
+    assert results[0].file_path == "docs/auth-architecture.html"

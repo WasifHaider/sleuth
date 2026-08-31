@@ -3,24 +3,41 @@ from collections.abc import AsyncIterator
 from sleuth.config import Config
 from sleuth.ingest.embed import VoyageEmbedder
 from sleuth.llm.generate import chat_with_fallback, get_fallback_chain
+from sleuth.retrieve.routing import classify_question
 from sleuth.retrieve.search import SearchResult, search_chunks
+from sleuth.store import get_repo_summary
 
 SYSTEM_PROMPT = (
     "You are a code assistant. Answer the user's question about the repository "
-    "using only the provided code excerpts. If the excerpts don't contain the "
-    "answer, say so explicitly rather than guessing."
+    "using only the provided excerpts. Excerpts are labeled CODE or DOCUMENTATION: "
+    "documentation is prose written by humans ABOUT the code, not the implementation "
+    "itself, and may be incomplete, stale, or wrong — always prefer and cite CODE "
+    "excerpts when answering questions about how something is actually implemented, "
+    "and only fall back to DOCUMENTATION excerpts when no relevant code excerpt is "
+    "present. If the excerpts don't contain the answer, say so explicitly rather "
+    "than guessing."
 )
 
 
-def build_prompt(question: str, results: list[SearchResult]) -> str:
+def build_prompt(question: str, results: list[SearchResult], summary: str | None = None) -> str:
     blocks = []
     for r in results:
         symbol = r.symbol_name or "(module level)"
+        label = "DOCUMENTATION" if r.is_doc else "CODE"
         blocks.append(
-            f"# File: {r.file_path}\n# {r.kind}: {symbol} (lines {r.start_line}-{r.end_line})\n\n{r.code_text}"
+            f"# [{label}] File: {r.file_path}\n# {r.kind}: {symbol} (lines {r.start_line}-{r.end_line})\n\n{r.code_text}"
         )
     context = "\n\n---\n\n".join(blocks)
-    return f"Question: {question}\n\nRelevant code:\n\n{context}"
+    prompt = f"Question: {question}\n\n"
+    if summary:
+        prompt += (
+            "REPO SUMMARY (architecture-level overview, generated from the "
+            "repo's file/symbol listing — use this for broad/whole-repo "
+            "questions, and still ground specific implementation claims in "
+            "the excerpts below):\n\n" + summary + "\n\n---\n\n"
+        )
+    prompt += f"Relevant excerpts:\n\n{context}"
+    return prompt
 
 
 async def stream_answer(
@@ -35,7 +52,11 @@ async def stream_answer(
     results = search_chunks(conn, repo_id, query_vector)
     if on_sources:
         on_sources(results)
-    prompt = build_prompt(question, results)
+
+    summary = None
+    if classify_question(question) == "global":
+        summary = get_repo_summary(conn, repo_id)
+    prompt = build_prompt(question, results, summary=summary)
 
     chain = get_fallback_chain(config)
     messages = [

@@ -49,7 +49,45 @@ def chunk_source(source_bytes: bytes, file_path: str, extension: str) -> list[Ch
             query = _load_query(spec.key, spec.ts_language)
             chunks = run_query(query, tree.root_node, source_bytes, file_path)
 
-    return _cap_chunk_sizes(chunks)
+    return _cap_chunk_sizes(_dedupe_symbol_names(chunks))
+
+
+def _dedupe_symbol_names(chunks: list[Chunk]) -> list[Chunk]:
+    # store.py's upsert key is (repo_id, file_path, COALESCE(symbol_name, '')).
+    # Two chunks from the SAME file sharing a symbol_name — most commonly
+    # None/"" from more than one leftover "module"/junk chunk, e.g. an HTML
+    # page with two <script> tags (each becomes its own symbol_name=None
+    # chunk from html_chunker.py) or a CSS file with more than one
+    # non-rule leftover block — collide on that key. ON CONFLICT ... DO
+    # UPDATE then means the second one silently OVERWRITES the first in
+    # Postgres: confirmed by direct test, an HTML file with two <script>
+    # blocks only ever kept the second one in the chunks table, with zero
+    # error or log line anywhere. Only None/"" was ever actually observed
+    # colliding (every real symbol-producing chunker path already includes
+    # enough context — class name, nesting — to be unique per file), but
+    # this dedupes ANY repeated symbol_name defensively rather than special
+    # -casing just the None case, using the same "#index" suffix convention
+    # _cap_chunk_sizes below already uses for its own split parts.
+    seen: dict[str | None, int] = {}
+    deduped: list[Chunk] = []
+    for chunk in chunks:
+        seen[chunk.symbol_name] = seen.get(chunk.symbol_name, 0) + 1
+        occurrence = seen[chunk.symbol_name]
+        if occurrence == 1:
+            deduped.append(chunk)
+            continue
+        suffix = f"#{occurrence}" if chunk.symbol_name else f"(module #{occurrence})"
+        deduped.append(
+            Chunk(
+                file_path=chunk.file_path,
+                symbol_name=f"{chunk.symbol_name}{suffix}" if chunk.symbol_name else suffix,
+                kind=chunk.kind,
+                start_line=chunk.start_line,
+                end_line=chunk.end_line,
+                code_text=chunk.code_text,
+            )
+        )
+    return deduped
 
 
 def _fallback_chunk(source_bytes: bytes, file_path: str) -> list[Chunk]:

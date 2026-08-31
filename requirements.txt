@@ -13,6 +13,7 @@ tree-sitter-html>=0.23,<0.24
 ./vendor/tree-sitter-vue
 httpx>=0.27,<0.28
 psycopg[binary]>=3.1,<4
+psycopg_pool>=3.2,<4
 pgvector>=0.3,<0.4
 python-dotenv>=1.0,<2
 pyyaml>=6,<7
@@ -23,3 +24,4 @@ fastapi>=0.115,<0.116
 uvicorn[standard]>=0.30,<0.31
 itsdangerous>=2.2,<2.3
 bcrypt>=4.2,<4.3
+email-validator>=2.0,<3

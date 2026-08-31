@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { login, signup } from '../api';
+import FullScreenLoader from './FullScreenLoader';
 
 export default function LoginPage() {
   const navigate = useNavigate();
@@ -10,6 +11,10 @@ export default function LoginPage() {
   const [name, setName] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  // Distinct from `busy`: stays true across the post-auth navigate, so the
+  // full-screen loader keeps covering the screen until AppShell/RequireAuth
+  // has actually mounted the Repos screen behind it.
+  const [entering, setEntering] = useState(false);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -22,12 +27,16 @@ export default function LoginPage() {
       } else {
         await signup(email.trim(), password, name.trim() || null);
       }
+      setEntering(true);
       navigate('/app', { replace: true });
     } catch (err) {
       setError(err.message);
-    } finally {
       setBusy(false);
     }
+  }
+
+  if (entering) {
+    return <FullScreenLoader label={mode === 'login' ? 'Logging in…' : 'Setting up your account…'} />;
   }
 
   return (

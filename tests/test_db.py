@@ -52,6 +52,14 @@ def test_apply_schema_creates_tables():
 def test_connection_lock_timeout_fails_fast_instead_of_hanging():
     blocker = get_connection(TEST_DATABASE_URL)
     apply_schema(blocker)
+    # LOCK TABLE requires an open transaction block — get_connection()
+    # opens with autocommit=True (sleuth/db.py), so a bare LOCK TABLE call
+    # had no transaction to attach to and Postgres rejected it outright
+    # with NoActiveSqlTransaction before this test ever got to the actual
+    # thing it's checking (lock_timeout aborting a wait). BEGIN explicitly
+    # here, and hold the transaction open (no commit) for the duration of
+    # the test so the lock stays held while `waiter` tries to acquire it.
+    blocker.execute("BEGIN")
     blocker.execute("LOCK TABLE repos IN ACCESS EXCLUSIVE MODE")
 
     waiter = get_connection(TEST_DATABASE_URL)

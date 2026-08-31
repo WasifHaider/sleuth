@@ -1,0 +1,1057 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SLEUTH — How Indexing Works (A Repo's Journey From URL to Searchable Code)</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff; --fg: #1a1a1a; --muted: #5c5c5c; --border: #e2e2e2;
+    --code-bg: #f5f5f5; --code-fg: #24292e;
+    --accent: #2563eb; --accent2: #0f766e;
+    --note-bg: #fff7e6; --note-border: #e8c064;
+    --concept-bg: #eef2ff; --concept-border: #6366f1;
+    --warn-bg: #fef2f2; --warn-border: #dc2626;
+    --step-bg: #eff6ff; --step-num: #2563eb;
+    --done: #15803d; --done-bg: #dcfce7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111318; --fg: #e8e8e8; --muted: #9a9a9a; --border: #2a2d34;
+      --code-bg: #1b1e24; --code-fg: #d8dee9;
+      --accent: #60a5fa; --accent2: #5eead4;
+      --note-bg: #26210f; --note-border: #7a5c1e;
+      --concept-bg: #1c1f3a; --concept-border: #818cf8;
+      --warn-bg: #2a1414; --warn-border: #f87171;
+      --step-bg: #101d33; --step-num: #60a5fa;
+      --done: #4ade80; --done-bg: #123320;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 2.5rem 1.25rem 6rem; background: var(--bg); color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    line-height: 1.65;
+  }
+  main { max-width: 920px; margin: 0 auto; }
+  h1 { font-size: 1.9rem; margin-bottom: 0.3rem; }
+  .subtitle { color: var(--muted); margin-top: 0; margin-bottom: 2rem; font-size: 0.98rem; max-width: 74ch; }
+  nav.toc { border: 1px solid var(--border); border-radius: 10px; padding: 1rem 1.25rem; margin-bottom: 3rem; font-size: 0.9rem; }
+  nav.toc h2 { margin: 0 0 0.6rem; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+  nav.toc ol { columns: 2; column-gap: 2rem; margin: 0; padding-left: 1.2rem; }
+  nav.toc li { break-inside: avoid; margin-bottom: 0.35rem; }
+  nav.toc a { color: var(--fg); text-decoration: none; }
+  nav.toc a:hover { color: var(--accent); text-decoration: underline; }
+
+  section.part { border-top: 3px solid var(--accent); padding-top: 1.5rem; margin-bottom: 4rem; }
+  section.part h2 { font-size: 1.5rem; margin: 0 0 0.2rem; }
+  .part-sub { color: var(--muted); font-size: 0.92rem; margin: 0 0 1.4rem; }
+
+  h3 { font-size: 1.15rem; margin: 2.2rem 0 0.6rem; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; }
+  h4 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--accent2); margin: 1.5rem 0 0.4rem; }
+  p { margin: 0.6rem 0; }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--code-bg); padding: 0.1rem 0.35rem; border-radius: 4px; font-size: 0.87em;
+  }
+  pre.code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--code-bg); color: var(--code-fg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 0.9rem 1.1rem; overflow-x: auto; font-size: 0.82rem; line-height: 1.55; margin: 0.4rem 0 1.1rem;
+  }
+  pre.code code { background: none; padding: 0; border-radius: 0; font-size: 1em; }
+  .explain { margin: 0.3rem 0 1.3rem; }
+  .explain ul { margin: 0.3rem 0; padding-left: 1.3rem; }
+  .explain li { margin-bottom: 0.4rem; }
+
+  .concept { background: var(--concept-bg); border-left: 4px solid var(--concept-border); border-radius: 6px; padding: 0.9rem 1.1rem; font-size: 0.92rem; margin: 1rem 0 1.4rem; }
+  .concept strong.tag { display: block; text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.72rem; color: var(--concept-border); margin-bottom: 0.4rem; }
+
+  .note { background: var(--note-bg); border: 1px solid var(--note-border); border-radius: 8px; padding: 0.85rem 1.05rem; font-size: 0.9rem; margin: 1rem 0; }
+  .note strong { display: inline-block; margin-bottom: 0.2rem; }
+
+  .warn { background: var(--warn-bg); border: 1px solid var(--warn-border); border-radius: 8px; padding: 0.85rem 1.05rem; font-size: 0.9rem; margin: 1rem 0; }
+  .warn strong { color: var(--warn-border); display: inline-block; margin-bottom: 0.2rem; }
+
+  .filebar { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.8rem; color: var(--muted); margin: 0.2rem 0 1rem; }
+  .filebar code { background: var(--code-bg); padding: 0.1rem 0.35rem; border-radius: 4px; }
+
+  table.walk { width: 100%; border-collapse: collapse; margin: 0.6rem 0 1.3rem; font-size: 0.87rem; }
+  table.walk th, table.walk td { border: 1px solid var(--border); padding: 0.5rem 0.7rem; text-align: left; vertical-align: top; }
+  table.walk th { background: var(--code-bg); }
+
+  .step { display: flex; gap: 0.9rem; margin: 1.1rem 0; padding: 0.9rem 1rem; background: var(--step-bg); border-radius: 8px; }
+  .step .num-badge { flex: 0 0 auto; width: 1.9rem; height: 1.9rem; border-radius: 50%; background: var(--step-num); color: var(--bg); font-weight: 700; font-size: 0.9rem; display: flex; align-items: center; justify-content: center; }
+  .step .step-body p:first-child { margin-top: 0; }
+  .step .step-body p:last-child { margin-bottom: 0; }
+
+  .diagram {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.8rem;
+    background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 1rem;
+    overflow-x: auto; white-space: pre; margin: 0.6rem 0 1.3rem; color: var(--code-fg);
+  }
+
+  .status-strip { display: flex; gap: 0.5rem; flex-wrap: wrap; margin: 1rem 0 1.6rem; }
+  .status-pill { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.78rem; font-weight: 600;
+    padding: 0.35rem 0.8rem; border-radius: 999px; border: 1px solid var(--border); background: var(--code-bg); }
+  .status-pill.active { border-color: var(--accent); color: var(--accent); background: var(--concept-bg); }
+  .status-arrow { color: var(--muted); align-self: center; font-size: 0.9rem; }
+
+  footer.closing { border-top: 3px solid var(--accent2); padding-top: 1.5rem; }
+  footer.closing h2 { font-size: 1.35rem; }
+  a { color: var(--accent); }
+  .badge { display: inline-block; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.55rem; border-radius: 999px; background: var(--done-bg); color: var(--done); margin-left: 0.5rem; vertical-align: middle; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>SLEUTH — How Indexing Works</h1>
+<p class="subtitle">
+  A repo's entire journey, from someone pasting a GitHub URL into the Repos screen to that repo becoming
+  something you can actually chat with. Every stage explains <em>the idea</em> first — what problem this
+  step solves and why it has to exist at all — then points at the exact function doing it, with the real
+  code and real line references. Read it once, slowly, start to finish; it's written the way a professor
+  walks a whiteboard, not the way a reference manual lists facts.
+</p>
+
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#p0">Part 0 — The big picture: what "indexing" even means</a></li>
+    <li><a href="#p1">Part 1 — The click: <code>POST /repos</code></a></li>
+    <li><a href="#p2">Part 2 — Background tasks: why the API responds instantly</a></li>
+    <li><a href="#p3">Part 3 — Cloning the repo</a></li>
+    <li><a href="#p4">Part 4 — Walking the file tree</a></li>
+    <li><a href="#p5">Part 5 — Parsing: turning text into a tree</a></li>
+    <li><a href="#p6">Part 6 — Chunking: turning a tree into <code>Chunk</code> objects</a></li>
+    <li><a href="#p7">Part 7 — The incremental re-index check (the whole point of hashing)</a></li>
+    <li><a href="#p8">Part 8 — Embedding: turning code into vectors</a></li>
+    <li><a href="#p9">Part 9 — Writing to Postgres: upsert and stale-chunk cleanup</a></li>
+    <li><a href="#p10">Part 10 — The new step: summarizing the whole repo</a></li>
+    <li><a href="#p11">Part 11 — Watching it happen: progress events end to end</a></li>
+    <li><a href="#p12">Part 12 — When things go wrong: failure, retry, delete</a></li>
+    <li><a href="#p13">Closing — the whole journey as one diagram</a></li>
+  </ol>
+</nav>
+
+<section class="part" id="p0">
+<h2>Part 0 — The big picture</h2>
+<p class="part-sub">What problem does "indexing" actually solve, and why can't SLEUTH just answer questions directly from a raw GitHub URL?</p>
+
+<div class="concept">
+<strong class="tag">Concept — why does anything need to be "indexed" at all?</strong>
+An LLM like Groq's model has never seen your repository. It knows general programming knowledge from its
+training data, but it has zero specific knowledge of <em>your</em> <code>auth.py</code> or <em>your</em>
+retry logic. If you just paste a question into a chat box, the model can only guess or hallucinate. The
+fix is to hand the model the actual relevant source code as part of the prompt, every single time you ask
+a question — but a real repository can be tens of thousands of lines, far too much to paste in wholesale
+(prompts have hard size limits, and even where they don't, the model gets worse at ignoring irrelevant text
+as the prompt grows). So the problem is really a <strong>search</strong> problem: given a question, find
+the handful of functions/classes that are actually relevant, and only send those. <strong>Indexing</strong>
+is the up-front, one-time (well — <em>re</em>-runnable) work of preparing a repo so that search is fast at
+question-time: break it into small labeled pieces, and pre-compute something you can search over instantly.
+</div>
+
+<p>
+Concretely, indexing means: clone the repo, cut it into function/class-sized pieces ("chunks"), convert
+each chunk's text into a list of numbers ("an embedding vector") that captures its <em>meaning</em>
+geometrically, and store all of that in Postgres. Once that's done once, answering a question is cheap:
+embed the question the same way, and ask Postgres "which stored vectors are closest to this one?" — that
+query runs in milliseconds even against thousands of chunks, because of an index structure explained in
+Part 9. This document is entirely about the "prepare a repo" half; the question-answering half has its own
+companion document, <code>docs/how-chat-works.html</code>.
+</p>
+
+<h3>The five states a repo passes through</h3>
+<p>
+Every repo row in the <code>repos</code> table has a <code>status</code> column, and the whole indexing
+story is really the story of that one column changing value over time. Here's every value it can hold,
+in the order a healthy repo passes through them:
+</p>
+<div class="status-strip">
+  <span class="status-pill">pending</span>
+  <span class="status-arrow">→</span>
+  <span class="status-pill active">indexing</span>
+  <span class="status-arrow">→</span>
+  <span class="status-pill" style="border-color:var(--done); color:var(--done); background:var(--done-bg);">ready</span>
+</div>
+<p>
+...or, if something goes wrong at any point along the way:
+</p>
+<div class="status-strip">
+  <span class="status-pill">pending</span>
+  <span class="status-arrow">→</span>
+  <span class="status-pill active">indexing</span>
+  <span class="status-arrow">→</span>
+  <span class="status-pill" style="border-color:var(--warn-border); color:var(--warn-border); background:var(--warn-bg);">failed</span>
+</div>
+<p>
+This document walks through exactly what code runs during that middle "indexing" phase — every function
+call, in the order it actually executes, with the real source underneath each step.
+</p>
+
+</section>
+
+<section class="part" id="p1">
+<h2>Part 1 — The click: <code>POST /repos</code></h2>
+<p class="part-sub">What happens the instant you paste a URL into the Repos screen and hit Add.</p>
+<p class="filebar">Files: <code>web/src/components/AddRepoForm.jsx</code>, <code>sleuth/api/routes/repos.py</code>, <code>sleuth/api/schemas.py</code></p>
+
+<p>
+On the frontend, <code>AddRepoForm.jsx</code> is a plain HTML form with one text input. Submitting it
+calls <code>addRepo(trimmed)</code> (<code>web/src/api.js</code>), which is just
+<code>fetch(BASE_URL + "/repos", { method: "POST", body: JSON.stringify({ github_url }) })</code> — a
+standard HTTP POST with a JSON body, using the browser's <code>credentials: "include"</code> option so
+the signed session cookie rides along and the backend knows <em>which user</em> is adding this repo.
+</p>
+
+<h4>Validating the URL before anything expensive happens</h4>
+<div class="concept">
+<strong class="tag">Concept — fail fast, fail cheap</strong>
+A malformed URL (a typo, a non-GitHub host, an empty string) is the cheapest possible failure to catch —
+it costs nothing to notice immediately. If SLEUTH let it through, the failure would instead surface
+minutes later as a cryptic <code>git clone</code> error, deep inside a background task the user isn't
+even watching. Catching it at the API boundary, before a database row is even created, means the user
+gets an instant, clear 400 response instead of a repo that silently sits at <code>failed</code> with a
+confusing message.
+</div>
+<pre class="code"><code>class AddRepoIn(BaseModel):
+    github_url: str
+
+    @field_validator("github_url")
+    @classmethod
+    def _must_be_a_github_https_url(cls, value: str) -> str:
+        parsed = urlparse(value)
+        if parsed.scheme != "https" or parsed.netloc.lower() != "github.com" or not parsed.path.strip("/"):
+            raise ValueError("github_url must be an https://github.com/&lt;owner&gt;/&lt;repo&gt; URL")
+        return value</code></pre>
+<p class="explain">
+This is a <strong>Pydantic model</strong> — FastAPI's way of describing "the shape of a request body."
+Before your route function ever runs, FastAPI parses the incoming JSON against this class; if
+<code>github_url</code> is missing, isn't a string, or (thanks to the <code>@field_validator</code>) isn't
+a well-formed <code>https://github.com/...</code> URL, the request is rejected with a 422 automatically —
+your route's body never even executes for a bad request.
+</p>
+
+<h4>The route itself</h4>
+<pre class="code"><code>@router.post("/repos", response_model=RepoOut)
+def add_repo(
+    body: AddRepoIn, request: Request, background_tasks: BackgroundTasks,
+    user: dict = Depends(require_session),
+) -> RepoOut:
+    conn = request.state.conn
+    config = request.state.config
+    repo_id = create_repo(conn, body.github_url, user_id=user["id"])
+    conn.commit()
+    background_tasks.add_task(_run_ingest, repo_id, body.github_url, request.app.state.pool, config)
+    return RepoOut(**get_repo(conn, repo_id, user_id=user["id"]))</code></pre>
+<div class="explain">
+<ul>
+  <li><code>Depends(require_session)</code> is FastAPI's <strong>dependency injection</strong> — before
+      this function body runs, <code>require_session</code> reads the signed cookie, decodes which user
+      it belongs to, and loads that user's row. If there's no valid session, FastAPI returns 401 and this
+      function's body never runs at all. Every route in this router (<code>APIRouter(dependencies=
+      [Depends(require_session)])</code>) gets this check for free.</li>
+  <li><code>create_repo(conn, body.github_url, user_id=user["id"])</code> is one plain
+      <code>INSERT ... RETURNING id</code> (in <code>sleuth/store.py</code>). Its <code>status</code>
+      column defaults to <code>'pending'</code> at the database level — nobody has to explicitly set that.
+      <code>user_id</code> is what makes this repo <em>belong</em> to the logged-in user: every later
+      lookup of this repo (list, get, chat against it) is scoped by <code>user_id</code>, so one user can
+      never see or touch another user's repos just by guessing an id.</li>
+  <li><code>conn.commit()</code> — this row must actually land in Postgres <em>before</em> the background
+      task starts, because that task borrows a completely different connection out of the pool and needs
+      to see this row.</li>
+  <li><code>background_tasks.add_task(_run_ingest, ...)</code> is the single most important line in this
+      function, covered fully in Part 2: it schedules the actual heavy lifting to run <em>after</em> this
+      HTTP response is sent back to the browser, not before.</li>
+  <li>The function returns immediately — <code>RepoOut(**get_repo(...))</code> — with the repo's current
+      state, which at this instant is just <code>status: "pending"</code>. The browser gets this response
+      in milliseconds, long before any cloning or embedding has happened.</li>
+</ul>
+</div>
+
+</section>
+
+<section class="part" id="p2">
+<h2>Part 2 — Background tasks: why the API responds instantly</h2>
+<p class="part-sub">The mechanism that lets "add a repo" feel instant even though indexing a real repo can take minutes.</p>
+<p class="filebar">Files: <code>sleuth/api/routes/repos.py</code></p>
+
+<div class="concept">
+<strong class="tag">Concept — request/response vs. fire-and-continue</strong>
+An HTTP request is supposed to get a response back promptly — a user staring at a spinner for two minutes
+while a repo clones, gets parsed, and gets embedded chunk-by-chunk would be a terrible experience, and many
+HTTP clients/load balancers will simply time out a request that takes that long anyway. FastAPI's
+<code>BackgroundTasks</code> solves this by letting a route return its response <em>immediately</em>, and
+only <em>then</em> — after the response bytes are already on their way to the browser — run a function you
+queued up. The browser gets an instant "yes, I created your repo, here's its id, status is pending" and can
+immediately start polling a separate progress endpoint (Part 11) to watch it work.
+</div>
+
+<pre class="code"><code>async def _run_ingest(repo_id: str, github_url: str, pool, config) -> None:
+    conn = await asyncio.to_thread(pool.getconn)
+    try:
+        progress_store.start(repo_id)
+        try:
+            await ingest_repo(
+                github_url, conn, config, repo_id=repo_id,
+                on_event=lambda step, detail: progress_store.record(repo_id, step, **detail),
+            )
+        except Exception as exc:
+            update_repo_status(conn, repo_id, "failed", str(exc))
+            progress_store.record(repo_id, "failed", error=str(exc))
+    finally:
+        await asyncio.to_thread(pool.putconn, conn)</code></pre>
+<div class="explain">
+<ul>
+  <li>This function borrows its <em>own</em> connection from the shared pool
+      (<code>pool.getconn</code>) — it cannot reuse the connection the original request used, because
+      by the time this runs, that request is long finished and its connection has already gone back to
+      the pool for some <em>other</em> request to borrow.</li>
+  <li><code>asyncio.to_thread(pool.getconn)</code> — <code>getconn</code>/<code>putconn</code> are plain
+      blocking calls (they're not <code>async def</code> themselves), so running them directly inside this
+      <code>async def</code> function would freeze the entire event loop for that moment. Wrapping them in
+      <code>to_thread</code> hands them off to a background OS thread so the event loop stays free to serve
+      other requests while this borrow/return happens.</li>
+  <li><code>progress_store.start(repo_id)</code> initializes an in-memory progress record — explained fully
+      in Part 11 — that the frontend's polling loop reads from.</li>
+  <li>The call to <code>ingest_repo</code> is wrapped in its own <code>try/except</code> as a second,
+      narrower safety net. <code>ingest_repo</code> itself already promises to never raise (Part 12 covers
+      exactly how) — but this outer catch exists in case something goes wrong <em>outside</em> that
+      promise, such as <code>progress_store</code> itself misbehaving. <code>BackgroundTasks</code> has no
+      supervisor of its own: an uncaught exception here would be silently swallowed by FastAPI's internals,
+      leaving the repo stuck at <code>"indexing"</code> forever with absolutely no explanation visible
+      anywhere in the UI. This except block is what guarantees that never happens.</li>
+  <li><code>on_event=lambda step, detail: progress_store.record(...)</code> — this is how <code>ingest_repo</code>,
+      a function that otherwise has no idea a web frontend even exists, reports its progress back out. It's
+      handed a plain callback function; every time it reaches a new stage internally, it calls this callback
+      with a short string name and whatever details it has. This is the same pattern used for the CLI, which
+      passes no callback at all (Part 11 explains why that's safe).</li>
+</ul>
+</div>
+
+<div class="note">
+<strong>Retry uses the exact same background-task mechanism.</strong> <code>POST /repos/{id}/retry</code>
+(Part 12) calls the identical <code>_run_ingest</code> function, just with the existing <code>repo_id</code>
+instead of a freshly created one — which is the whole fix for a real bug this project shipped and later
+caught: retrying a failed index used to just call <code>POST /repos</code> again with the same URL, and
+because <code>create_repo</code> has no uniqueness constraint on <code>github_url</code>, every retry
+silently created a brand-new duplicate row. A dedicated retry endpoint that always operates on the one
+existing <code>repo_id</code> makes that bug structurally impossible now.
+</div>
+
+</section>
+
+<section class="part" id="p3">
+<h2>Part 3 — Cloning the repo</h2>
+<p class="part-sub">Getting the repo's actual files onto disk, where tree-sitter can read them.</p>
+<p class="filebar">Files: <code>sleuth/ingest/clone.py</code>, <code>sleuth/ingest/pipeline.py</code></p>
+
+<div class="concept">
+<strong class="tag">Concept — why clone at all, why not read files over the GitHub API?</strong>
+GitHub's REST API can fetch individual file contents, but fetching an entire repo file-by-file over HTTP
+would mean one API call per file (rate-limited, slow, and GitHub's API has its own request quotas). A
+<code>git clone</code> gets every file in one operation, using git's own efficient transfer protocol, and
+leaves you with a completely normal local directory that every other tool in this pipeline (tree-sitter,
+plain file I/O) already knows how to read.
+</div>
+
+<pre class="code"><code>def clone_repo(url: str, dest_dir: str, retries: int = 2, backoff_seconds: float = 2.0) -> Path:
+    dest = Path(dest_dir)
+    attempt = 0
+    while True:
+        result = subprocess.run(
+            ["git", "clone", "--depth", "1", url, str(dest)],
+            capture_output=True, text=True,
+        )
+        if result.returncode == 0:
+            return dest
+
+        stderr = result.stderr.strip()
+        is_transient = any(pattern in stderr.lower() for pattern in TRANSIENT_CLONE_ERROR_PATTERNS)
+        if is_transient and attempt &lt; retries:
+            if dest.exists():
+                shutil.rmtree(dest, ignore_errors=True)
+            time.sleep(backoff_seconds)
+            attempt += 1
+            continue
+
+        raise CloneError(stderr)</code></pre>
+<div class="explain">
+<ul>
+  <li><code>--depth 1</code> is a <strong>shallow clone</strong> — it fetches only the latest commit's
+      snapshot of every file, not the entire commit history. SLEUTH only ever needs to read the current
+      state of the code, never <code>git log</code> or diff against an old commit, so downloading the
+      full history (which can be enormous for old, active repos) would be pure waste.</li>
+  <li><code>subprocess.run(["git", "clone", ...])</code> literally shells out to the real <code>git</code>
+      binary installed on the machine — this project deliberately doesn't use a Python git library, since
+      the actual <code>git</code> CLI is the one thing guaranteed to handle every protocol/auth edge case
+      correctly.</li>
+  <li><code>capture_output=True, text=True</code> captures stdout/stderr as decoded strings instead of
+      letting them print to the terminal — <code>result.returncode</code> and <code>result.stderr</code>
+      are then inspected in code instead of a human reading console output.</li>
+  <li>The retry loop exists because of a real, confirmed-live bug: git-for-windows can fail a clone with
+      <code>"getaddrinfo() thread failed to start"</code> — a WinSock thread-pool exhaustion glitch — that
+      succeeds immediately if you just try again. <code>TRANSIENT_CLONE_ERROR_PATTERNS</code> is a list of
+      substrings (<code>"getaddrinfo"</code>, <code>"connection reset"</code>, etc.) that identify this
+      class of "try again, it'll probably work" failure, as opposed to "this repo genuinely doesn't exist
+      or you don't have access," which should fail immediately and clearly instead of being retried.</li>
+  <li>On a genuine (non-transient) failure, this raises <code>CloneError(stderr)</code> — carrying git's
+      own human-readable error text straight through, so a real error like
+      <code>"fatal: could not read Username for 'https://github.com'"</code> (a private repo with no
+      credentials) ends up verbatim in the repo's <code>error_message</code> column for the user to see.</li>
+</ul>
+</div>
+
+<p>Back in the pipeline, this is called from inside a <code>try/except</code> that's the very first "never raise" exit point:</p>
+<pre class="code"><code>try:
+    repo_path = clone_repo(github_url, workdir)
+except CloneError as exc:
+    update_repo_status(conn, repo_id, "failed", str(exc))
+    conn.commit()
+    emit("failed", error=str(exc))
+    return repo_id</code></pre>
+<p class="explain">
+If cloning fails, indexing stops <em>right here</em> — there's no code to parse yet, so nothing downstream
+can run anyway. The repo goes straight to <code>status = "failed"</code> with git's real error message
+attached, and the function returns cleanly instead of letting the exception propagate.
+</p>
+
+</section>
+
+<section class="part" id="p4">
+<h2>Part 4 — Walking the file tree</h2>
+<p class="part-sub">Deciding which of the repo's files are even worth looking at.</p>
+<p class="filebar">Files: <code>sleuth/ingest/clone.py::list_source_files</code>, <code>sleuth/ingest/parse.py</code></p>
+
+<pre class="code"><code>def list_source_files(repo_path: Path, extensions: set[str]) -> list[Path]:
+    files = []
+    for path in Path(repo_path).rglob("*"):
+        if ".git" in path.parts:
+            continue
+        if path.is_file() and path.suffix in extensions:
+            files.append(path)
+    return files</code></pre>
+<div class="explain">
+<ul>
+  <li><code>Path(repo_path).rglob("*")</code> — <strong>recursive glob</strong>: walks every file and
+      directory under <code>repo_path</code>, at every depth, matching everything (<code>*</code>).</li>
+  <li><code>if ".git" in path.parts: continue</code> — every clone has a <code>.git/</code> folder full of
+      git's own internal bookkeeping (object database, refs, etc.). None of that is source code, so it's
+      explicitly skipped rather than accidentally chunked as if it were.</li>
+  <li><code>path.suffix in extensions</code> — only files whose extension is in the supported set get kept.
+      That set (<code>SUPPORTED_EXTENSIONS</code> in <code>pipeline.py</code>) is built directly from the
+      language registry in <code>sleuth/ingest/parse.py</code>: <code>.py</code>, <code>.js</code>,
+      <code>.ts</code>, <code>.jsx</code>, <code>.tsx</code>, <code>.vue</code>, <code>.html</code>,
+      <code>.css</code> — every language SLEUTH has a tree-sitter grammar for (Parts 5-6, and
+      <code>pipeline-deep-dive.html</code> Part 18 for the multi-language chunkers specifically).
+      Anything else — images, lockfiles, markdown, compiled binaries — is silently never looked at.</li>
+</ul>
+</div>
+<div class="note">
+<strong>Why this list is built from the registry, not hardcoded here:</strong> if a new language chunker
+gets added later, this function needs zero changes — it automatically starts including that extension the
+moment a <code>LanguageSpec</code> for it exists in the registry. One source of truth for "what languages
+does SLEUTH understand," read from everywhere else that needs the answer.
+</div>
+
+</section>
+
+<section class="part" id="p5">
+<h2>Part 5 — Parsing: turning text into a tree</h2>
+<p class="part-sub">The first real structural step: making the computer understand code as <em>syntax</em>, not just text.</p>
+<p class="filebar">Files: <code>sleuth/ingest/parse.py</code></p>
+
+<div class="concept">
+<strong class="tag">Concept — why not just split files by blank lines, or every N characters?</strong>
+The naive approach to "chunking" a document is splitting it into fixed-size windows — every 500 characters,
+say. That's fine for prose, but it's actively bad for code: a fixed window can slice a function in half,
+separate a function's signature from its body, or bundle three unrelated functions into one chunk purely
+because they happened to land in the same character range. What you actually want are chunks aligned to
+<em>meaningful</em> boundaries — "this is one whole function," "this is one whole class" — and the only way
+to know where those boundaries are is to actually understand the code's grammar. <strong>tree-sitter</strong>
+is a parser generator that, for dozens of languages, turns a file's raw text into a
+<strong>syntax tree</strong>: a nested structure where every node is labeled with what kind of language
+construct it is (<code>function_definition</code>, <code>class_definition</code>, <code>if_statement</code>,
+and so on), and every node knows exactly which byte range of the original text it spans.
+</div>
+
+<p>
+Concretely: <code>parse_source(source_bytes, language_key)</code> hands raw bytes to the tree-sitter parser
+for that language and gets back a <code>tree</code> object whose <code>.root_node</code> is the top of the
+whole file's syntax tree. Every node under it — nested arbitrarily deep — represents one syntactic construct,
+and crucially, every node exposes <code>.start_byte</code>/<code>.end_byte</code>, so once SLEUTH decides
+"this node is a chunk," it can slice the <em>exact</em> original text back out with
+<code>source_bytes[node.start_byte:node.end_byte]</code> — no re-formatting, no risk of subtly rewriting the
+user's code.
+</p>
+<div class="note">
+<strong>Why bytes, not strings:</strong> tree-sitter's node byte offsets are counted in raw bytes, not Python
+Unicode characters — a multi-byte UTF-8 character (an emoji in a comment, say) would make string-index-based
+slicing land in the wrong place. Reading the file as <code>bytes</code> and slicing with byte offsets keeps
+everything consistent with what tree-sitter itself is counting.
+</div>
+
+</section>
+
+<section class="part" id="p6">
+<h2>Part 6 — Chunking: turning a tree into <code>Chunk</code> objects</h2>
+<p class="part-sub">Walking the syntax tree and deciding "this is one unit of retrievable code."</p>
+<p class="filebar">Files: <code>sleuth/ingest/chunk.py</code>, <code>sleuth/chunking.py</code></p>
+
+<pre class="code"><code>@dataclass
+class Chunk:
+    file_path: str
+    symbol_name: str | None
+    kind: str  # 'function' | 'method' | 'class' | 'module'
+    start_line: int
+    end_line: int
+    code_text: str
+
+    @property
+    def content_hash(self) -&gt; str:
+        return hashlib.sha256(self.code_text.encode("utf-8")).hexdigest()
+
+    @property
+    def is_doc(self) -&gt; bool:
+        return is_doc_path(self.file_path)</code></pre>
+<div class="explain">
+<ul>
+  <li><code>@dataclass</code> generates <code>__init__</code>/<code>__repr__</code>/<code>__eq__</code>
+      automatically from the field list — every one of the six fields above is set once at construction
+      and never mutated afterward.</li>
+  <li><code>content_hash</code> is a computed <strong>property</strong> — it's not stored, it's derived
+      fresh every time you ask for it, from a SHA-256 hash of the chunk's actual text. This one field is
+      the entire mechanism behind incremental re-indexing, covered fully in Part 7.</li>
+  <li><code>is_doc</code> flags any chunk that lives under a <code>docs/</code>, <code>doc/</code>, or
+      <code>documentation/</code> directory at any depth — hand-written architecture write-ups get chunked
+      and embedded exactly like real source (a <code>docs/architecture.html</code> file is a perfectly
+      valid, parseable HTML file), but retrieval needs to be able to tell "prose about the code" apart from
+      "the code itself" (see <code>how-chat-works.html</code> Part on ranking).</li>
+</ul>
+</div>
+
+<p>
+The actual walking-the-tree logic lives in a tree-sitter <strong>query</strong> — a small declarative
+pattern-matching language (not Python) that says "find me every node shaped like a function definition, or
+a class definition, or a method inside a class." The chunker runs this query against the parsed tree, and
+for each match it constructs a <code>Chunk</code>: the matched node's start/end lines, the symbol's name
+(pulled from a child <code>identifier</code> node within the match), a <code>kind</code> label, and the
+exact source text for that byte range.
+</p>
+<div class="note">
+<strong>A real bug this caught:</strong> the original chunker walked node <em>types</em> directly
+(<code>if node.type == "function_definition"</code>) instead of using a query. That missed <strong>wrapped</strong>
+nodes — <code>export class Foo {}</code> in JS/TS wraps the class inside an <code>export_statement</code>
+node, and <code>@app.get(...)</code> decorators in Python wrap the function inside a
+<code>decorated_definition</code> node — so decorated/exported functions were silently dropped, and the
+line spans for the "everything else" leftover chunk came out wrong. The fix was a query-based chunker that
+unwraps decorators/exports before classifying a node, while still keeping the <em>outer</em> node's full
+byte span so the exported/decorated wrapper text isn't lost.
+</div>
+
+</section>
+
+<section class="part" id="p7">
+<h2>Part 7 — The incremental re-index check</h2>
+<p class="part-sub">The single idea that makes re-running indexing on a mostly-unchanged repo nearly free.</p>
+<p class="filebar">Files: <code>sleuth/ingest/pipeline.py</code>, <code>sleuth/store.py</code></p>
+
+<div class="concept">
+<strong class="tag">Concept — why does this matter so much?</strong>
+Embedding calls cost real money and real time (Part 8) — every chunk sent to Voyage's API is a network
+round trip and a billable request. If someone re-indexes a repo they already indexed yesterday, and only
+one function actually changed since then, re-embedding all 2,000 chunks in that repo to update one of them
+would be enormously wasteful. The fix is to give every chunk a fingerprint of its own content, and only
+pay the embedding cost for chunks whose fingerprint actually changed.
+</div>
+
+<pre class="code"><code>current_keys = {(c.file_path, c.symbol_name) for c in all_chunks}
+existing_hashes = get_existing_hashes(conn, repo_id)
+
+to_embed = [
+    c for c in all_chunks
+    if existing_hashes.get((c.file_path, c.symbol_name)) != c.content_hash
+]</code></pre>
+<div class="explain">
+<ul>
+  <li>Every chunk is identified by the pair <code>(file_path, symbol_name)</code> — e.g.
+      <code>("sleuth/auth.py", "login")</code>. This is the chunk's <strong>identity</strong>: as long as
+      the function stays in the same file with the same name, it's considered "the same chunk," even if
+      its body changes completely.</li>
+  <li><code>current_keys</code> is every identity that exists in the repo <em>right now</em>, from this
+      fresh clone.</li>
+  <li><code>existing_hashes</code> is a dict pulled straight from Postgres — for every chunk already stored
+      for this <code>repo_id</code>, what <code>content_hash</code> did it have last time this repo was
+      indexed?</li>
+  <li>The list comprehension keeps only chunks whose <em>current</em> hash doesn't match the
+      <em>previously stored</em> hash for that same identity. <code>.get(...)</code> returns
+      <code>None</code> for a brand-new chunk that has no previous entry at all — and <code>None</code>
+      never equals a real hash string, so new chunks are automatically included too. If a function's body
+      hasn't changed a single character since last time, its hash is bit-for-bit identical, it's excluded
+      from <code>to_embed</code>, and it costs zero embedding calls this run.</li>
+</ul>
+</div>
+
+<p>
+The other half of "incremental" is noticing when code has been <em>deleted</em>:
+</p>
+<pre class="code"><code>delete_stale_chunks(conn, repo_id, current_keys)</code></pre>
+<p class="explain">
+If a function was removed (or a whole file was deleted) since the last index, its identity simply won't
+appear in <code>current_keys</code> this time, but a row for it still exists in Postgres from before.
+<code>delete_stale_chunks</code> (<code>sleuth/store.py</code>) diffs "what's stored" against "what
+currently exists" and deletes exactly the leftover rows — otherwise a deleted function would keep haunting
+every future search result forever, as a chunk that no longer corresponds to any real code.
+</p>
+
+</section>
+
+<section class="part" id="p8">
+<h2>Part 8 — Embedding: turning code into vectors</h2>
+<p class="part-sub">The step that actually makes "search by meaning" possible.</p>
+<p class="filebar">Files: <code>sleuth/ingest/embed.py</code>, <code>sleuth/http_retry.py</code>, <code>sleuth/chunking.py::format_chunk_context</code></p>
+
+<div class="concept">
+<strong class="tag">Concept — what is an embedding, actually?</strong>
+An <strong>embedding model</strong> is a neural network trained specifically to turn text into a fixed-length
+list of numbers — a <strong>vector</strong> — such that texts with similar <em>meaning</em> end up as
+vectors that are geometrically <em>close together</em> in that (very high-dimensional) space. This project
+uses Voyage AI's <code>voyage-code-3</code> model, which was specifically trained on code, and it always
+produces a vector of exactly 1024 numbers, no matter how long or short the input text is. "Geometrically
+close" here means <strong>cosine distance</strong> — literally the angle between two vectors — which is
+exactly the metric SLEUTH's search query uses later (Part 9, and <code>how-chat-works.html</code>). The
+entire premise of RAG rests on this one idea: if two pieces of text mean similar things, their embedding
+vectors will land near each other, so "find code relevant to this question" becomes "find the nearest
+vectors to this question's vector" — a purely geometric operation a database can do extremely fast.
+</div>
+
+<h4>Formatting a chunk before embedding it</h4>
+<pre class="code"><code>def format_chunk_context(chunk: Chunk, language: str) -&gt; str:
+    symbol = chunk.symbol_name or "(module level)"
+    header = (
+        f"# File: {chunk.file_path}\n"
+        f"# {chunk.kind}: {symbol}\n"
+        f"# Language: {language}\n\n"
+    )
+    return header + chunk.code_text</code></pre>
+<p class="explain">
+The embedding model never sees just the bare function body — it sees a small header naming the file, the
+kind of construct, and the language, prepended in front of the real code. A function called
+<code>process</code> could mean radically different things in <code>payments/process.py</code> versus
+<code>images/process.py</code>; giving the embedding model that context lets it produce a vector that
+actually reflects the surrounding meaning, not just the isolated code text in a vacuum.
+</p>
+
+<h4>Sending it to Voyage, with pacing and concurrency limits</h4>
+<pre class="code"><code>async def embed_batch(self, texts: list[str], on_batch_done=None) -&gt; list[list[float]]:
+    batches = [texts[i : i + self.batch_size] for i in range(0, len(texts), self.batch_size)]
+    semaphore = asyncio.Semaphore(self.max_concurrency)
+    ...
+    async with httpx.AsyncClient() as client:
+        results = await asyncio.gather(*(run_one(client, batch) for batch in batches))</code></pre>
+<div class="explain">
+<ul>
+  <li><code>texts</code> (potentially hundreds of chunks) is sliced into <code>batch_size</code>-sized
+      groups — Voyage's API accepts many texts per HTTP call, so batching turns e.g. 500 individual
+      network round trips into a handful.</li>
+  <li><code>asyncio.Semaphore(max_concurrency)</code> caps how many batches are "in flight" to Voyage at
+      once — a counter that lets at most <code>max_concurrency</code> coroutines proceed simultaneously,
+      everyone else waits their turn. This is what prevents SLEUTH from firing every batch at Voyage all at
+      once and getting instantly rate-limited.</li>
+  <li><code>asyncio.gather(*(...))</code> runs every batch's coroutine <em>concurrently</em> (not one after
+      another) and waits for all of them to finish, returning results in the same order they were given —
+      the actual mechanism that makes "many slow network calls" take roughly as long as the <em>slowest
+      one</em>, instead of the sum of all of them.</li>
+  <li><code>on_batch_done(completed, total)</code> fires after every batch finishes — this is exactly what
+      powers the Indexing screen's live "Embedded: 340/612" counter (Part 11).</li>
+</ul>
+</div>
+
+<div class="warn">
+<strong>The free tier's real, confirmed limit:</strong> a Voyage API key with no billing method attached is
+hard-capped at 3 requests/minute and 10K tokens/minute (confirmed directly against the live API — it comes
+back in an <code>x-api-warning</code> response header). <code>FREE_TIER_BATCH_SIZE = 10</code>,
+<code>FREE_TIER_MAX_CONCURRENCY = 1</code>, and <code>FREE_TIER_REQUESTS_PER_MINUTE = 3</code> are tuned
+specifically to stay under that cap: small batches keep any single request's token count well under 10K,
+and a <em>request pacer</em> (a separate mechanism from the semaphore — it spaces out when requests
+<em>start</em>, not just how many run at once) guarantees consecutive requests are never closer than 20
+seconds apart, regardless of how fast responses actually come back. Retrying a 429 alone can't fix a
+request pattern that's structurally over the limit — the pacer is what actually keeps you under it in the
+first place.
+</div>
+
+<h4>Retrying transient failures</h4>
+<p>
+Every HTTP call to Voyage/Groq/NIM goes through one shared helper, <code>post_with_retry</code>
+(<code>sleuth/http_retry.py</code>): on a 429 or 5xx or network-level error, it waits briefly and retries
+<em>once</em>, then gives up and lets the real exception propagate. One centralized retry policy means
+every provider gets the same resilience without each embedder/generator re-implementing its own backoff
+logic — and it means there's exactly one place to look if retry behavior is ever wrong.
+</p>
+
+</section>
+
+<section class="part" id="p9">
+<h2>Part 9 — Writing to Postgres: upsert and stale-chunk cleanup</h2>
+<p class="part-sub">Getting the (chunk, vector) pairs durably stored, ready for millisecond search later.</p>
+<p class="filebar">Files: <code>sleuth/store.py</code>, <code>schema.sql</code></p>
+
+<pre class="code"><code>INSERT INTO chunks
+    (repo_id, file_path, symbol_name, kind, start_line, end_line, code_text, content_hash, embedding, is_doc)
+VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+ON CONFLICT (repo_id, file_path, COALESCE(symbol_name, ''))
+DO UPDATE SET
+    kind = EXCLUDED.kind, start_line = EXCLUDED.start_line, end_line = EXCLUDED.end_line,
+    code_text = EXCLUDED.code_text, content_hash = EXCLUDED.content_hash,
+    embedding = EXCLUDED.embedding, is_doc = EXCLUDED.is_doc</code></pre>
+<div class="concept">
+<strong class="tag">Concept — what "upsert" means, and why <code>ON CONFLICT</code> matters here</strong>
+An <strong>upsert</strong> ("update or insert") is a single SQL statement that inserts a new row, unless a
+row already exists that would collide with a uniqueness rule — in which case it updates that existing row
+instead. Without this, re-indexing a changed function would either need a manual "does this already exist?
+if so update, else insert" round trip (two queries, and a race condition if two processes run it at the
+same moment), or would insert a <em>second</em> row for the same chunk, silently duplicating it forever.
+The <code>chunks_identity_idx</code> unique index on <code>(repo_id, file_path, COALESCE(symbol_name, ''))</code>
+is what defines "this is the same chunk as before" at the database level — <code>COALESCE(symbol_name, '')</code>
+treats a module-level chunk's <code>NULL</code> symbol name as an empty string for uniqueness purposes,
+since Postgres's uniqueness rules otherwise treat every <code>NULL</code> as distinct from every other
+<code>NULL</code>.
+</div>
+
+<h4>Why a vector column, and why HNSW</h4>
+<pre class="code"><code>embedding     vector(1024) NOT NULL
+...
+CREATE INDEX IF NOT EXISTS chunks_embedding_idx
+    ON chunks USING hnsw (embedding vector_cosine_ops);</code></pre>
+<p class="explain">
+<code>vector(1024)</code> is a column type from the <strong>pgvector</strong> Postgres extension — it
+stores a fixed-length array of floats natively, with its own comparison operators (<code>&lt;=&gt;</code>
+for cosine distance, used constantly in <code>how-chat-works.html</code>). Without an index, finding the
+nearest vectors to a query would mean computing the distance to <em>every single row</em> and sorting —
+correct, but linear in the number of chunks, which gets slow once a repo has thousands of them.
+<strong>HNSW</strong> ("Hierarchical Navigable Small World") is an approximate-nearest-neighbor index
+structure — instead of checking every vector, it builds a multi-layer graph where each vector is connected
+to its rough neighbors, so a search can "hop" toward the closest match in roughly logarithmic time instead
+of linear time. It trades a small amount of exactness (it might occasionally miss the single mathematically
+closest chunk) for a dramatic speedup — the right trade for "find roughly the 8 most relevant functions,"
+where being off by one rank almost never matters to a human reading the answer.
+</p>
+
+<div class="note">
+<strong>Doc-vs-code, a real production bug fixed here:</strong> the <code>is_doc</code> column exists
+because a hand-written architecture write-up under <code>docs/</code> — a real, parseable
+<code>.html</code> file — got chunked and embedded exactly like genuine source, and prose <em>about</em> an
+architecture question can score a <em>closer</em> cosine match than the actual implementation against that
+same question. Confirmed live: asking an architecture question against a repo with both real source and
+<code>docs/*.html</code> write-ups returned only doc excerpts, with the model correctly reporting it had no
+actual code to cite. <code>how-chat-works.html</code> covers exactly how retrieval uses this column to rank
+real code strictly ahead of documentation.
+</div>
+
+</section>
+
+<section class="part" id="p10">
+<h2>Part 10 — The new step: summarizing the whole repo <span class="badge">added post-launch</span></h2>
+<p class="part-sub">Why per-chunk search alone can't answer "rate my architecture," and what was added to fix it.</p>
+<p class="filebar">Files: <code>sleuth/summarize.py</code>, <code>sleuth/ingest/pipeline.py</code>, <code>sleuth/store.py</code></p>
+
+<div class="concept">
+<strong class="tag">Concept — the gap this closes</strong>
+Everything in Parts 5-9 produces chunks that are excellent answers to <em>local</em> questions — "where is
+the retry logic," "what does this function do." But a question like "rate my overall architecture" or
+"summarize this whole project" has no single chunk that <em>is</em> the answer — the top-8 nearest-neighbor
+chunks are just 8 arbitrary functions, not a coherent picture of the whole system. This was a real,
+reported gap in production use, and the fix is to produce one more artifact during indexing that
+<em>does</em> describe the whole repo: a short, LLM-written architecture summary.
+</div>
+
+<pre class="code"><code>def build_repo_map(chunks) -&gt; str:
+    lines = []
+    for c in chunks:
+        if c.is_doc:
+            continue
+        symbol = c.symbol_name or "(module level)"
+        lines.append(f"{c.file_path}: {c.kind} {symbol}")
+    return "\n".join(lines)
+
+
+async def summarize_repo(chunks, generator) -&gt; str | None:
+    if not chunks:
+        return None
+    repo_map = build_repo_map(chunks)
+    if not repo_map:
+        return None
+    messages = [
+        {"role": "system", "content": SUMMARY_SYSTEM_PROMPT},
+        {"role": "user", "content": repo_map},
+    ]
+    return "".join([token async for token in generator.chat(messages, stream=False)])</code></pre>
+<div class="explain">
+<ul>
+  <li><code>build_repo_map</code> deliberately sends the LLM <em>metadata only</em> — every non-doc
+      chunk's file path, kind, and symbol name, one line each — never full source text. This keeps the
+      prompt small and cheap regardless of how large the actual repo is, at the cost of the summary being
+      based on <em>structure</em> rather than deep implementation detail. That's an explicit, documented
+      trade-off (see <code>docs/superpowers/plans/2026-08-29-global-architecture-question-retrieval.md</code>):
+      a flat listing already fixes the reported gap, and a heavier hierarchical per-directory summarization
+      pass is deferred until an actual repo's file/symbol listing gets too large for one prompt.</li>
+  <li>This reuses the exact same <code>Generator</code> abstraction as chat generation
+      (<code>how-chat-works.html</code> covers it fully) — no new LLM provider code was written for this
+      feature, just a new prompt sent through the existing Groq/NIM chat interface with
+      <code>stream=False</code> (this step happens during background ingestion, nobody is watching tokens
+      arrive live, so there's no reason to stream them).</li>
+</ul>
+</div>
+
+<p>Wired into the pipeline, right after chunking finishes:</p>
+<pre class="code"><code>try:
+    generator = get_generator(config)
+    summary = await summarize_repo(all_chunks, generator)
+    if summary:
+        upsert_repo_summary(conn, repo_id, summary)
+        conn.commit()
+        emit("summarized")
+except Exception as exc:
+    emit("summary_failed", error=str(exc))</code></pre>
+<div class="note">
+<strong>Deliberately non-fatal.</strong> This whole block has its own private <code>try/except</code> that
+never re-raises — a flaky or rate-limited Groq call here must not block the rest of indexing (embedding,
+storing chunks, marking the repo ready) from succeeding. Local-search chat is the thing that already works
+reliably; summarization is additive, so its failure mode is "skip storing a summary and keep going," not
+"fail the whole repo." <code>repo_summaries</code> is a new table, one row per repo
+(<code>repo_id uuid PRIMARY KEY REFERENCES repos(id) ON DELETE CASCADE</code>), overwritten wholesale on
+every re-index rather than versioned or appended to.
+</div>
+
+<div class="warn">
+<strong>Caveat that matters in practice:</strong> a repo that was indexed <em>before</em> this feature
+existed has no summary row at all until it's re-indexed — asking it an architecture question today simply
+gets no summary block prepended (the same as if this feature had never been built for that repo), not an
+error. Same backfill caveat the <code>is_doc</code> column has.
+</div>
+
+</section>
+
+<section class="part" id="p11">
+<h2>Part 11 — Watching it happen: progress events end to end</h2>
+<p class="part-sub">How the Indexing screen's live "Clone → Parse → Chunk → Embed → Store" tracker actually gets its data.</p>
+<p class="filebar">Files: <code>sleuth/api/progress_store.py</code>, <code>sleuth/api/routes/repos.py</code>, <code>web/src/components/IndexingScreen.jsx</code></p>
+
+<div class="concept">
+<strong class="tag">Concept — how does a browser see progress happening inside a background task it can't touch?</strong>
+The browser has no direct connection to the background task running inside the server process — it can
+only make new HTTP requests. The pattern used here is <strong>polling</strong>: the frontend asks
+"what's the latest status?" over and over on a short timer, and the backend keeps an in-memory record of
+"the most recent thing that happened for this repo_id" that each poll can read. This is deliberately
+simpler than something like WebSockets (a truly live, pushed connection) — polling every 1.5 seconds is
+plenty responsive for something that takes tens of seconds to minutes, and it needs zero new
+infrastructure: it's the exact same plain HTTP GET the rest of this app already uses everywhere.
+</div>
+
+<pre class="code"><code>def record(repo_id: str, step: str, **detail) -&gt; None:
+    with _lock:
+        entry = _progress.setdefault(
+            repo_id, {"step": step, "detail": {}, "log": [], "started_at": time.monotonic()}
+        )
+        entry["step"] = step
+        entry["detail"] = detail
+        entry["log"].append({"step": step, **detail})
+        entry["log"] = entry["log"][-20:]
+        _progress.move_to_end(repo_id)
+        _evict_oldest_if_over_cap()</code></pre>
+<div class="explain">
+<ul>
+  <li><code>_progress</code> is a plain in-process Python dict (an <code>OrderedDict</code>, specifically)
+      keyed by <code>repo_id</code> — this lives only in server memory, not in Postgres. It doesn't need to
+      survive a server restart; it only needs to answer "what's happening right now."</li>
+  <li><code>with _lock:</code> — a plain <code>threading.Lock</code>. Multiple ingest tasks for different
+      repos could be running "concurrently" (interleaved, on the event loop) at once, all writing into this
+      same shared dict; the lock ensures one write finishes cleanly before another starts, so entries never
+      get corrupted by two writes interleaving mid-update.</li>
+  <li><code>entry["log"] = entry["log"][-20:]</code> caps the kept history at the last 20 events per repo —
+      the Indexing screen only shows a short scrolling log, so nothing is gained by keeping every event
+      forever, and this bounds memory per repo.</li>
+  <li><code>_evict_oldest_if_over_cap()</code>/<code>_MAX_TRACKED_REPOS = 500</code> — a simple
+      insertion-order LRU across <em>all</em> repos: once 500 repos have an entry, the oldest one is
+      dropped to make room. Without this, a long-running server ingesting many repos over its lifetime
+      would leak a little memory forever, one entry at a time, never freed.</li>
+</ul>
+</div>
+
+<p>The frontend side is a plain polling loop, widening/narrowing its interval based on whether anything's actually still in flight:</p>
+<pre class="code"><code>const interval = setInterval(() => {
+  if (repoRef.current && (repoRef.current.status === 'ready' || repoRef.current.status === 'failed')) {
+    clearInterval(interval);
+    return;
+  }
+  poll();
+}, 1500);</code></pre>
+<p class="explain">
+Once a repo reaches a <strong>terminal status</strong> — <code>ready</code> or <code>failed</code> — there
+is nothing left to observe, so the interval clears itself rather than polling forever for no reason. A
+retry (Part 12) bumps a <code>pollGeneration</code> React state value, which the surrounding effect is
+watching — that re-runs the whole effect and starts a <em>fresh</em> interval, since the previous one
+already permanently stopped itself when the repo first reached <code>failed</code>.
+</p>
+
+<div class="note">
+<strong>Why the CLI never needs any of this:</strong> the CLI (<code>sleuth add &lt;url&gt;</code>) calls
+<code>ingest_repo</code> with no <code>on_event</code> callback at all — it just <code>await</code>s the
+whole function and prints a final result when it's done, because there's no separate browser process
+watching; the same terminal that started the command is still attached and will simply show the command as
+"running" the whole time. <code>on_event</code> defaulting to <code>None</code> (and every internal
+<code>emit(...)</code> call checking <code>if on_event:</code> before calling it) is what makes this one
+function serve both the CLI and the web app without needing two separate implementations.
+</div>
+
+</section>
+
+<section class="part" id="p12">
+<h2>Part 12 — When things go wrong: failure, retry, delete</h2>
+<p class="part-sub">The three ways a repo's story can deviate from the happy path, and exactly what code handles each.</p>
+<p class="filebar">Files: <code>sleuth/ingest/pipeline.py</code>, <code>sleuth/api/routes/repos.py</code>, <code>sleuth/store.py</code>, <code>web/src/components/RepoList.jsx</code>, <code>IndexingScreen.jsx</code></p>
+
+<h4>Failure: the outer safety net</h4>
+<pre class="code"><code>async def ingest_repo(github_url: str, conn, config: Config, on_event=None, repo_id: str | None = None) -&gt; str:
+    def emit(step: str, **detail) -&gt; None:
+        if on_event:
+            on_event(step, detail)
+
+    if repo_id is None:
+        repo_id = _find_or_create_repo(conn, github_url)
+    update_repo_status(conn, repo_id, "indexing")
+    conn.commit()
+    emit("cloning")
+
+    try:
+        return await _run_ingest_steps(github_url, conn, config, repo_id, emit)
+    except Exception as exc:
+        update_repo_status(conn, repo_id, "failed", str(exc))
+        conn.commit()
+        emit("failed", error=str(exc))
+        return repo_id</code></pre>
+<div class="explain">
+<ul>
+  <li>Every real step (clone, parse, chunk, embed, upsert) lives inside <code>_run_ingest_steps</code>, and
+      <code>ingest_repo</code> wraps the <em>entire call</em> in one <code>try/except Exception</code>.
+      This is the literal implementation of the documented contract "<code>ingest_repo</code> never
+      raises" — whatever actually goes wrong (Voyage rejects the API key, Postgres refuses a write, a bug
+      in the chunker), the repo ends up at <code>status = "failed"</code> with that exception's message
+      attached, and the function returns normally instead of an unhandled exception propagating up into
+      whatever called it (a background task with no supervisor of its own, or a CLI command).</li>
+  <li>The clone-specific <code>except CloneError</code> seen in Part 3 is a <em>narrower</em>, earlier catch
+      inside <code>_run_ingest_steps</code> — it exists so a clone failure can be reported with git's exact
+      error text specifically. This outer <code>except Exception</code> is the last-resort net underneath
+      that, catching literally anything else that wasn't specifically anticipated.</li>
+</ul>
+</div>
+
+<h4>Retry: same row, not a new one</h4>
+<pre class="code"><code>@router.post("/repos/{repo_id}/retry", response_model=RepoOut)
+def retry_repo(repo_id: str, request: Request, background_tasks: BackgroundTasks, user: dict = Depends(require_session)) -&gt; RepoOut:
+    conn = request.state.conn
+    config = request.state.config
+    repo = get_repo(conn, repo_id, user_id=user["id"])
+    if repo is None:
+        raise HTTPException(status_code=404, detail="repo not found")
+    update_repo_status(conn, repo_id, "pending")
+    conn.commit()
+    background_tasks.add_task(_run_ingest, repo_id, repo["github_url"], request.app.state.pool, config)
+    return RepoOut(**get_repo(conn, repo_id, user_id=user["id"]))</code></pre>
+<p class="explain">
+This route takes the existing <code>repo_id</code> from the URL path itself, looks up its
+<code>github_url</code> from the row already in the database (never trusting a URL the client might send),
+and re-runs the exact same <code>_run_ingest</code> background task from Part 2 against that same row.
+Structurally, there is no code path here that creates a second row for the same repo — which is the actual
+fix for the duplicate-row bug mentioned back in Part 2.
+</p>
+
+<h4>Delete: a hard, cascading removal</h4>
+<pre class="code"><code>def delete_repo(conn: psycopg.Connection, repo_id: str) -&gt; None:
+    conn.execute("DELETE FROM repos WHERE id = %s", (repo_id,))</code></pre>
+<p class="explain">
+One statement. Every table that references <code>repos.id</code> — <code>chunks</code>,
+<code>repo_summaries</code>, <code>chats</code> (and <code>messages</code>, which itself cascades off
+<code>chats</code>) — was declared with <code>REFERENCES repos(id) ON DELETE CASCADE</code> in
+<code>schema.sql</code>. That's a foreign-key constraint telling Postgres itself "if the parent row goes
+away, automatically delete every row that points at it, in every table, transitively." So one
+<code>DELETE FROM repos</code> takes the repo's chunks, its architecture summary, and every conversation
+ever had about it, all in one atomic operation — no application code has to remember to clean up each
+table by hand, and there's no window where an orphaned chat could be left pointing at a
+<code>repo_id</code> that no longer resolves to anything.
+</p>
+<div class="note">
+<strong>Why this is destructive with no undo:</strong> the (not-yet-built) Repo Settings screen's own
+design copy already frames this action as destructive — "its index is deleted and past conversations about
+it become read-only" — so a hard cascading delete matches the intended semantics rather than adding a
+soft-delete/undo layer the design never called for. The frontend gates this behind an inline
+click-to-confirm precisely because it's irreversible.
+</div>
+
+</section>
+
+<section class="part" id="p13">
+<h2>Closing — the whole journey, one diagram</h2>
+
+<div class="diagram">
+Browser: paste URL, click "Add"
+   │
+   ▼  (Part 1)   POST /repos — validated, repo row created (status=pending), commits immediately
+   │             response sent back to browser INSTANTLY — nothing below has run yet
+   │
+   ▼  (Part 2)   BackgroundTasks fires _run_ingest AFTER the response is already on its way
+   │             borrows its own DB connection from the pool; status → "indexing"
+   │
+   ▼  (Part 3)   clone_repo() — shallow `git clone --depth 1`, retries transient network blips
+   │
+   ▼  (Part 4)   list_source_files() — walk the clone, keep only supported extensions
+   │
+   ▼  (Part 5)   tree-sitter parse_source() — text → syntax tree, per file
+   │
+   ▼  (Part 6)   query-based chunker — tree → list of Chunk objects (function/class/method/module)
+   │
+   ▼  (Part 7)   content_hash comparison — only chunks whose hash actually changed go to embedding
+   │
+   ▼  (Part 8)   format_chunk_context() + VoyageEmbedder.embed_batch() — bounded concurrency, paced,
+   │             retried once on transient failure — chunk text → 1024-float vector
+   │
+   ▼  (Part 9)   upsert_chunks() — INSERT ... ON CONFLICT DO UPDATE into pgvector `chunks` table
+   │             delete_stale_chunks() — remove rows for code that no longer exists
+   │
+   ▼  (Part 10)  summarize_repo() — one extra LLM call over a file/symbol listing, stored in
+   │             repo_summaries (non-fatal: a failure here doesn't fail the whole repo)
+   │
+   ▼             status → "ready"; temp clone directory deleted
+   │
+   ▼  (Part 11)  the whole way through, progress_store.record() fires after every step —
+                 the Indexing screen's 1.5s poll loop is what turns that into a live tracker
+</div>
+
+<p>
+That's the entire indexing story. Every arrow above is one function call you can open, read start to
+finish in under a minute, and reason about with no framework magic hiding what's actually happening — which
+was the whole design philosophy behind building this by hand instead of reaching for an off-the-shelf RAG
+library. The companion document, <code>docs/how-chat-works.html</code>, picks up exactly where this one
+ends: what happens the moment a <code>ready</code> repo gets asked a real question.
+</p>
+
+</section>
+
+<footer class="closing">
+<h2>What to do next</h2>
+<p>
+Read this once straight through, then go open the actual files it references — <code>sleuth/ingest/
+pipeline.py</code> is short enough to read in full in a few minutes, and every function it calls is
+covered somewhere above. Once the flow of "URL in, searchable rows out" feels solid, move to
+<code>docs/how-chat-works.html</code> for the other half of the system, and
+<code>docs/pipeline-deep-dive.html</code> for the deepest, most exhaustive line-by-line treatment of the
+underlying Python mechanics (dataclasses, ABCs, async/await, generators) this project leans on constantly.
+</p>
+</footer>
+
+</main>
+</body>
+</html>

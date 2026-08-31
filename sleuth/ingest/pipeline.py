@@ -5,8 +5,14 @@ from sleuth.chunking import format_chunk_context
 from sleuth.config import Config
 from sleuth.ingest.chunk import chunk_source
 from sleuth.ingest.clone import CloneError, clone_repo, list_source_files
-from sleuth.ingest.embed import VoyageEmbedder
+from sleuth.ingest.embed import (
+    FREE_TIER_BATCH_SIZE,
+    FREE_TIER_MAX_CONCURRENCY,
+    FREE_TIER_REQUESTS_PER_MINUTE,
+    VoyageEmbedder,
+)
 from sleuth.ingest.parse import LANGUAGES
+from sleuth.llm.generate import get_generator
 from sleuth.store import (
     create_repo,
     delete_stale_chunks,
@@ -14,7 +20,9 @@ from sleuth.store import (
     set_repo_embedding_info,
     update_repo_status,
     upsert_chunks,
+    upsert_repo_summary,
 )
+from sleuth.summarize import summarize_repo
 
 SUPPORTED_EXTENSIONS = set(LANGUAGES.keys())
 EXTENSION_TO_LANGUAGE = {ext: spec.key for ext, spec in LANGUAGES.items()}
@@ -40,7 +48,37 @@ async def ingest_repo(github_url: str, conn, config: Config, on_event=None, repo
     conn.commit()
     emit("cloning")
 
-    embedder = VoyageEmbedder(api_key=config.voyage_api_key)
+    # ingest_repo's documented contract (CLAUDE.md) is "never raises —
+    # failures land in repos.status = 'failed'". Only clone_repo()'s
+    # CloneError was actually caught below; anything past that point —
+    # embedder.embed_batch() hitting Voyage (network error, bad/expired
+    # API key, rate limit exhausted after http_retry's one retry),
+    # upsert_chunks()/other store calls hitting Postgres, even a bug in
+    # chunk_source() — propagated straight out uncaught. Since the only
+    # caller (repos.py::_run_ingest, a FastAPI BackgroundTask) has no
+    # try/except of its own either, that exception vanished into
+    # BackgroundTasks' internal logging with the repo permanently stuck at
+    # status='indexing': no error shown, no retry button ever appears,
+    # because IndexingScreen's isFailed only lights up once status is
+    # actually 'failed'. Wrapping the whole body closes that gap for real,
+    # instead of only for the one failure mode (clone) that happened to be
+    # handled already.
+    try:
+        return await _run_ingest_steps(github_url, conn, config, repo_id, emit)
+    except Exception as exc:
+        update_repo_status(conn, repo_id, "failed", str(exc))
+        conn.commit()
+        emit("failed", error=str(exc))
+        return repo_id
+
+
+async def _run_ingest_steps(github_url: str, conn, config: Config, repo_id: str, emit) -> str:
+    embedder = VoyageEmbedder(
+        api_key=config.voyage_api_key,
+        batch_size=FREE_TIER_BATCH_SIZE,
+        max_concurrency=FREE_TIER_MAX_CONCURRENCY,
+        requests_per_minute=FREE_TIER_REQUESTS_PER_MINUTE,
+    )
 
     workdir = tempfile.mkdtemp(prefix="sleuth-clone-")
     try:
@@ -68,6 +106,21 @@ async def ingest_repo(github_url: str, conn, config: Config, on_event=None, repo
             all_chunks.extend(chunks)
         emit("parsed", parsed=len(files) - skipped, skipped=skipped)
         emit("chunked", chunks=len(all_chunks))
+
+        # Summarization failure is deliberately non-fatal: a flaky/rate-
+        # limited Groq call here must not block local-search chat (the
+        # thing that actually works today) from ever becoming available.
+        # ingest_repo's outer wrapper would otherwise catch this and mark
+        # the WHOLE repo failed over what's really an optional add-on.
+        try:
+            generator = get_generator(config)
+            summary = await summarize_repo(all_chunks, generator)
+            if summary:
+                upsert_repo_summary(conn, repo_id, summary)
+                conn.commit()
+                emit("summarized")
+        except Exception as exc:
+            emit("summary_failed", error=str(exc))
 
         current_keys = {(c.file_path, c.symbol_name) for c in all_chunks}
         existing_hashes = get_existing_hashes(conn, repo_id)

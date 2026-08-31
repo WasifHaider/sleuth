@@ -38,6 +38,46 @@ def test_clone_repo_raises_on_invalid_source(tmp_path):
         clone_repo(str(tmp_path / "does_not_exist"), str(dest))
 
 
+def test_clone_repo_retries_on_transient_network_error(tmp_path, monkeypatch):
+    dest = tmp_path / "cloned"
+    calls = []
+
+    def fake_run(cmd, capture_output, text):
+        calls.append(cmd)
+        if len(calls) == 1:
+            return subprocess.CompletedProcess(
+                cmd, returncode=128, stdout="", stderr="fatal: unable to access 'https://x/': getaddrinfo() thread failed to start"
+            )
+        dest.mkdir(exist_ok=True)
+        return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    monkeypatch.setattr("sleuth.ingest.clone.time.sleep", lambda _seconds: None)
+
+    result = clone_repo("https://x/", str(dest))
+
+    assert result == dest
+    assert len(calls) == 2
+
+
+def test_clone_repo_does_not_retry_on_permanent_error(tmp_path, monkeypatch):
+    dest = tmp_path / "cloned"
+    calls = []
+
+    def fake_run(cmd, capture_output, text):
+        calls.append(cmd)
+        return subprocess.CompletedProcess(
+            cmd, returncode=128, stdout="", stderr="fatal: repository 'https://x/' does not exist"
+        )
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    with pytest.raises(CloneError):
+        clone_repo("https://x/", str(dest))
+
+    assert len(calls) == 1
+
+
 def test_list_source_files_filters_by_extension(local_git_repo):
     files = list_source_files(local_git_repo, {".py"})
 

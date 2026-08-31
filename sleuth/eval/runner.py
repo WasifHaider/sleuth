@@ -5,7 +5,12 @@ from pathlib import Path
 import yaml
 
 from sleuth.config import Config
-from sleuth.ingest.embed import VoyageEmbedder
+from sleuth.ingest.embed import (
+    FREE_TIER_BATCH_SIZE,
+    FREE_TIER_MAX_CONCURRENCY,
+    FREE_TIER_REQUESTS_PER_MINUTE,
+    VoyageEmbedder,
+)
 from sleuth.llm.generate import chat_with_fallback, get_fallback_chain, get_generator
 from sleuth.retrieve.answer import build_prompt
 from sleuth.retrieve.search import search_chunks
@@ -73,7 +78,12 @@ async def run_eval(golden_yaml_path: str, conn, config: Config) -> str:
     if row is None:
         raise ValueError(f"Repo {repo_id} not found")
 
-    embedder = VoyageEmbedder(api_key=config.voyage_api_key)
+    embedder = VoyageEmbedder(
+        api_key=config.voyage_api_key,
+        batch_size=FREE_TIER_BATCH_SIZE,
+        max_concurrency=FREE_TIER_MAX_CONCURRENCY,
+        requests_per_minute=FREE_TIER_REQUESTS_PER_MINUTE,
+    )
     chain = get_fallback_chain(config)
     judge = get_generator(config)
 

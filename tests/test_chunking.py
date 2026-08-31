@@ -1,4 +1,4 @@
-from sleuth.chunking import Chunk, format_chunk_context
+from sleuth.chunking import Chunk, format_chunk_context, is_doc_path
 
 
 def test_content_hash_deterministic_and_sensitive_to_text():
@@ -29,3 +29,29 @@ def test_format_chunk_context_handles_module_level_symbol_none():
 
     assert "module" in text
     assert "import os" in text
+
+
+def test_is_doc_path_flags_docs_directory_at_any_depth():
+    assert is_doc_path("docs/recruiter-authentication.html")
+    assert is_doc_path("apps/backend/docs/sub-phase-d-plan.html")
+    assert is_doc_path("docs/superpowers/plans/2026-08-19-rag-web-app.md")
+
+
+def test_is_doc_path_handles_windows_style_separators():
+    assert is_doc_path("apps\\backend\\docs\\sub-phase-d-plan.html")
+
+
+def test_is_doc_path_ignores_real_source_files():
+    assert not is_doc_path("sleuth/api/routes/chat.py")
+    assert not is_doc_path("web/src/components/ChatScreen.jsx")
+    # A filename that merely CONTAINS "docs" isn't the same as a docs/
+    # directory segment — only an exact path-component match should count.
+    assert not is_doc_path("src/docsite_helpers.py")
+
+
+def test_chunk_is_doc_property_reflects_file_path():
+    doc_chunk = Chunk("docs/architecture.html", None, "element", 1, 2, "<p>hi</p>")
+    code_chunk = Chunk("sleuth/store.py", "get_repo", "function", 1, 2, "def get_repo(): ...")
+
+    assert doc_chunk.is_doc is True
+    assert code_chunk.is_doc is False

@@ -86,6 +86,26 @@ def test_voyage_embedder_metadata():
 
 @pytest.mark.asyncio
 @respx.mock
+async def test_embed_batch_paces_requests_to_respect_rate_limit():
+    import time
+
+    timestamps = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        timestamps.append(time.monotonic())
+        return httpx.Response(200, json={"data": [{"embedding": [0.1], "index": 0}]})
+
+    respx.post("https://api.voyageai.com/v1/embeddings").mock(side_effect=handler)
+
+    embedder = VoyageEmbedder(api_key="k", batch_size=1, max_concurrency=2, requests_per_minute=120)
+    await embedder.embed_batch(["a", "b"])
+
+    assert len(timestamps) == 2
+    assert timestamps[1] - timestamps[0] >= 0.5
+
+
+@pytest.mark.asyncio
+@respx.mock
 async def test_embed_batch_reports_progress_via_callback():
     def handler(request: httpx.Request) -> httpx.Response:
         return httpx.Response(200, json={"data": [{"embedding": [0.1], "index": 0}]})

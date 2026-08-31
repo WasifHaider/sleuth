@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { LogoMark } from './Logo';
 
 function useReveal() {
   const rootRef = useRef(null);
@@ -26,16 +27,6 @@ function useReveal() {
     };
   }, []);
   return rootRef;
-}
-
-function LogoMark() {
-  return (
-    <div className="logo-mark" aria-hidden="true">
-      <span className="bar-top" />
-      <span className="bar-v" />
-      <span className="bar-h" />
-    </div>
-  );
 }
 
 function HeroBackground() {
