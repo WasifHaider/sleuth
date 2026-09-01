@@ -12,7 +12,6 @@ from sleuth.ingest.embed import (
     VoyageEmbedder,
 )
 from sleuth.ingest.parse import LANGUAGES
-from sleuth.llm.generate import get_generator
 from sleuth.store import (
     create_repo,
     delete_stale_chunks,
@@ -22,7 +21,7 @@ from sleuth.store import (
     upsert_chunks,
     upsert_repo_summary,
 )
-from sleuth.summarize import summarize_repo
+from sleuth.summarize import summarize_repo_agentic
 
 SUPPORTED_EXTENSIONS = set(LANGUAGES.keys())
 EXTENSION_TO_LANGUAGE = {ext: spec.key for ext, spec in LANGUAGES.items()}
@@ -112,9 +111,20 @@ async def _run_ingest_steps(github_url: str, conn, config: Config, repo_id: str,
         # thing that actually works today) from ever becoming available.
         # ingest_repo's outer wrapper would otherwise catch this and mark
         # the WHOLE repo failed over what's really an optional add-on.
+        #
+        # Uses the agentic tool loop (AgentSession, via
+        # summarize_repo_agentic) against the cloned repo directory on
+        # disk rather than a flat "file: kind symbol" listing sent in one
+        # unbounded prompt — that older approach's prompt size scaled
+        # linearly with repo size and could blow past Groq's request size
+        # limit on a large enough repo (413 Payload Too Large). The
+        # agentic version is bounded by AgentSession's MAX_ITERATIONS
+        # regardless of repo size: the model decides what's worth
+        # exploring (list_files/grep/read_file) and converges within a
+        # fixed number of round trips whether the repo has 50 files or
+        # 5,000.
         try:
-            generator = get_generator(config)
-            summary = await summarize_repo(all_chunks, generator)
+            summary = await summarize_repo_agentic(str(repo_path), config)
             if summary:
                 upsert_repo_summary(conn, repo_id, summary)
                 conn.commit()

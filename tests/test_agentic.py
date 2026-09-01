@@ -1,5 +1,8 @@
+import httpx
 import pytest
 
+from sleuth.config import Config
+from sleuth.retrieve.agent_session import AGENTIC_GROQ_MODEL, _default_agentic_chain
 from sleuth.retrieve.agentic import run_agentic
 
 
@@ -11,6 +14,19 @@ class FakeGenerator:
     async def chat(self, messages: list[dict], stream: bool = True):
         self.calls.append(messages)
         yield self.responses.pop(0)
+
+
+class FailingGenerator:
+    """Stands in for a generator whose HTTP call fails every time."""
+
+    def __init__(self, exc: Exception):
+        self.exc = exc
+        self.calls: list[list[dict]] = []
+
+    async def chat(self, messages: list[dict], stream: bool = True):
+        self.calls.append(messages)
+        raise self.exc
+        yield ""  # pragma: no cover - keeps this an async generator function
 
 
 @pytest.mark.asyncio
@@ -107,3 +123,69 @@ async def test_run_agentic_hits_iteration_cap_and_notes_cut_short(tmp_path):
     assert "forced final answer" in result
     assert "cut short" in result.lower()
     assert len(fake.calls) == 7
+
+
+@pytest.mark.asyncio
+async def test_run_agentic_falls_back_to_next_generator_on_transient_failure(tmp_path):
+    failing = FailingGenerator(httpx.HTTPStatusError("boom", request=None, response=None))
+    fake = FakeGenerator(["Answer from the fallback generator"])
+
+    result = "".join(
+        [
+            t
+            async for t in run_agentic(
+                "what is this?", str(tmp_path), config=None, fallback_chain=[failing, fake]
+            )
+        ]
+    )
+
+    assert result == "Answer from the fallback generator"
+    assert len(failing.calls) == 1
+    assert len(fake.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_run_agentic_yields_friendly_message_when_all_generators_fail(tmp_path):
+    failing = FailingGenerator(httpx.HTTPStatusError("boom", request=None, response=None))
+
+    result = "".join(
+        [
+            t
+            async for t in run_agentic(
+                "what is this?", str(tmp_path), config=None, fallback_chain=[failing]
+            )
+        ]
+    )
+
+    assert "model backend" in result.lower() or "unavailable" in result.lower()
+    assert len(failing.calls) == 1
+
+
+def test_default_agentic_chain_uses_agentic_model_not_config_groq_model():
+    config = Config(
+        voyage_api_key="vk",
+        groq_api_key="gk",
+        groq_model="openai/gpt-oss-120b",  # the regular-Q&A model, deliberately different
+        database_url="unused",
+        nim_api_key=None,
+    )
+
+    chain = _default_agentic_chain(config)
+
+    assert len(chain) == 1
+    assert chain[0].model_name == AGENTIC_GROQ_MODEL
+    assert chain[0].model_name != config.groq_model
+
+
+def test_default_agentic_chain_includes_nim_fallback_when_key_present():
+    config = Config(
+        voyage_api_key="vk",
+        groq_api_key="gk",
+        groq_model="openai/gpt-oss-120b",
+        database_url="unused",
+        nim_api_key="nk",
+    )
+
+    chain = _default_agentic_chain(config)
+
+    assert len(chain) == 2

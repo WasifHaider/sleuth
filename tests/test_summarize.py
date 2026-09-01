@@ -1,69 +1,62 @@
 import pytest
 
-from sleuth.chunking import Chunk
-from sleuth.summarize import build_repo_map, summarize_repo
+from sleuth.summarize import summarize_repo_agentic
 
 
-def _chunk(file_path, symbol_name, kind="function"):
-    return Chunk(
-        file_path=file_path, symbol_name=symbol_name, kind=kind,
-        start_line=1, end_line=2, code_text="pass",
+class FakeGenerator:
+    def __init__(self, responses: list[str]):
+        self.responses = list(responses)
+        self.calls: list[list[dict]] = []
+
+    async def chat(self, messages: list[dict], stream: bool = True):
+        self.calls.append(list(messages))
+        yield self.responses.pop(0)
+
+
+@pytest.mark.asyncio
+async def test_summarize_repo_agentic_returns_final_answer_text(tmp_path):
+    (tmp_path / "main.py").write_text("def main():\n    pass\n")
+    fake = FakeGenerator(["This is a small utility script."])
+
+    summary = await summarize_repo_agentic(str(tmp_path), config=None, generator=fake)
+
+    assert summary == "This is a small utility script."
+
+
+@pytest.mark.asyncio
+async def test_summarize_repo_agentic_lets_the_model_explore_with_tools_first(tmp_path):
+    (tmp_path / "app.py").write_text("def create_app():\n    pass\n")
+    fake = FakeGenerator(
+        [
+            'TOOL: list_files {"glob": "*.py"}',
+            "This project exposes a create_app() entrypoint.",
+        ]
     )
 
+    summary = await summarize_repo_agentic(str(tmp_path), config=None, generator=fake)
 
-def test_build_repo_map_lists_every_file_and_symbol_once():
-    chunks = [
-        _chunk("sleuth/store.py", "create_repo"),
-        _chunk("sleuth/store.py", "get_repo"),
-        _chunk("sleuth/cli.py", None, kind="module"),
-    ]
-
-    repo_map = build_repo_map(chunks)
-
-    assert "sleuth/store.py" in repo_map
-    assert "create_repo" in repo_map
-    assert "get_repo" in repo_map
-    assert "sleuth/cli.py" in repo_map
-
-
-def test_build_repo_map_excludes_doc_chunks():
-    chunks = [
-        _chunk("sleuth/store.py", "create_repo"),
-        _chunk("docs/architecture.html", None, kind="module"),
-    ]
-
-    repo_map = build_repo_map(chunks)
-
-    assert "sleuth/store.py" in repo_map
-    assert "docs/architecture.html" not in repo_map
-
-
-class _FakeGenerator:
-    def __init__(self, response):
-        self.response = response
-        self.received_messages = None
-
-    async def chat(self, messages, stream=True):
-        self.received_messages = messages
-        yield self.response
+    assert summary == "This project exposes a create_app() entrypoint."
+    # The tool call's result (from the real file on disk) must have reached
+    # the model before it gave its final answer — i.e. this genuinely
+    # explored the repo rather than answering blind.
+    final_call_messages = fake.calls[-1]
+    tool_result_messages = [m["content"] for m in final_call_messages if "app.py" in m["content"]]
+    assert tool_result_messages
 
 
 @pytest.mark.asyncio
-async def test_summarize_repo_calls_generator_with_repo_map_and_returns_text():
-    chunks = [_chunk("sleuth/store.py", "create_repo")]
-    generator = _FakeGenerator("This is a RAG chatbot backend.")
+async def test_summarize_repo_agentic_returns_none_when_all_generators_fail():
+    import httpx
 
-    summary = await summarize_repo(chunks, generator)
+    class FailingGenerator:
+        async def chat(self, messages, stream=True):
+            raise httpx.HTTPStatusError("boom", request=None, response=None)
+            yield ""  # pragma: no cover
 
-    assert summary == "This is a RAG chatbot backend."
-    assert "sleuth/store.py" in generator.received_messages[-1]["content"]
+    summary = await summarize_repo_agentic("/tmp", config=None, fallback_chain=[FailingGenerator()])
 
-
-@pytest.mark.asyncio
-async def test_summarize_repo_returns_none_for_empty_chunk_list():
-    generator = _FakeGenerator("unused")
-
-    summary = await summarize_repo([], generator)
-
+    # Summarization failure is non-fatal by design (matches the old
+    # summarize_repo's contract) — a broken model backend must not raise
+    # out of this function and fail the whole ingest over an optional
+    # add-on step.
     assert summary is None
-    assert generator.received_messages is None  # never called

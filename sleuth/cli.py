@@ -6,6 +6,7 @@ from sleuth.config import load_config
 from sleuth.db import apply_schema, get_connection
 from sleuth.eval.runner import run_eval
 from sleuth.ingest.pipeline import ingest_repo
+from sleuth.repl import run_repl
 from sleuth.retrieve.agentic import run_agentic
 from sleuth.retrieve.answer import stream_answer
 from sleuth.store import list_repos
@@ -13,7 +14,11 @@ from sleuth.store import list_repos
 
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="sleuth")
-    subparsers = parser.add_subparsers(dest="command", required=True)
+    # Not required: running `sleuth` with no subcommand at all launches the
+    # interactive REPL against the current directory (Claude Code/Hermes
+    # style) instead of erroring — see main()'s "if args.command is None"
+    # branch below.
+    subparsers = parser.add_subparsers(dest="command", required=False)
 
     add_parser = subparsers.add_parser("add")
     add_parser.add_argument("github_url")
@@ -37,6 +42,10 @@ def _build_parser() -> argparse.ArgumentParser:
 async def main(argv: list[str] | None = None) -> None:
     args = _build_parser().parse_args(argv)
     config = load_config()
+
+    if args.command is None:
+        await run_repl(".", config)
+        return
 
     if args.command == "agentic":
         async for chunk in run_agentic(args.question, args.path, config):

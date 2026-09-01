@@ -78,7 +78,26 @@ class GroqGenerator(Generator):
 
 
 class NimGenerator(Generator):
-    model_name = "meta/llama-3.1-70b-instruct"
+    # meta/llama-3.1-70b-instruct (the original default) was retired from
+    # NVIDIA's NIM catalog — real calls to it now 410 Gone even though the
+    # model ID isn't listed at all in GET /v1/models. Empirically checked
+    # against the current catalog (2026-09-01): nvidia/llama-3.1-nemotron-
+    # 70b-instruct, mistralai/mistral-large-2-instruct, ibm/granite-3.0-8b-
+    # instruct all 404/500 on this generic chat-completions endpoint
+    # despite being listed; deepseek-ai/deepseek-v4-flash-0731 (a
+    # "thinking"/reasoning model) genuinely hung past 60-150s even for a
+    # trivial "say OK" request, both streaming and non-streaming;
+    # meta/llama-3.2-90b-vision-instruct answered short prompts quickly but
+    # hung indefinitely on a real multi-turn agentic question. None of
+    # these are confirmed reliable enough to trust as an actual fallback —
+    # this is a placeholder pointing at a real, listed, currently-invocable
+    # model (unlike the old retired default) but its practical reliability
+    # for THIS project's agentic tool loop is unverified. Decided
+    # 2026-09-01: ship without a trusted NIM fallback for agentic mode for
+    # now rather than keep burning time model-hunting — Groq
+    # (AGENTIC_GROQ_MODEL) is the sole agentic generator in practice;
+    # revisit if a specific NIM model is confirmed to work reliably.
+    model_name = "meta/llama-3.2-90b-vision-instruct"
     timeout = 120
 
     def _url(self) -> str:

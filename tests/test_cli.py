@@ -90,3 +90,21 @@ async def test_cli_eval_smoke(monkeypatch, capsys, pg_conn, tmp_path):
     await main(["eval", str(golden_path)])
     out = capsys.readouterr().out
     assert "stub eval table" in out
+
+
+@pytest.mark.asyncio
+async def test_cli_no_subcommand_launches_repl(monkeypatch):
+    monkeypatch.setenv("VOYAGE_API_KEY", "k")
+    monkeypatch.setenv("GROQ_API_KEY", "k")
+    monkeypatch.setenv("DATABASE_URL", "postgresql://unused/unused")
+
+    calls = []
+
+    async def fake_run_repl(path, config):
+        calls.append(path)
+
+    monkeypatch.setattr("sleuth.cli.run_repl", fake_run_repl)
+
+    await main([])
+
+    assert calls == ["."]

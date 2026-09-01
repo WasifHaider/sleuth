@@ -1,43 +1,64 @@
-"""Repo-level architecture summary generation (Phase 1 of the
-global/architecture-question retrieval plan, see
-docs/superpowers/plans/2026-08-29-global-architecture-question-retrieval.md).
+"""Repo-level architecture summary generation, agentic version (Phase 4 of
+the interactive-terminal-session plan — see the plan discussion in
+docs/superpowers/plans; not a separate design doc).
 
-Deliberately built from a "repo map" — file path / kind / symbol name for
-every non-doc chunk — instead of full source text or a hierarchical
-per-directory pass. Keeps the prompt small regardless of repo size and
-needs exactly one LLM call per ingest. See the Phase 1+2+5 implementation
-plan's "Deliberate simplification" section for why, and when this should
-become a real map-reduce (Phase 1b) instead.
+Replaces the original single-prompt approach (a flat "file: kind symbol"
+listing for every non-doc chunk, sent to the LLM in one unbounded chat
+completion — see git history / docs/how-indexing-works.html for that
+version) with the same AgentSession tool loop (sleuth/retrieve/
+agent_session.py) that backs the interactive REPL and the one-shot
+`sleuth agentic` command.
+
+Why: the old approach's prompt size scaled linearly with repo size — a
+large enough repo's repo-map string could blow past Groq's request size
+limit (the 413 Payload Too Large bug). AgentSession is bounded by
+MAX_ITERATIONS regardless of repo size: the model decides what's worth
+looking at (list_files for structure, grep for entry points, read_file on
+a README or key module) and converges to an answer within at most 6 round
+trips whether the repo has 50 files or 5,000, with each tool call's output
+separately capped (50 grep matches, 200 listed files, 400 read lines).
+
+Deliberately non-fatal, matching the old summarize_repo()'s contract: any
+failure (bad API key, rate limit, all fallback generators down) returns
+None instead of raising, so ingest_repo's outer wrapper never fails the
+whole repo over what's an optional add-on step.
 """
 
-SUMMARY_SYSTEM_PROMPT = (
-    "You are analyzing a codebase's file/symbol listing (not the source "
-    "code itself). Write a concise architecture summary: what the project "
-    "is, its major components/modules and what each does, and how they "
-    "likely fit together. Base this only on the file paths, symbol names, "
-    "and kinds given — do not invent implementation details you can't see. "
-    "3-6 short paragraphs, no preamble."
+from sleuth.config import Config
+from sleuth.llm.generate import Generator
+from sleuth.retrieve.agent_session import AgentSession, AnswerEvent, UNAVAILABLE_MESSAGE
+
+SUMMARY_QUESTION = (
+    "Explore this codebase using your tools (list_files, grep, read_file) and then "
+    "write a concise architecture summary: what the project is, its major "
+    "components/modules and what each does, and how they likely fit together. "
+    "Ground this in what you actually find — don't invent implementation details "
+    "you haven't seen. 3-6 short paragraphs, no preamble."
 )
 
 
-def build_repo_map(chunks) -> str:
-    lines = []
-    for c in chunks:
-        if c.is_doc:
-            continue
-        symbol = c.symbol_name or "(module level)"
-        lines.append(f"{c.file_path}: {c.kind} {symbol}")
-    return "\n".join(lines)
-
-
-async def summarize_repo(chunks, generator) -> str | None:
-    if not chunks:
+async def summarize_repo_agentic(
+    path: str,
+    config: Config,
+    generator: Generator | None = None,
+    fallback_chain: list[Generator] | None = None,
+) -> str | None:
+    session = AgentSession(path, config=config, generator=generator, fallback_chain=fallback_chain)
+    try:
+        async for event in session.ask(SUMMARY_QUESTION):
+            if isinstance(event, AnswerEvent):
+                # AgentSession itself already turns a fully-failed fallback
+                # chain into a friendly AnswerEvent rather than raising
+                # (Phase 0's error handling) — that text must not be
+                # mistaken for a real summary and stored as one.
+                if event.text == UNAVAILABLE_MESSAGE:
+                    return None
+                return event.text
+    except Exception:
+        # Same non-fatal contract as the old summarize_repo(): anything
+        # else that slips through (e.g. a bug in the tool dispatch itself,
+        # an unreadable clone directory) must not raise out of this
+        # optional step either — belt-and-braces alongside AgentSession's
+        # own internal handling, not a replacement for it.
         return None
-    repo_map = build_repo_map(chunks)
-    if not repo_map:
-        return None  # every chunk was a doc chunk — nothing to summarize
-    messages = [
-        {"role": "system", "content": SUMMARY_SYSTEM_PROMPT},
-        {"role": "user", "content": repo_map},
-    ]
-    return "".join([token async for token in generator.chat(messages, stream=False)])
+    return None
