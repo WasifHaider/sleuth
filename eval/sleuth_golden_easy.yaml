@@ -1,0 +1,83 @@
+# Golden eval set for SLEUTH itself (dogfooding — indexing SLEUTH's own
+# repo, https://github.com/WasifHaider/sleuth, as a `sleuth add` target).
+# EASY tier — single-file, single-symbol lookups.
+#
+# `repo` below is a placeholder: SLEUTH has not been indexed yet at the
+# time this file was written (user is indexing it separately). Replace
+# REPLACE_WITH_SLEUTH_REPO_ID with the real repo_id from `sleuth list`
+# once indexing finishes, same convention as eval/sample_repo.yaml.
+#
+# Questions and expected_files/expected_symbols are grounded directly in
+# the actual source read from disk (sleuth/retrieve/routing.py,
+# sleuth/db.py, sleuth/chunking.py, sleuth/retrieve/search.py) at the time
+# of writing, not guessed from repo structure alone.
+#
+# Run separately from sleuth_golden_hard.yaml — each `sleuth eval` run
+# fires up to 2 Groq calls per case (answer + judge) with no built-in
+# pause long enough to respect Groq's 8000-tokens/minute free-tier budget
+# across a big combined file; splitting easy/hard into two smaller runs
+# keeps each run's total token usage further from that ceiling.
+repo: REPLACE_WITH_SLEUTH_REPO_ID
+cases:
+  - question: "How does classify_question decide whether a question is global or architecture-flavored versus a normal local question, and why does it use a regex instead of an LLM call?"
+    expected_files:
+      - sleuth/retrieve/routing.py
+    expected_symbols:
+      - classify_question
+    reference_answer: >
+      classify_question matches the question against a compiled regex of
+      keyword/phrase patterns (e.g. "architecture", "whole project",
+      "rate my architecture", "high-level overview") and returns "global"
+      if any pattern matches, else "local". It deliberately skips an LLM
+      call: a false positive just means a normal question gets the repo
+      summary prepended too (harmless), and a false negative just means a
+      broad question falls back to plain top-k search (today's existing
+      behavior) — both failure modes are safe, so a cheap keyword check
+      beats spending an extra LLM round-trip classifying every question.
+
+  - question: "What does get_connection do with lock_timeout, and why was that added?"
+    expected_files:
+      - sleuth/db.py
+    expected_symbols:
+      - get_connection
+    reference_answer: >
+      get_connection opens a psycopg connection with autocommit=True,
+      registers the pgvector vector type via register_vector, and then
+      runs SET lock_timeout = '5s' (LOCK_TIMEOUT) on it before returning.
+      This was added after apply_schema()'s unconditional re-run of
+      schema.sql (including an ALTER TABLE needing an ACCESS EXCLUSIVE
+      lock) hung forever behind an uncommitted read held elsewhere — with
+      lock_timeout set, any statement blocked on a lock now fails fast
+      with psycopg.errors.LockNotAvailable instead of hanging silently.
+
+  - question: "How does is_doc_path decide whether a chunk is documentation rather than real code, and what directory names does it check?"
+    expected_files:
+      - sleuth/chunking.py
+    expected_symbols:
+      - is_doc_path
+    reference_answer: >
+      is_doc_path splits the file path into its path parts (normalizing
+      backslashes to forward slashes first, for Windows paths) and checks
+      whether any part, lowercased, is one of DOC_DIR_NAMES = {"docs",
+      "doc", "documentation"} — true if the file lives under one of those
+      directories at any depth, regardless of its extension. This exists
+      because hand-written architecture write-ups like
+      docs/recruiter-authentication.html are real, parseable .html files
+      that would otherwise be chunked and embedded exactly like genuine
+      source templates.
+
+  - question: "How does search_chunks make sure real code ranks ahead of documentation chunks by default, and what happens if there's no matching code at all?"
+    expected_files:
+      - sleuth/retrieve/search.py
+    expected_symbols:
+      - search_chunks
+    reference_answer: >
+      search_chunks takes a prefer_code parameter defaulting to True. When
+      true, its SQL ORDER BY is "is_doc, distance" instead of plain
+      "distance" — since is_doc is a boolean, ordering by it first groups
+      every real-code chunk (is_doc=false, sorts first) strictly ahead of
+      every documentation chunk (is_doc=true), and only within each group
+      does cosine distance decide the order. Documentation chunks still
+      surface once all code chunks are exhausted (or when prefer_code is
+      explicitly False), so a genuinely doc-only question doesn't come
+      back empty.

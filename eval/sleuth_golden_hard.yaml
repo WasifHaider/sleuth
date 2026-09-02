@@ -1,0 +1,89 @@
+# Golden eval set for SLEUTH itself (dogfooding — indexing SLEUTH's own
+# repo, https://github.com/WasifHaider/sleuth, as a `sleuth add` target).
+# HARD tier — multi-step/cross-file reasoning, not just "which file
+# defines X". Retrieval has to surface enough of the RIGHT chunks across
+# 2+ files for the LLM to reconstruct a call chain or failure-handling
+# path it can't get from any single chunk alone.
+#
+# `repo` below is a placeholder — see sleuth_golden_easy.yaml's header
+# comment for why, and replace it the same way once SLEUTH is indexed.
+#
+# Run separately from sleuth_golden_easy.yaml — see that file's header
+# comment for why (Groq per-minute token budget).
+repo: REPLACE_WITH_SLEUTH_REPO_ID
+cases:
+  - question: "Walk through what happens if repo summary generation fails during ingest_repo — does it fail the whole repo indexing, and why does it use the agentic tool loop instead of a single flat prompt built from every chunk?"
+    expected_files:
+      - sleuth/ingest/pipeline.py
+      - sleuth/summarize.py
+    expected_symbols:
+      - _run_ingest_steps
+      - summarize_repo_agentic
+    reference_answer: >
+      Inside _run_ingest_steps, the call to summarize_repo_agentic is
+      wrapped in its own try/except that only emits a "summary_failed"
+      event on failure — it never re-raises, so a flaky or rate-limited
+      Groq call here cannot mark the whole repo "failed" (ingest_repo's
+      outer wrapper would otherwise do that for any uncaught exception).
+      summarize_repo_agentic itself uses AgentSession's tool loop
+      (list_files/grep/read_file) rather than a flat "file: kind symbol"
+      listing sent in one prompt, because that older approach's prompt
+      size scaled linearly with repo size and could exceed Groq's request
+      size limit (413 Payload Too Large) on a large enough repo; the
+      agentic version is bounded by MAX_ITERATIONS (6) regardless of repo
+      size.
+
+  - question: "Walk through how POST /chat manages its Postgres connection across retrieval and answer generation — why does it release the connection right after on_sources fires instead of holding it for the whole streamed answer?"
+    expected_files:
+      - sleuth/api/routes/chat.py
+      - sleuth/retrieve/answer.py
+    expected_symbols:
+      - post_chat
+      - stream_answer
+    reference_answer: >
+      post_chat's event_stream borrows a pooled connection
+      (retrieval_conn) and passes it into stream_answer, which only
+      touches the DB during retrieval (the repo status check plus
+      search_chunks) — never again once the generation loop starts. The
+      on_sources callback fires synchronously right after search_chunks
+      and before generation begins, so event_stream's on_sources handler
+      calls pool.putconn(retrieval_conn) at that point rather than
+      waiting for the whole answer to finish streaming. Since the pool
+      has max_size=10, holding a connection idle for the entire
+      potentially-many-second LLM stream would risk starving other
+      requests (including unrelated repo-list polling) of a connection to
+      borrow; a fresh connection is borrowed again only for the final
+      persist of the assistant message.
+
+  - question: "Why does retrying a failed repo index use a dedicated POST /repos/{id}/retry endpoint instead of the frontend just calling POST /repos again with the same URL?"
+    expected_files:
+      - sleuth/api/routes/repos.py
+      - sleuth/store.py
+    expected_symbols:
+      - retry_repo
+      - create_repo
+    reference_answer: >
+      create_repo has no uniqueness constraint on github_url, so calling
+      POST /repos again with the same URL (add_repo, which always calls
+      create_repo) happily inserts a brand new repo row every time,
+      leaving a duplicate entry in the repo list on every retry of a
+      failed index. retry_repo instead takes the existing repo_id,
+      resets that same row's status to "pending", and re-runs
+      _run_ingest against it — there is no code path in retry_repo that
+      can create a second row for the same repo.
+
+  - question: "When a repo is deleted via DELETE /repos/{id}, what happens to its chunks, chats, messages, and repo_summaries rows, and how is that actually enforced?"
+    expected_files:
+      - sleuth/store.py
+      - schema.sql
+    expected_symbols:
+      - delete_repo
+    reference_answer: >
+      delete_repo runs a single DELETE FROM repos WHERE id = %s — it does
+      not manually clean up any child table. schema.sql wires chunks,
+      repo_summaries, and chats all as ON DELETE CASCADE foreign keys
+      referencing repos(id), and messages is itself ON DELETE CASCADE
+      referencing chats(id), so deleting the repos row cascades
+      transitively through chats into messages as well. The one DELETE is
+      sufficient to remove every chunk, summary, chat, and message
+      belonging to that repo with no orphaned rows left behind.
