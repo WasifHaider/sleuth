@@ -1,0 +1,153 @@
+# Golden eval set for hireflow (D:\Personal\hireflow), indexed as
+# repo_id fa6909a5-1949-444f-b879-0702bf59f59f.
+#
+# Questions and expected_files/expected_symbols are grounded in the actual
+# indexed chunks (verified via a direct SELECT against the chunks table
+# for this repo_id before writing this file), not guessed from repo
+# structure alone.
+repo: fa6909a5-1949-444f-b879-0702bf59f59f
+cases:
+  - question: "How does company signup create a unique slug, and what happens on a slug collision?"
+    expected_files:
+      - apps\backend\src\auth\auth.service.ts
+    expected_symbols:
+      - AuthService.signupCompany
+      - AuthService.resolveUniqueSlug
+      - AuthService.isUniqueConstraintOn
+    reference_answer: >
+      AuthService.signupCompany builds a base slug (from the provided slug
+      or slugify(companyName)) and calls resolveUniqueSlug to get a
+      collision-free slug, then tries createCompanyAndUser in a retry loop
+      (up to SLUG_COLLISION_RETRIES). If that insert fails on a unique
+      constraint on the slug column (isUniqueConstraintOn), it re-resolves
+      a new unique slug and retries; a unique constraint violation on email
+      instead throws ConflictException("Email already registered").
+
+  - question: "How is a submitted application scored, and how does it avoid double-scoring on retry?"
+    expected_files:
+      - apps\backend\src\queues\application-scoring\application-scoring.processor.ts
+    expected_symbols:
+      - ApplicationScoringProcessor.handleScoreApplication
+    reference_answer: >
+      ApplicationScoringProcessor.handleScoreApplication is a Bull queue
+      processor (concurrency 3) that looks up the application and its
+      job's description/requirements by id. If the application isn't
+      found it throws. If aiFitScore is already set (not null) it logs a
+      warning and returns early instead of re-scoring, so a retried or
+      duplicate job enqueue doesn't re-run scoring (and re-charge the ML
+      call) on an already-scored application.
+
+  - question: "What data does the recruiter dashboard summary endpoint return, and how is the applications-per-day timeseries computed?"
+    expected_files:
+      - apps\backend\src\dashboard\dashboard.service.ts
+    expected_symbols:
+      - DashboardService.getSummary
+    reference_answer: >
+      DashboardService.getSummary runs several counts/aggregates in
+      parallel via Promise.all, scoped to companyId: active published job
+      count, total applications, applications awaiting review (stage
+      APPLIED), average aiFitScore, a group-by count per pipeline stage,
+      and a raw SQL query grouping applications by day over the last
+      TIMESERIES_DAYS (7) days. The per-day counts are then merged into a
+      fixed 7-day array (defaulting missing days to 0) rather than
+      returning only the days that actually had applications.
+
+  - question: "How does getResumeUrl authorize access to a candidate's resume and what happens if none exists?"
+    expected_files:
+      - apps\backend\src\applications\applications.service.ts
+    expected_symbols:
+      - ApplicationsService.getResumeUrl
+    reference_answer: >
+      ApplicationsService.getResumeUrl looks up the application scoped to
+      both applicationId and companyId (so a recruiter can't fetch another
+      company's resume), throwing NotFoundException if no such application
+      exists. If the application has no resumeUrl it also throws
+      NotFoundException("No resume on file"). Otherwise it asks
+      StorageService for a signed URL valid for SIGNED_URL_EXPIRES_IN_SECONDS
+      (300 seconds) and returns it with the expiry.
+
+  # --- Hard-level cases below: multi-step/cross-file reasoning, error-path
+  # and compensating-action behavior, not just "which file defines X".
+  # Retrieval has to surface enough of the RIGHT chunks across 2+ files for
+  # the LLM to reconstruct a call chain or failure-handling path it can't
+  # get from any single chunk alone.
+
+  - question: "Walk through what happens end-to-end when a candidate submits a job application through the public apply endpoint, including what happens if the resume upload succeeds but the application row fails to save."
+    expected_files:
+      - apps\backend\src\public\public.service.ts
+      - apps\backend\src\applications\application-submission.service.ts
+    expected_symbols:
+      - PublicService.submitApplication
+      - ApplicationSubmissionService.create
+    reference_answer: >
+      PublicService.submitApplication first checks the job is published and
+      not deleted, then upserts a candidate by email (creating or updating
+      name/phone/linkedinUrl), then delegates to
+      ApplicationSubmissionService.create with the job, candidateId, cover
+      letter, and resume. create() uploads the resume to storage first
+      (outside any DB transaction, since storage is an external service),
+      then tries to insert the application row. If that insert fails, it
+      compensates by calling storageService.deleteResume(path) to remove the
+      just-uploaded file so it isn't orphaned, then re-throws — translating
+      a Prisma P2002 unique constraint violation (duplicate jobId+candidateId)
+      into a 409 ConflictException "You have already applied to this job",
+      or otherwise rethrowing the original error. If the insert succeeds but
+      enqueueing the scoring job fails, that failure is only logged — it does
+      not fail the application, since the row exists and can be re-scored
+      later.
+
+  - question: "Why does downloadResume mint a signed URL and fetch it over HTTP instead of streaming directly from Supabase storage, and what's the tradeoff?"
+    expected_files:
+      - apps\backend\src\storage\storage.service.ts
+    expected_symbols:
+      - StorageService.downloadResume
+      - StorageService.getSignedUrl
+    reference_answer: >
+      StorageService.downloadResume calls getSignedUrl with a short
+      120-second expiry, then does a plain fetch() against that URL and
+      reads the response into a Buffer, rather than using the Supabase SDK
+      to stream the object directly. The comment in the code says this is
+      deliberate: it means the same tenant-checked signed-URL code path
+      (getSignedUrl) is exercised for every access pattern, and the bucket
+      itself can stay fully private with no public read policy needed. The
+      tradeoff is an extra network hop (mint URL, then a second HTTP
+      request) versus a direct SDK download.
+
+  - question: "If ml-scoring.client's score() call to the Python ml-service fails, what happens to the Bull job, and does the application ever get manually re-scored?"
+    expected_files:
+      - apps\backend\src\queues\application-scoring\ml-scoring.client.ts
+      - apps\backend\src\queues\application-scoring\application-scoring.processor.ts
+    expected_symbols:
+      - MlScoringClient.score
+      - ApplicationScoringProcessor.handleScoreApplication
+    reference_answer: >
+      MlScoringClient.score wraps the HTTP call to the ml-service's /score
+      endpoint; on failure it logs the upstream status/message and throws a
+      plain Error("ml-service scoring request failed") rather than
+      swallowing it. Since handleScoreApplication runs as a
+      @Process-decorated Bull handler, an uncaught throw from score()
+      propagates out of the processor and is treated as a job failure by
+      Bull, which retries the job according to its configured attempts
+      (job.attemptsMade increments each time, logged at the top of
+      handleScoreApplication). The idempotency check earlier in
+      handleScoreApplication (skip if aiFitScore is already set) is what
+      makes a retry safe — a retried job that reaches the ml-service call
+      again re-scores from scratch, but a retry of an already-successfully-
+      scored application short-circuits before ever calling score() again.
+
+  - question: "How does JwtStrategy.validate handle a JWT that was issued before the userType field existed, and why doesn't that break authentication?"
+    expected_files:
+      - apps\backend\src\auth\strategies\jwt.strategy.ts
+    expected_symbols:
+      - JwtStrategy.validate
+    reference_answer: >
+      JwtStrategy.validate branches on payload.userType === 'candidate'; if
+      that's true it looks up and returns a Candidate (rejecting if the
+      candidate is missing or has an unverified email). Otherwise it falls
+      through to the recruiter/User lookup path. A legacy token issued
+      before userType existed on the payload simply has payload.userType
+      undefined, which fails the 'candidate' check and falls through to the
+      User branch — the code comment explicitly notes this is intentional:
+      old tokens are treated as recruiter tokens by default since that's
+      what every token was before the candidate flow was added, so
+      validate() doesn't need a separate migration path for old tokens.

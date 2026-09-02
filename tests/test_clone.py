@@ -42,7 +42,7 @@ def test_clone_repo_retries_on_transient_network_error(tmp_path, monkeypatch):
     dest = tmp_path / "cloned"
     calls = []
 
-    def fake_run(cmd, capture_output, text):
+    def fake_run(cmd, capture_output, **kwargs):
         calls.append(cmd)
         if len(calls) == 1:
             return subprocess.CompletedProcess(
@@ -64,7 +64,7 @@ def test_clone_repo_does_not_retry_on_permanent_error(tmp_path, monkeypatch):
     dest = tmp_path / "cloned"
     calls = []
 
-    def fake_run(cmd, capture_output, text):
+    def fake_run(cmd, capture_output, **kwargs):
         calls.append(cmd)
         return subprocess.CompletedProcess(
             cmd, returncode=128, stdout="", stderr="fatal: repository 'https://x/' does not exist"
@@ -83,3 +83,30 @@ def test_list_source_files_filters_by_extension(local_git_repo):
 
     names = {f.name for f in files}
     assert names == {"main.py"}
+
+
+def test_clone_repo_pins_utf8_decoding_not_locale_encoding(tmp_path, monkeypatch):
+    """Regression: clone_repo used subprocess text=True with no encoding=,
+    which decodes with the locale codepage (cp1252 on native Windows
+    Python). git writes UTF-8 diagnostics, and this stderr is both
+    pattern-matched for transient-error retry AND stored verbatim in
+    repos.error_message for the UI — so a non-ASCII byte in a git error
+    raised UnicodeDecodeError on subprocess's background reader thread,
+    where it cannot be caught, turning a recordable clone failure into an
+    unrelated crash.
+    """
+    dest = tmp_path / "cloned"
+    seen: dict = {}
+
+    def fake_run(cmd, capture_output, **kwargs):
+        seen.update(kwargs)
+        dest.mkdir(exist_ok=True)
+        return subprocess.CompletedProcess(cmd, returncode=0, stdout="", stderr="")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+
+    clone_repo("https://x/", str(dest))
+
+    assert seen.get("encoding") == "utf-8", "decoding must not fall back to the locale codepage"
+    assert seen.get("errors") == "replace"
+    assert "text" not in seen, "text=True would re-introduce locale decoding"

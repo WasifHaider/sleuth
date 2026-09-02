@@ -7,21 +7,29 @@ happens rather than only the final answer.
 
 Built as a thin driver around AgentSession (sleuth/retrieve/agent_session.py):
 this module owns only the input/output loop, prompt formatting, and
-exit/blank-line handling. All actual tool-call/generation logic lives in
-AgentSession, shared with the one-shot `sleuth agentic` CLI command.
+exit/blank-line/interrupt handling. All actual tool-call/generation logic
+lives in AgentSession, shared with the one-shot `sleuth agentic` CLI command.
 
-Visual polish (Claude-Code-style full-screen layout: scrolling transcript
-pane above a real bordered input box pinned to the bottom of the terminal)
-is built on `prompt_toolkit` — this project's first external runtime
-dependency (see requirements.txt). A hand-rolled print()/readline() loop
-cannot draw a persistent bordered widget the terminal doesn't scroll away;
-that needs a real full-screen terminal application (alternate screen
-buffer, its own render loop, raw-mode key handling) which is exactly what
-prompt_toolkit's Application/Layout primitives are for. Deliberately using
-the low-level building blocks (Application, HSplit/Window, Buffer,
-BufferControl, a hand-written Lexer) rather than a heavier full framework
-like `textual` — closer to this project's "understand every piece"
-philosophy than a batteries-included TUI toolkit would be.
+Rendering model: SCROLLBACK, not a full-screen TUI. Earlier versions of
+this REPL were a `full_screen=True` prompt_toolkit Application with a
+bordered input box pinned to the bottom and a hand-written scrolling
+transcript pane. That looked nice and did not work: the alternate screen
+buffer takes scrolling away from the terminal, so mouse/touchpad scroll,
+text selection and copy all had to be reimplemented by hand — and the
+hand-rolled version fought prompt_toolkit's own cursor-driven auto-scroll
+(Window._scroll() recomputes vertical_scroll from the cursor on every
+repaint, and a transcript pinned to its own tail therefore snapped the
+view back to the bottom on every redraw).
+
+Claude Code, Codex and Hermes all avoid that class of bug by NOT taking
+over the screen: the transcript is printed into the terminal's normal
+scrollback and only the input line is a prompt_toolkit widget. Scrolling
+(including two-finger touchpad scroll), selection, copy and the
+terminal's own search then work because the terminal is doing them, not
+us. That is what this module now does — a `PromptSession` for input plus
+`print_formatted_text` for output. The tradeoff, accepted deliberately:
+the input line scrolls away with the content instead of being pinned in
+a permanent bordered frame.
 
 Brand colors and the logo mark shape are ported from the real web app —
 web/src/theme.css's storm theme (--bg #0F372F, --accent #ECBC6B) and
@@ -33,21 +41,18 @@ same product.
 
 import asyncio
 import re
+import signal
+import time
 from collections.abc import Callable
 from pathlib import Path
 
-from prompt_toolkit import Application
-from prompt_toolkit.application.current import get_app, get_app_or_none
-from prompt_toolkit.buffer import Buffer
-from prompt_toolkit.document import Document
+from prompt_toolkit import PromptSession, print_formatted_text
+from prompt_toolkit.formatted_text import FormattedText
+from prompt_toolkit.history import InMemoryHistory
 from prompt_toolkit.input.base import Input
 from prompt_toolkit.key_binding import KeyBindings
-from prompt_toolkit.layout import HSplit, Layout, Window
-from prompt_toolkit.layout.controls import BufferControl
-from prompt_toolkit.lexers import Lexer
 from prompt_toolkit.output.base import Output
 from prompt_toolkit.styles import Style
-from prompt_toolkit.widgets import Frame, TextArea
 
 from sleuth.config import Config
 from sleuth.retrieve.agent_session import AgentSession, AnswerEvent, ToolCallEvent, ToolResultEvent
@@ -55,11 +60,14 @@ from sleuth.retrieve.agent_session import AgentSession, AnswerEvent, ToolCallEve
 EXIT_COMMANDS = {"exit", "quit"}
 
 _SPINNER_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
-_SPINNER_INTERVAL = 0.08
+_SPINNER_INTERVAL = 0.1
 
 # Exact brand hex values from web/src/theme.css's storm (default dark) theme
 # — not approximated, so the CLI's palette matches the real web app.
-_BG = "#0F372F"
+#
+# Note there is deliberately no `bg:` anywhere in this style: the terminal's
+# own (possibly transparent / user-themed) background is left alone and only
+# foreground text is colored.
 _ACCENT = "#ECBC6B"  # gold — primary brand color (logo mark, buttons, links)
 _TEXT = "#F2F5F2"
 _TEXT_MUTED = "#9CA9A3"  # approximation of theme.css's rgba(242,245,242,0.58) over --bg
@@ -68,16 +76,12 @@ _STATUS_NEUTRAL = "#C89B6A"  # theme.css's secondary accent (used for tool-call 
 
 STYLE = Style.from_dict(
     {
-        "": f"fg:{_TEXT}",
         "accent": f"fg:{_ACCENT} bold",
         "muted": f"fg:{_TEXT_MUTED}",
         "dim": f"fg:{_TEXT_FAINT}",
         "tool": f"fg:{_STATUS_NEUTRAL}",
         "user": f"fg:{_TEXT} bold",
         "answer": f"fg:{_TEXT}",
-        "divider": f"fg:{_TEXT_FAINT}",
-        "frame.border": f"fg:{_ACCENT}",
-        "frame.label": f"fg:{_ACCENT} bold",
         # Markdown-lite rendering of the model's final answer (see
         # _render_markdown_line below) — headings/bold/inline-code/bullets
         # get their own look instead of raw '#'/'**'/'`' characters.
@@ -85,6 +89,8 @@ STYLE = Style.from_dict(
         "answer.bold": f"fg:{_TEXT} bold",
         "answer.code": f"fg:{_STATUS_NEUTRAL}",
         "answer.bullet": f"fg:{_ACCENT}",
+        # The input prompt itself.
+        "prompt": f"fg:{_ACCENT} bold",
     }
 )
 
@@ -125,6 +131,11 @@ _LOGO_MARK_ROWS = [
     "╰────╯",
 ]
 
+_HELP_LINE = (
+    "Ask questions about this codebase. "
+    "enter send · ↑↓ history · ctrl-c interrupt · exit/quit or ctrl-d leave"
+)
+
 
 def _default_session_factory(path: str, config: Config) -> AgentSession:
     return AgentSession(path, config=config)
@@ -154,7 +165,8 @@ def _banner_lines(resolved_root: Path, model_name: str) -> list[tuple[str, str]]
     lines.append((f"model: {model_name}", "class:muted"))
     lines.append((rule, "class:dim"))
     lines.append(("", ""))
-    lines.append(("Ask questions about this codebase. Type exit or quit to leave.", "class:muted"))
+    lines.append((_HELP_LINE, "class:muted"))
+    lines.append(("", ""))
     return lines
 
 
@@ -223,151 +235,127 @@ def _render_markdown_line(line: str, base_style: str) -> list[tuple[str, str]]:
     return _render_inline_markdown(line, base_style)
 
 
-class _TranscriptLexer(Lexer):
-    """Applies per-line (style, text) fragments to the transcript Buffer's
-    text.
-
-    A Buffer/BufferControl only ever shows literal characters — it does not
-    interpret embedded ANSI escape codes — so per-line/per-span coloring is
-    done the "real" prompt_toolkit way: a Lexer that, for each line number,
-    returns the fragments recorded for that line in a parallel list
-    maintained alongside the transcript text (falls back to one plain
-    fragment covering the whole line when no per-span markup was recorded).
-    """
-
-    def __init__(self, get_line_fragments: Callable[[], list[list[tuple[str, str]]]]):
-        self._get_line_fragments = get_line_fragments
-
-    def lex_document(self, document: Document):
-        fragments = self._get_line_fragments()
-
-        def get_line(lineno: int):
-            if lineno < len(fragments):
-                return fragments[lineno]
-            text = document.lines[lineno] if lineno < len(document.lines) else ""
-            return [("", text)]
-
-        return get_line
-
-
 class _Transcript:
-    """Owns the scrolling transcript pane's content: the plain-text line
-    list (what the Buffer actually holds, for cursor/scroll math) plus a
-    parallel list of per-line (style, text) fragments (what the Lexer
-    hands back for rendering — see _TranscriptLexer), kept in sync with a
-    read-only Buffer.
+    """Prints transcript lines straight into the terminal's scrollback and
+    keeps a plain-text copy of everything printed.
 
-    Auto-follows the bottom (tail -f style) as new lines stream in, UNLESS
-    the user has manually scrolled up (see scroll()/PageUp/PageDown/Up/Down
-    key bindings in run_repl) — a streamed tool-call/answer line must never
-    yank the view back down while someone is mid-read of earlier output.
-    scroll_to_bottom() (bound to End/Ctrl-End) re-engages auto-follow.
+    The plain-text copy exists for two reasons: run_repl() returns it (the
+    tests assert against it, since a DummyOutput swallows the real render),
+    and it is what makes this class trivially testable compared to the old
+    full-screen Buffer/Lexer pair it replaces.
+
+    There is intentionally no scrolling logic here at all — the terminal
+    owns scrolling now (see this module's docstring).
     """
 
-    def __init__(self):
+    def __init__(self, output: Output | None = None):
         self.lines: list[str] = []
-        self.fragments: list[list[tuple[str, str]]] = []
-        self.buffer = Buffer(read_only=True)
-        self.following = True
+        self._output = output
 
-    def _sync(self) -> None:
-        text = "\n".join(self.lines)
-        cursor_position = len(text) if self.following else min(self.buffer.cursor_position, len(text))
-        self.buffer.set_document(Document(text, cursor_position=cursor_position), bypass_readonly=True)
-        app = get_app_or_none()
-        if app is not None:
-            app.invalidate()
+    def _emit(self, fragments: list[tuple[str, str]]) -> None:
+        self.lines.append("".join(text for _, text in fragments))
+        print_formatted_text(
+            FormattedText(fragments),
+            style=STYLE,
+            output=self._output,
+        )
 
     def append(self, text: str, style: str = "") -> None:
         for line in text.split("\n"):
-            self.lines.append(line)
-            self.fragments.append([(style, line)] if style else [])
-        self._sync()
+            self._emit([(style, line)])
 
     def append_lines(self, pairs: list[tuple[str, str]]) -> None:
         for text, style in pairs:
-            self.lines.append(text)
-            self.fragments.append([(style, text)] if style else [])
-        self._sync()
+            self._emit([(style, text)])
 
-    def append_markdown(self, text: str, base_style: str = "class:answer", prefix: list[tuple[str, str]] | None = None) -> None:
-        lines = text.split("\n")
-        for i, line in enumerate(lines):
-            self.lines.append((("".join(t for _, t in prefix) if prefix and i == 0 else "")) + line)
+    def append_markdown(
+        self,
+        text: str,
+        base_style: str = "class:answer",
+        prefix: list[tuple[str, str]] | None = None,
+    ) -> None:
+        for i, line in enumerate(text.split("\n")):
             rendered = _render_markdown_line(line, base_style)
             if prefix is not None and i == 0:
                 rendered = prefix + rendered
-            self.fragments.append(rendered)
-        self._sync()
+            self._emit(rendered)
 
-    def replace_last(self, text: str, style: str) -> None:
-        self.lines[-1] = text
-        self.fragments[-1] = [(style, text)] if style else []
-        self._sync()
-
-    def pop(self) -> None:
-        self.lines.pop()
-        self.fragments.pop()
-        self._sync()
-
-    def scroll(self, lines: int) -> None:
-        # Any manual scroll disengages auto-follow immediately, even a
-        # scroll-down — the user might be paging back down toward the
-        # bottom deliberately, and re-pinning early would fight their next
-        # keypress. Only scroll_to_bottom() explicitly re-engages it.
-        self.following = False
-        target = self.buffer.document.translate_row_col_to_index(
-            max(0, self.buffer.document.cursor_position_row + lines), 0
-        )
-        self.buffer.cursor_position = target
-
-    def page_scroll(self, page_lines: int, down: bool) -> None:
-        self.scroll(page_lines if down else -page_lines)
-
-    def scroll_to_bottom(self) -> None:
-        self.following = True
-        self._sync()
+    def record_question(self, question: str) -> None:
+        # The prompt_toolkit prompt has already drawn "❯ <question>" into
+        # the scrollback as part of accepting the input, so re-printing it
+        # would duplicate it on screen. Only the plain-text copy needs it.
+        self.lines.append(f"❯ {question}")
 
 
 class _Spinner:
-    """A "thinking" indicator implemented as a transcript line that gets
-    its text replaced on a timer, then removed once stopped — the
-    full-screen-app equivalent of the old carriage-return spinner.
+    """A "thinking" indicator drawn in place on the current terminal line.
+
+    Because the transcript is plain scrollback now, this can be a real
+    single-line, redraw-in-place spinner (write → cursor_backward →
+    erase_end_of_line → write) instead of the old version's trick of
+    appending a transcript line and mutating it, which corrupted the
+    transcript whenever a line was appended between start() and stop().
+
+    start() is safe to call repeatedly: an already-running spinner is left
+    alone rather than starting a second task that would fight the first.
+    Every draw includes elapsed seconds, so a slow model call (agentic
+    turns are non-streaming and can take tens of seconds) visibly ticks
+    instead of looking frozen.
     """
 
-    def __init__(self, transcript: _Transcript):
-        self._transcript = transcript
+    def __init__(self, output: Output | None = None):
+        self._output = output
         self._task: asyncio.Task | None = None
-        self._owns_line = False
+        self._width = 0
+
+    def _write(self, text: str) -> None:
+        if self._output is None:
+            return
+        if self._width:
+            self._output.cursor_backward(self._width)
+            self._output.erase_end_of_line()
+        self._output.write(text)
+        self._output.flush()
+        self._width = len(text)
+
+    def _clear(self) -> None:
+        if self._output is None or not self._width:
+            self._width = 0
+            return
+        self._output.cursor_backward(self._width)
+        self._output.erase_end_of_line()
+        self._output.flush()
+        self._width = 0
 
     async def _spin(self) -> None:
-        self._transcript.append("", "class:dim")
-        self._owns_line = True
+        started = time.monotonic()
         i = 0
         try:
             while True:
                 frame = _SPINNER_FRAMES[i % len(_SPINNER_FRAMES)]
-                self._transcript.replace_last(f"{frame} thinking...", "class:dim")
+                elapsed = time.monotonic() - started
+                self._write(f"{frame} thinking… {elapsed:.0f}s (ctrl-c to interrupt)")
                 i += 1
                 await asyncio.sleep(_SPINNER_INTERVAL)
         except asyncio.CancelledError:
-            pass
+            raise
+        finally:
+            self._clear()
 
     def start(self) -> None:
-        if self._task is None:
+        if self._task is None or self._task.done():
             self._task = asyncio.ensure_future(self._spin())
 
     async def stop(self) -> None:
-        if self._task is not None:
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
-            self._task = None
-        if self._owns_line:
-            self._transcript.pop()
-            self._owns_line = False
+        task, self._task = self._task, None
+        if task is None:
+            return
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        self._clear()
 
 
 async def run_repl(
@@ -377,9 +365,9 @@ async def run_repl(
     output: Output | None = None,
     session_factory: Callable[[str, Config], AgentSession] | None = None,
 ) -> str:
-    """Run the full-screen interactive session until the user exits.
+    """Run the interactive session until the user exits.
 
-    Returns the final transcript text (mainly useful for tests). input/
+    Returns the full transcript text (mainly useful for tests). input/
     output/session_factory are injectable purely for testing — real usage
     from sleuth/cli.py leaves them at their real-terminal/AgentSession
     defaults. Tests drive `input` with prompt_toolkit's own
@@ -389,131 +377,113 @@ async def run_repl(
     resolved_root = Path(path).resolve()
     session = factory(path, config)
 
-    transcript = _Transcript()
+    transcript = _Transcript(output=output)
     transcript.append_lines(_banner_lines(resolved_root, _agentic_model_name(config)))
-    transcript.append("")
 
-    spinner = _Spinner(transcript)
-    # Serializes turns strictly in submission order: each new turn's
-    # runner awaits whatever turn was already pending before doing its
-    # own work. This makes "type a question, then immediately type exit"
-    # behave correctly (exit waits for the in-flight answer) both for a
-    # real user (who naturally waits anyway) and for tests that pipe in
-    # several lines of input back-to-back with no real delay between them.
-    pending: dict[str, asyncio.Task | None] = {"task": None}
+    spinner = _Spinner(output=output)
 
-    def schedule(coro_factory: Callable[[], "asyncio.Future"]) -> None:
-        previous = pending["task"]
-
-        async def runner():
-            if previous is not None:
-                await previous
-            await coro_factory()
-
-        pending["task"] = get_app().create_background_task(runner())
-
-    async def process_question(question: str) -> None:
-        transcript.append(f"❯ {question}", "class:user")
-        spinner.start()
-        first_event = True
-        async for event in session.ask(question):
-            if first_event:
-                await spinner.stop()
-                first_event = False
-            if isinstance(event, ToolCallEvent):
-                transcript.append(_format_tool_call(event), "class:tool")
-                spinner.start()
-            elif isinstance(event, ToolResultEvent):
-                transcript.append(_format_tool_result(event), "class:dim")
-            elif isinstance(event, AnswerEvent):
-                transcript.append_markdown(event.text, prefix=[("class:accent", "● ")])
-                if event.truncated:
-                    transcript.append(
-                        "(Note: search was cut short after reaching the iteration limit.)", "class:dim"
-                    )
-        await spinner.stop()
-        transcript.append("")
-
-    async def do_exit() -> None:
-        get_app().exit(result="\n".join(transcript.lines))
-
-    def handle_submit(buff: Buffer) -> bool:
-        question = buff.text.strip()
-        if not question:
-            return False
-        if question.lower() in EXIT_COMMANDS:
-            schedule(do_exit)
-            return False
-        schedule(lambda question=question: process_question(question))
-        return False
-
-    input_area = TextArea(
-        height=1,
-        multiline=False,
-        wrap_lines=False,
-        accept_handler=handle_submit,
-        style="class:user",
-    )
-
-    transcript_window = Window(
-        content=BufferControl(buffer=transcript.buffer, lexer=_TranscriptLexer(lambda: transcript.fragments)),
-        wrap_lines=True,
-        allow_scroll_beyond_bottom=True,
-    )
-
+    # Ctrl-C must never be swallowed by the prompt widget while a turn is
+    # in flight — see _run_turn_interruptibly below, which is where the
+    # real interrupt handling lives.
     kb = KeyBindings()
 
-    @kb.add("c-c")
-    @kb.add("c-d")
-    def _(event) -> None:
-        schedule(do_exit)
-
-    # Manual scrolling of the transcript pane — Up/Down move one line,
-    # PageUp/PageDown move a full screenful, End/Ctrl-End jump back to the
-    # live tail. Bound at the application level (not on the input
-    # TextArea's own buffer) so scrolling works no matter which widget has
-    # focus, and specifically does NOT consume the TextArea's own
-    # up/down-through-input-history behavior — prompt_toolkit's default
-    # up/down bindings only apply within a focused multiline buffer, and
-    # this REPL's input box is single-line, so these are otherwise unused.
-    @kb.add("up")
-    def _(event) -> None:
-        transcript.scroll(-1)
-
-    @kb.add("down")
-    def _(event) -> None:
-        transcript.scroll(1)
-
-    @kb.add("pageup")
-    def _(event) -> None:
-        transcript.page_scroll(transcript_window.render_info.window_height if transcript_window.render_info else 10, down=False)
-
-    @kb.add("pagedown")
-    def _(event) -> None:
-        transcript.page_scroll(transcript_window.render_info.window_height if transcript_window.render_info else 10, down=True)
-
-    @kb.add("end")
-    @kb.add("c-end")
-    def _(event) -> None:
-        transcript.scroll_to_bottom()
-
-    root = HSplit(
-        [
-            transcript_window,
-            Window(height=1, char="─", style="class:divider"),
-            Frame(input_area, title="❯ ask · enter to send · ↑↓ scroll · pgup/pgdn page · end jump to bottom · ctrl-c quit"),
-        ]
-    )
-
-    application: Application[str] = Application(
-        layout=Layout(root, focused_element=input_area),
-        key_bindings=kb,
+    prompt_session: PromptSession[str] = PromptSession(
+        message=FormattedText([("class:prompt", "❯ ")]),
         style=STYLE,
-        full_screen=True,
-        mouse_support=False,
+        history=InMemoryHistory(),
+        multiline=False,
+        key_bindings=kb,
         input=input,
         output=output,
     )
 
-    result = await application.run_async()
-    return result if result is not None else "\n".join(transcript.lines)
+    async def process_question(question: str) -> None:
+        spinner.start()
+        try:
+            async for event in session.ask(question):
+                await spinner.stop()
+                if isinstance(event, ToolCallEvent):
+                    transcript.append(_format_tool_call(event), "class:tool")
+                    # Back to "thinking" while the tool runs and the model
+                    # decides what to do with the result.
+                    spinner.start()
+                elif isinstance(event, ToolResultEvent):
+                    transcript.append(_format_tool_result(event), "class:dim")
+                    spinner.start()
+                elif isinstance(event, AnswerEvent):
+                    transcript.append_markdown(event.text, prefix=[("class:accent", "● ")])
+                    if event.truncated:
+                        transcript.append(
+                            "(Note: search was cut short after reaching the iteration limit.)",
+                            "class:dim",
+                        )
+        finally:
+            await spinner.stop()
+        transcript.append("")
+
+    async def run_turn_interruptibly(question: str) -> None:
+        """Runs one turn as a cancellable task with SIGINT wired to cancel it.
+
+        Without this, Ctrl-C during a turn does nothing: the prompt widget
+        isn't reading input at that point, so prompt_toolkit's own
+        KeyboardInterrupt handling is not in play, and an agentic turn can
+        legitimately occupy several minutes (up to MAX_ITERATIONS
+        non-streaming model calls, each with its own HTTP timeout plus one
+        retry). The old REPL queued Ctrl-C *behind* the in-flight turn,
+        which made it unquittable for exactly that whole window.
+        """
+        task = asyncio.ensure_future(process_question(question))
+
+        def on_sigint(_signum, _frame) -> None:
+            task.cancel()
+
+        previous_handler = None
+        installed = False
+        try:
+            # signal.signal() only works on the main thread, and SIGINT is
+            # not installable at all under some embedded/threaded hosts —
+            # degrade to "not interruptible" rather than crashing there.
+            previous_handler = signal.signal(signal.SIGINT, on_sigint)
+            installed = True
+        except (ValueError, OSError):
+            pass
+
+        try:
+            await task
+        except asyncio.CancelledError:
+            await spinner.stop()
+            # Tell the session its turn was abandoned. Without this, the
+            # interrupted question stays in the message history with no
+            # answer, and the model finishes answering IT on the next
+            # question instead of the new one — see
+            # AgentSession.abort_turn() for the full explanation.
+            abort = getattr(session, "abort_turn", None)
+            if callable(abort):
+                abort()
+            transcript.append("  ⏹ interrupted", "class:dim")
+            transcript.append("")
+        finally:
+            if installed:
+                signal.signal(signal.SIGINT, previous_handler)
+
+    while True:
+        try:
+            question = await prompt_session.prompt_async()
+        except KeyboardInterrupt:
+            # Ctrl-C at an empty prompt: clear the line and keep going,
+            # matching Claude Code / a normal shell. Ctrl-D is the way out.
+            continue
+        except EOFError:
+            break
+
+        question = question.strip()
+        if not question:
+            continue
+        if question.lower() in EXIT_COMMANDS:
+            transcript.record_question(question)
+            break
+
+        transcript.record_question(question)
+        await run_turn_interruptibly(question)
+
+    return "\n".join(transcript.lines)

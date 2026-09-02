@@ -1,0 +1,74 @@
+# Golden eval set for hireflow (D:\Personal\hireflow), indexed as
+# repo_id fa6909a5-1949-444f-b879-0702bf59f59f. EASY tier — single-file,
+# single-symbol lookups.
+#
+# Questions and expected_files/expected_symbols are grounded in the actual
+# indexed chunks (verified via a direct SELECT against the chunks table
+# for this repo_id before writing this file), not guessed from repo
+# structure alone.
+#
+# Run separately from hireflow_golden_hard.yaml — each `sleuth eval` run
+# fires up to 2 Groq calls per case (answer + judge) with no built-in
+# pause long enough to respect Groq's 8000-tokens/minute free-tier budget
+# across a big combined file; splitting easy/hard into two smaller runs
+# keeps each run's total token usage further from that ceiling.
+repo: fa6909a5-1949-444f-b879-0702bf59f59f
+cases:
+  - question: "How does company signup create a unique slug, and what happens on a slug collision?"
+    expected_files:
+      - apps\backend\src\auth\auth.service.ts
+    expected_symbols:
+      - AuthService.signupCompany
+      - AuthService.resolveUniqueSlug
+      - AuthService.isUniqueConstraintOn
+    reference_answer: >
+      AuthService.signupCompany builds a base slug (from the provided slug
+      or slugify(companyName)) and calls resolveUniqueSlug to get a
+      collision-free slug, then tries createCompanyAndUser in a retry loop
+      (up to SLUG_COLLISION_RETRIES). If that insert fails on a unique
+      constraint on the slug column (isUniqueConstraintOn), it re-resolves
+      a new unique slug and retries; a unique constraint violation on email
+      instead throws ConflictException("Email already registered").
+
+  - question: "How is a submitted application scored, and how does it avoid double-scoring on retry?"
+    expected_files:
+      - apps\backend\src\queues\application-scoring\application-scoring.processor.ts
+    expected_symbols:
+      - ApplicationScoringProcessor.handleScoreApplication
+    reference_answer: >
+      ApplicationScoringProcessor.handleScoreApplication is a Bull queue
+      processor (concurrency 3) that looks up the application and its
+      job's description/requirements by id. If the application isn't
+      found it throws. If aiFitScore is already set (not null) it logs a
+      warning and returns early instead of re-scoring, so a retried or
+      duplicate job enqueue doesn't re-run scoring (and re-charge the ML
+      call) on an already-scored application.
+
+  - question: "What data does the recruiter dashboard summary endpoint return, and how is the applications-per-day timeseries computed?"
+    expected_files:
+      - apps\backend\src\dashboard\dashboard.service.ts
+    expected_symbols:
+      - DashboardService.getSummary
+    reference_answer: >
+      DashboardService.getSummary runs several counts/aggregates in
+      parallel via Promise.all, scoped to companyId: active published job
+      count, total applications, applications awaiting review (stage
+      APPLIED), average aiFitScore, a group-by count per pipeline stage,
+      and a raw SQL query grouping applications by day over the last
+      TIMESERIES_DAYS (7) days. The per-day counts are then merged into a
+      fixed 7-day array (defaulting missing days to 0) rather than
+      returning only the days that actually had applications.
+
+  - question: "How does getResumeUrl authorize access to a candidate's resume and what happens if none exists?"
+    expected_files:
+      - apps\backend\src\applications\applications.service.ts
+    expected_symbols:
+      - ApplicationsService.getResumeUrl
+    reference_answer: >
+      ApplicationsService.getResumeUrl looks up the application scoped to
+      both applicationId and companyId (so a recruiter can't fetch another
+      company's resume), throwing NotFoundException if no such application
+      exists. If the application has no resumeUrl it also throws
+      NotFoundException("No resume on file"). Otherwise it asks
+      StorageService for a signed URL valid for SIGNED_URL_EXPIRES_IN_SECONDS
+      (300 seconds) and returns it with the expiry.

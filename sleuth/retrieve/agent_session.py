@@ -50,6 +50,66 @@ GREP_MAX_MATCHES = 50
 LIST_FILES_MAX_RESULTS = 200
 READ_FILE_MAX_LINES = 400
 
+# Globs that match everything, and are therefore no-ops as *filters*. They
+# are anything but no-ops to ripgrep, though: passing any explicit --glob
+# switches rg out of "respect .gitignore" mode for matching, so a model
+# reflexively adding glob="*" to a grep call silently drags every ignored
+# directory back into the search. Measured on this repo: `--glob '*'`
+# scanned 12,853 files under .venv/ and produced 2,440,969 bytes of output
+# where the same search with no glob produced 5,815 bytes from 0 ignored
+# files — a 420x blowup of third-party code the user never wrote, which
+# also floods the model's context and (on Windows) drags in files whose
+# bytes break subprocess decoding.
+#
+# Dropping such a glob is semantically identical to honoring it (it
+# excludes nothing either way) while restoring ignore filtering. Verified:
+# no glob at all lists 184 files here, and a REAL glob like "*.py" still
+# filters correctly (75 files, 0 of them under .venv) — this only discards
+# match-everything patterns.
+#
+# Deliberately a no-op-glob check rather than a hand-maintained exclusion
+# list (--glob '!.venv' --glob '!node_modules'): that approach is
+# whack-a-mole and was measured failing on this very repo, where those two
+# negations still let 7,202 files through from .venv-win/, a third venv
+# directory nobody thought to add. .gitignore already knows every
+# ignorable directory; the fix is to stop overriding it.
+_MATCH_EVERYTHING_GLOBS = {"*", "**", "**/*", "*/*", ".", "./*"}
+
+
+def _normalize_glob(glob: str | None) -> str | None:
+    """Drops globs that match everything (see _MATCH_EVERYTHING_GLOBS)."""
+    if glob is None:
+        return None
+    if glob.strip() in _MATCH_EVERYTHING_GLOBS:
+        return None
+    return glob
+
+
+def _run_tool_subprocess(args: list[str], cwd: Path | None = None) -> subprocess.CompletedProcess:
+    """subprocess.run() for the agentic tools, with decoding pinned to UTF-8.
+
+    text=True alone decodes with the *locale* encoding, which on native
+    Windows Python is cp1252 — a 256-character codepage. Source files are
+    UTF-8, so a single curly quote (\\xe2\\x80\\x9c) in a matched line raises
+    UnicodeDecodeError... on the background reader thread subprocess spawns
+    (subprocess.py's _readerthread), NOT in the calling code. The result is
+    a raw traceback printed over the REPL's output while subprocess.run()
+    itself returns "successfully" with the output silently lost, so no
+    caller can even detect the failure. Reproduced exactly on this repo.
+
+    errors="replace" is the second half of the fix: pinning UTF-8 alone
+    still raises on genuinely non-UTF-8 bytes (a latin-1 file, a binary
+    blob rg didn't classify as binary). A tool feeding text to an LLM wants
+    a replacement character, never an exception.
+    """
+    return subprocess.run(
+        args,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        cwd=cwd,
+    )
+
 # Multi-turn sessions (unlike the old one-shot run_agentic) can accumulate
 # messages forever across many questions. Cap the list and drop the oldest
 # assistant/tool-result pairs first — they're the bulkiest and least
@@ -140,28 +200,48 @@ def _tool_grep(root: Path, pattern: str, glob: str | None = None) -> str:
     # deliberate — a model-supplied pattern must never be interpretable as
     # shell syntax.
     args = ["rg", "--line-number", "--no-heading", "--color", "never", "--no-require-git"]
+    glob = _normalize_glob(glob)
     if glob:
         args += ["--glob", glob]
     args += [pattern, str(root)]
     try:
-        proc = subprocess.run(args, capture_output=True, text=True, cwd=root)
+        proc = _run_tool_subprocess(args, cwd=root)
     except FileNotFoundError:
         return "(error: ripgrep (rg) is not installed or not on PATH)"
 
-    if proc.returncode == 2:
+    lines = [_relativize_rg_line(line, root) for line in proc.stdout.splitlines()]
+
+    if proc.returncode == 2 and not lines:
         # rg's own convention: exit 2 means a real error (bad regex, bad
         # glob, unreadable path, ...) — never raise on model-supplied input,
         # feed the error back as a tool result so the model can retry.
         return f"(invalid pattern or rg error: {proc.stderr.strip()})"
-    if proc.returncode not in (0, 1):
+    if proc.returncode not in (0, 1, 2):
         return f"(rg exited with code {proc.returncode}: {proc.stderr.strip()})"
 
-    lines = [_relativize_rg_line(line, root) for line in proc.stdout.splitlines()]
     if not lines:
         return "(no matches)"
+
+    # returncode 2 WITH matches on stdout is a partial success, not a
+    # failure: rg found real results but also hit at least one path it
+    # couldn't read. That is routine here — .venv/lib64 is a WSL-created
+    # symlink Windows rg can't traverse ("os error 1920"), as are npm's
+    # node_modules/.bin/* links. Previously any exit 2 discarded ~195KB of
+    # legitimate matches and told the model "invalid pattern", so the model
+    # kept retrying a search that had actually worked, burning its whole
+    # MAX_ITERATIONS budget — the REPL's "gets stuck on a codebase
+    # question" symptom. Return the matches and note the warning instead.
+    note = ""
+    if proc.returncode == 2:
+        skipped = len([ln for ln in proc.stderr.splitlines() if ln.strip()])
+        note = f"\n(note: {skipped} path(s) could not be read and were skipped; matches above are complete for the rest)"
+
     if len(lines) > GREP_MAX_MATCHES:
-        return "\n".join(lines[:GREP_MAX_MATCHES]) + "\n... (truncated at 50 matches)"
-    return "\n".join(lines)
+        return "\n".join(lines[:GREP_MAX_MATCHES]) + "\n... (truncated at 50 matches)" + note
+    return "\n".join(lines) + note
+
+
+_RG_LINE_RE = re.compile(r"^(?P<path>.*?):(?P<lineno>\d+):(?P<content>.*)$", re.DOTALL)
 
 
 def _relativize_rg_line(line: str, root: Path) -> str:
@@ -169,10 +249,20 @@ def _relativize_rg_line(line: str, root: Path) -> str:
     # the leading path relative to root to match the tool's documented
     # "path:lineno: line text" contract (and avoid leaking the host's
     # absolute filesystem layout into the model's context).
-    parts = line.split(":", 2)
-    if len(parts) != 3:
+    #
+    # Parsed with a regex anchored on the ":<digits>:" separator rather than
+    # line.split(":", 2). A plain split breaks on Windows, where an
+    # absolute path carries its own drive-letter colon:
+    # "C:\repo\a.py:1:x" split into 3 parts yields path="C",
+    # lineno="\repo\a.py", content="1:x" — so relative_to() always failed,
+    # every path stayed absolute, and the line the model was asked to cite
+    # came out mangled. Non-greedy .*? keeps the FIRST ":<digits>:" as the
+    # separator, which is correct because rg emits the line number
+    # immediately after the path.
+    match = _RG_LINE_RE.match(line)
+    if not match:
         return line
-    path_str, lineno, content = parts
+    path_str, lineno, content = match.group("path"), match.group("lineno"), match.group("content")
     try:
         rel = Path(path_str).relative_to(root)
     except ValueError:
@@ -181,21 +271,39 @@ def _relativize_rg_line(line: str, root: Path) -> str:
 
 
 def _tool_list_files(root: Path, glob: str) -> str:
-    args = ["rg", "--files", "--no-require-git", "--glob", glob]
+    args = ["rg", "--files", "--no-require-git"]
+    # Same no-op-glob handling as _tool_grep: list_files(glob="*") is the
+    # single most likely call a model makes to "see the project", and with
+    # an explicit --glob that enumerated 12,853 .venv files here instead of
+    # the repo's own 184.
+    normalized = _normalize_glob(glob)
+    if normalized:
+        args += ["--glob", normalized]
     try:
-        proc = subprocess.run(args, capture_output=True, text=True, cwd=root)
+        proc = _run_tool_subprocess(args, cwd=root)
     except FileNotFoundError:
         return "(error: ripgrep (rg) is not installed or not on PATH)"
 
-    if proc.returncode not in (0, 1):
+    paths = sorted(proc.stdout.splitlines())
+
+    # Same partial-success handling as _tool_grep: unreadable symlinks make
+    # rg exit 2 even when it successfully listed everything else.
+    if proc.returncode == 2 and not paths:
+        return f"(invalid glob or rg error: {proc.stderr.strip()})"
+    if proc.returncode not in (0, 1, 2):
         return f"(rg exited with code {proc.returncode}: {proc.stderr.strip()})"
 
-    paths = sorted(proc.stdout.splitlines())
     if not paths:
         return "(no files matched)"
+
+    note = ""
+    if proc.returncode == 2:
+        skipped = len([ln for ln in proc.stderr.splitlines() if ln.strip()])
+        note = f"\n(note: {skipped} path(s) could not be read and were skipped)"
+
     if len(paths) > LIST_FILES_MAX_RESULTS:
-        return "\n".join(paths[:LIST_FILES_MAX_RESULTS]) + "\n... (truncated at 200 files)"
-    return "\n".join(paths)
+        return "\n".join(paths[:LIST_FILES_MAX_RESULTS]) + "\n... (truncated at 200 files)" + note
+    return "\n".join(paths) + note
 
 
 def _tool_read_file(root: Path, path: str, start_line: int | None = None, end_line: int | None = None) -> str:
@@ -217,10 +325,8 @@ def _tool_read_file(root: Path, path: str, start_line: int | None = None, end_li
     requested_end = end_line if end_line is not None else start + READ_FILE_MAX_LINES - 1
     end = min(requested_end, start + READ_FILE_MAX_LINES - 1)
     try:
-        proc = subprocess.run(
+        proc = _run_tool_subprocess(
             ["sed", "-n", f"{start},{end}p", str(target)],
-            capture_output=True,
-            text=True,
         )
     except FileNotFoundError:
         return "(error: sed is not installed or not on PATH)"
@@ -293,6 +399,88 @@ class AgentSession:
         # orphaned tool-result with no corresponding call.
         while len(self.messages) > self.max_messages:
             del self.messages[1:3]
+
+    def abort_turn(self) -> None:
+        """Close out a turn that was cancelled part-way through.
+
+        ask() appends to self.messages as it goes — the question, then each
+        assistant tool-call and its tool result. If the turn is cancelled
+        mid-flight (the REPL's Ctrl-C, see repl.py's run_turn_interruptibly),
+        all of that stays in history with NO answer ever produced. The next
+        question is then simply appended after it, so the model sees a
+        still-pending investigation followed by a short new message — and
+        reliably finishes answering the OLD question instead. Reported
+        symptom: interrupt a slow question, ask something unrelated, get the
+        previous question's answer back.
+
+        The fix is to make the abandonment explicit in the transcript the
+        model reads, rather than silently truncating history:
+
+        - A dangling assistant tool-call whose result never arrived gets a
+          synthetic result, because a tool_call with no result is malformed
+          conversation shape and _trim_messages() drops messages in
+          assistant/user PAIRS (del self.messages[1:3]) — an odd number of
+          trailing messages would misalign every later pair.
+        - A user-visible note tells the model the previous request was
+          abandoned and must not be resumed.
+
+        Deliberately NOT implemented by rolling history back to the
+        pre-question state: the tool results gathered before the interrupt
+        are real, often useful context (the user may well ask a follow-up
+        about what was already found), and discarding them would also throw
+        away the work the interrupt was meant to stop, not undo.
+        """
+        # Nothing to do if no turn is in progress or the last turn ended
+        # cleanly (ask() always leaves an assistant answer as the last
+        # message on a normal return).
+        if len(self.messages) <= 1:
+            return
+
+        last_role = self.messages[-1]["role"]
+
+        if last_role == "assistant":
+            parsed = None
+            try:
+                parsed = _parse_tool_call(self.messages[-1]["content"])
+            except MalformedToolCall:
+                parsed = None
+            if parsed is None:
+                # A completed answer already closes the turn cleanly; there
+                # is nothing abandoned to mark. Must stay a no-op, or a
+                # stray call would tell the model to disown its own last
+                # answer and it would refuse follow-up questions about it.
+                return
+            # Cancelled between yielding the tool call and appending its
+            # result — pair the dangling call off with a synthetic result.
+            self.messages.append(
+                {"role": "user", "content": "Tool result: (interrupted by the user before this tool ran)"}
+            )
+
+        # Close the turn with an ASSISTANT message rather than another user
+        # message. Two reasons, both load-bearing:
+        #   1. Alternation. The last message at this point always has role
+        #      "user" (the bare question if the interrupt landed during the
+        #      first model call, a tool result otherwise). Appending another
+        #      "user" note would put two consecutive user messages in
+        #      history, and _trim_messages() deletes in pairs
+        #      (del self.messages[1:3]) assuming assistant/user alternation
+        #      — so a later trim would drop both and leave a dangling
+        #      assistant message.
+        #   2. It reads as the model's own prior statement rather than as an
+        #      instruction buried in a user turn, which is markedly harder
+        #      for it to ignore on the next call.
+        self.messages.append(
+            {
+                "role": "assistant",
+                "content": (
+                    "(This request was interrupted by the user before I answered it. "
+                    "It is abandoned — I will not continue or answer it. Anything found "
+                    "above remains available as context, and I will respond only to the "
+                    "user's next question.)"
+                ),
+            }
+        )
+        self._trim_messages()
 
     async def ask(self, question: str) -> AsyncIterator[AgentEvent]:
         self.messages.append({"role": "user", "content": question})

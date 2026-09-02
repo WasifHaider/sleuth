@@ -100,13 +100,25 @@
 <h1>SLEUTH — How the REPL &amp; AgentSession Work</h1>
 <p class="subtitle">
   The agentic/live half of SLEUTH: no database, no embeddings, no upfront indexing — just an LLM given
-  three small tools and let loose on a local directory, plus a full-screen terminal UI built around it.
+  three small tools and let loose on a local directory, plus a real terminal UI built around it.
   Same teaching style as its companions (<code>how-indexing-works.html</code>, <code>how-chat-works.html</code>):
   concept first, then real code, then — since this document was specifically requested to go one level
   deeper — <em>every import at the top of both files</em> gets its own short "why this one, why it matters
   here" explanation before the code that uses it. Read this after the other two; it assumes you already
   understand RAG, embeddings, and vector search from them.
 </p>
+
+<div class="note">
+<strong>Revised 2026-09-02 — the REPL was rebuilt, and the tool layer had four real bugs.</strong>
+Parts 10, 12, 13 and 14 originally documented a <em>full-screen</em> prompt_toolkit application with a
+bordered input box pinned to the bottom and a hand-written scrolling transcript pane. That design was
+replaced, because it did not work: touchpad/wheel scrolling was impossible by construction, the spinner
+silently ate transcript content, and Ctrl-C could not interrupt an in-flight question. Separately, the
+three tools in Part 3 had four defects that only appeared when running from native Windows Python.
+Those four Parts are now rewritten to describe the code as it actually is, and
+<a href="#p17">Part 17</a> is a new post-mortem of all the bugs — what broke, why, and how each was
+proven fixed. Sections describing unchanged code (Parts 0-2, 4-9, 11, 15) are untouched.
+</div>
 
 <nav class="toc">
   <h2>Contents</h2>
@@ -121,13 +133,14 @@
     <li><a href="#p7">Part 7 — <code>agentic.py</code>: the thin one-shot wrapper</a></li>
     <li><a href="#p8">Part 8 — <code>repl.py</code>'s imports: why a whole new UI toolkit</a></li>
     <li><a href="#p9">Part 9 — Branding as data: the banner, wordmark, and color palette</a></li>
-    <li><a href="#p10">Part 10 — The Transcript: a read-only Buffer as a scrolling pane</a></li>
+    <li><a href="#p10">Part 10 — The Transcript: printing into the terminal's own scrollback</a></li>
     <li><a href="#p11">Part 11 — A hand-rolled markdown-lite renderer for the model's answers</a></li>
-    <li><a href="#p12">Part 12 — The spinner: a transcript line that repaints itself</a></li>
-    <li><a href="#p13">Part 13 — <code>run_repl</code>: wiring the Application together, turn scheduling</a></li>
-    <li><a href="#p14">Part 14 — Key bindings and manual scroll vs. auto-follow</a></li>
+    <li><a href="#p12">Part 12 — The spinner: repainting one terminal line in place</a></li>
+    <li><a href="#p13">Part 13 — <code>run_repl</code>: the prompt loop and interruptible turns</a></li>
+    <li><a href="#p14">Part 14 — Keys, scrolling, and who owns them</a></li>
     <li><a href="#p15">Part 15 — Wired into the CLI: one line in <code>cli.py</code></a></li>
     <li><a href="#p16">Closing — the whole thing as one diagram</a></li>
+    <li><a href="#p17">Part 17 — Post-mortem: six bugs, how they were found and proven fixed</a></li>
   </ol>
 </nav>
 
@@ -292,7 +305,7 @@ away, not hidden inside a provider SDK.
     "  list_files(glob) -- list files matching a glob\n"
     "  read_file(path, start_line=null, end_line=null) -- read up to 400 lines of a file\n"
     "To call a tool, respond with EXACTLY one line in this form and nothing else:\n"
-    'TOOL: <tool_name> {"arg": "value", ...}\n'
+    'TOOL: &lt;tool_name&gt; {"arg": "value", ...}\n'
     "Example of a correct tool call (args must be a valid JSON object with "
     "double-quoted keys/values):\n"
     'TOOL: grep {"pattern": "def foo", "glob": "*.py"}\n'
@@ -349,7 +362,7 @@ toward the iteration cap, so a persistently broken model still terminates rather
 
 <section class="part" id="p3">
 <h2>Part 3 — The three tools: ripgrep, sed, and a sandbox</h2>
-<p class="part-sub">What the model can actually touch, and the two real hardening changes made since the first version.</p>
+<p class="part-sub">What the model can actually touch — and the six real hardening changes made since the first version.</p>
 <p class="filebar">File: <code>sleuth/retrieve/agent_session.py</code></p>
 
 <div class="warn">
@@ -366,15 +379,18 @@ idea.
 
 <pre class="code"><code>def _tool_grep(root: Path, pattern: str, glob: str | None = None) -&gt; str:
     args = ["rg", "--line-number", "--no-heading", "--color", "never", "--no-require-git"]
+    glob = _normalize_glob(glob)                    # change #4
     if glob:
         args += ["--glob", glob]
     args += [pattern, str(root)]
     try:
-        proc = subprocess.run(args, capture_output=True, text=True, cwd=root)
+        proc = _run_tool_subprocess(args, cwd=root)  # change #3
     except FileNotFoundError:
         return "(error: ripgrep (rg) is not installed or not on PATH)"
 
-    if proc.returncode == 2:
+    lines = [_relativize_rg_line(line, root) for line in proc.stdout.splitlines()]
+
+    if proc.returncode == 2 and not lines:           # change #5
         return f"(invalid pattern or rg error: {proc.stderr.strip()})"
     ...</code></pre>
 <div class="explain">
@@ -390,13 +406,141 @@ idea.
   <li><code>--no-require-git</code> — ripgrep by default assumes it's inside a git repo and behaves
       slightly differently if not; this flag makes it work identically for a plain directory the REPL was
       pointed at, git repo or not.</li>
-  <li><code>proc.returncode == 2</code> is ripgrep's own convention for "a real error" (bad regex, bad glob,
-      unreadable path) — fed back as a tool result string, never raised, so the model sees its own mistake
-      and can retry with a corrected pattern instead of the whole session crashing.</li>
   <li><code>FileNotFoundError</code> is caught specifically for the case where <code>rg</code> itself isn't
       installed — a clear, actionable message instead of an opaque traceback (this is a real environment
       gap the project hit directly: see this file's memory notes on WSL needing
       <code>sudo apt-get install ripgrep</code>).</li>
+</ul>
+</div>
+
+<h3>Change #3 — decoding pinned to UTF-8, not the locale codepage</h3>
+
+<div class="warn">
+<strong>The bug:</strong> all three tools called <code>subprocess.run(..., text=True)</code> with no
+<code>encoding=</code>. <code>text=True</code> decodes using the <em>locale</em> encoding, which on native
+Windows Python is <strong>cp1252</strong> — a 256-character codepage. Source files are UTF-8, so a single
+curly quote (<code>"</code>, bytes <code>\xe2\x80\x9c</code>) in a matched line raised
+<code>UnicodeDecodeError: 'charmap' codec can't decode byte 0x9d</code>. And it raised on the
+<em>background reader thread</em> that <code>subprocess</code> spawns, not in the calling code — so the
+exception was never propagated: <code>subprocess.run()</code> returned "successfully" with
+<code>proc.stdout = None</code>, and the tool then died on
+<code>AttributeError: 'NoneType' object has no attribute 'splitlines'</code>. See
+<a href="#p17">Part 17</a> for the captured reproduction.
+</div>
+
+<pre class="code"><code>def _run_tool_subprocess(args: list[str], cwd: Path | None = None) -&gt; subprocess.CompletedProcess:
+    return subprocess.run(
+        args,
+        capture_output=True,
+        encoding="utf-8",
+        errors="replace",
+        cwd=cwd,
+    )</code></pre>
+<div class="explain">
+<ul>
+  <li>One shared helper, used by all three tools, so the fix cannot be applied to two of them and forgotten
+      on the third.</li>
+  <li><code>encoding="utf-8"</code> is correct regardless of host locale — the files being read are UTF-8,
+      which is a property of the data, not of whoever happens to be running the program.</li>
+  <li><code>errors="replace"</code> is the second half of the fix, and it is not optional. Pinning UTF-8
+      alone still raises on genuinely non-UTF-8 bytes (a latin-1 file, a binary blob <code>rg</code> didn't
+      classify as binary). A tool whose output is destined for an LLM prompt wants a replacement character
+      in that situation, never an exception.</li>
+</ul>
+</div>
+
+<h3>Change #4 — a match-everything glob must not defeat <code>.gitignore</code></h3>
+
+<div class="warn">
+<strong>The bug:</strong> in ripgrep, passing <em>any</em> explicit <code>--glob</code> switches it out of
+gitignore-respecting mode for matching. A model that reflexively adds <code>glob: "*"</code> — a complete
+no-op as a <em>filter</em> — therefore silently dragged every ignored directory back into the search.
+Measured on this very repo: <code>--glob '*'</code> scanned <strong>12,853 files under
+<code>.venv/</code></strong> and produced <strong>2,440,969 bytes</strong> of output, where the identical
+search with no glob produced <strong>5,815 bytes</strong> from zero ignored files. A 420× blowup of
+third-party code the user never wrote, flooding the model's context — and the source of the undecodable
+bytes in change #3.
+</div>
+
+<pre class="code"><code>_MATCH_EVERYTHING_GLOBS = {"*", "**", "**/*", "*/*", ".", "./*"}
+
+
+def _normalize_glob(glob: str | None) -&gt; str | None:
+    if glob is None:
+        return None
+    if glob.strip() in _MATCH_EVERYTHING_GLOBS:
+        return None
+    return glob</code></pre>
+<div class="explain">
+<ul>
+  <li>Dropping such a glob is <em>semantically identical</em> to honoring it — it excludes nothing either
+      way — while restoring ignore filtering. Verified both directions: no glob at all lists 184 files
+      here, and a real glob like <code>"*.py"</code> still filters correctly (75 files, zero of them under
+      <code>.venv</code>).</li>
+  <li>This is deliberately a no-op-glob check rather than a hand-maintained exclusion list
+      (<code>--glob '!.venv' --glob '!node_modules'</code>). That alternative was tried first <em>and
+      measured failing on this repo</em>: those two negations still let <strong>7,202 files</strong>
+      through from <code>.venv-win/</code>, a third virtualenv directory nobody thought to add. Exclusion
+      lists are whack-a-mole; <code>.gitignore</code> already knows every ignorable directory, so the right
+      fix is to stop overriding it.</li>
+</ul>
+</div>
+
+<h3>Change #5 — exit code 2 is often a <em>partial</em> success</h3>
+
+<div class="warn">
+<strong>The bug:</strong> <code>rg</code> exits 2 if <em>any</em> path was unreadable — which is routine
+here, because <code>.venv/lib64</code> is a WSL-created symlink that Windows <code>rg</code> cannot
+traverse (<code>os error 1920</code>), as are npm's <code>node_modules/.bin/*</code> links. The old code
+treated every exit 2 as "invalid pattern," discarding the ~195 KB of real matches <code>rg</code> had
+already printed to stdout. The model was told its search had failed when it hadn't, so it retried the same
+search until <code>MAX_ITERATIONS</code> was exhausted — <strong>this was the REPL's "gets stuck on a
+codebase question" symptom.</strong>
+</div>
+
+<pre class="code"><code>    note = ""
+    if proc.returncode == 2:
+        skipped = len([ln for ln in proc.stderr.splitlines() if ln.strip()])
+        note = f"\n(note: {skipped} path(s) could not be read and were skipped; ...)"
+
+    if len(lines) &gt; GREP_MAX_MATCHES:
+        return "\n".join(lines[:GREP_MAX_MATCHES]) + "\n... (truncated at 50 matches)" + note
+    return "\n".join(lines) + note</code></pre>
+<div class="explain">
+<ul>
+  <li>The distinguishing test is <strong>whether stdout has matches</strong>, not the exit code alone:
+      exit 2 <em>with</em> matches is a partial success (return them, plus a note), exit 2 with
+      <em>empty</em> stdout is a genuine failure (report it, so the model can fix its own regex). Blanket
+      accepting exit 2 would have broken self-correction for malformed patterns; blanket rejecting it was
+      the original bug.</li>
+  <li>The note is surfaced rather than hidden, so the model knows the search was not exhaustive and can
+      caveat its answer accordingly.</li>
+  <li><code>_tool_list_files</code> received the identical treatment — same three changes (#3, #4, #5), for
+      the same reasons.</li>
+</ul>
+</div>
+
+<h3>Change #6 — Windows drive letters broke the citation format</h3>
+
+<div class="warn">
+<strong>The bug (found while verifying the others):</strong> <code>_relativize_rg_line</code> parsed
+ripgrep's <code>path:lineno:content</code> output with <code>line.split(":", 2)</code>. But a Windows
+absolute path carries its own colon: <code>C:\repo\a.py:1:x</code> splits into <code>path="C"</code>,
+<code>lineno="\repo\a.py"</code>, <code>content="1:x"</code>. So <code>relative_to()</code> always failed,
+<em>no path was ever relativized on Windows</em> (leaking the host's absolute filesystem layout into the
+model's context), and the <code>path:lineno: text</code> contract the model cites from came out mangled.
+</div>
+
+<pre class="code"><code>_RG_LINE_RE = re.compile(r"^(?P&lt;path&gt;.*?):(?P&lt;lineno&gt;\d+):(?P&lt;content&gt;.*)$", re.DOTALL)</code></pre>
+<div class="explain">
+<ul>
+  <li>Anchoring on the <code>:&lt;digits&gt;:</code> separator instead of "the first two colons" is what
+      makes a drive letter harmless — <code>C:</code> is not followed by digits-then-colon.</li>
+  <li>The non-greedy <code>.*?</code> deliberately stops at the <em>first</em> such separator, which is
+      correct because <code>rg</code> emits the line number immediately after the path. A greedy pattern
+      would split on the last one, mangling any matched line that itself contains
+      <code>:&lt;digits&gt;:</code> — a URL like <code>http://x:8080/p</code>, a dict literal, a type
+      annotation. Both behaviors are pinned by tests.</li>
 </ul>
 </div>
 
@@ -411,7 +555,7 @@ idea.
     start = max((start_line or 1), 1)
     requested_end = end_line if end_line is not None else start + READ_FILE_MAX_LINES - 1
     end = min(requested_end, start + READ_FILE_MAX_LINES - 1)
-    proc = subprocess.run(["sed", "-n", f"{start},{end}p", str(target)], capture_output=True, text=True)
+    proc = _run_tool_subprocess(["sed", "-n", f"{start},{end}p", str(target)])
     ...</code></pre>
 <div class="warn">
 <strong>Change #2 — the path-traversal guard.</strong> The original version joined
@@ -432,6 +576,8 @@ the whole file into Python and slicing a list — consistent with the grep/list_
 rather than hand-rolling. <code>end</code> is capped at <code>start + READ_FILE_MAX_LINES - 1</code>
 (400 lines) regardless of what the model asked for, the same token-budget-protection idea as
 <code>GREP_MAX_MATCHES</code>: an unbounded read of a huge file could itself blow the model's context window.
+Of the three tools this is the one most exposed to change #3, since it reads whole source files where
+non-ASCII prose in comments and docstrings is common.
 </p>
 
 </section>
@@ -683,122 +829,111 @@ async def run_agentic(question: str, path: str, config: Config, generator=None) 
 
 <section class="part" id="p8">
 <h2>Part 8 — <code>repl.py</code>'s imports: why a whole new UI toolkit</h2>
-<p class="part-sub">The project's first external runtime dependency — what it buys, and why the low-level pieces specifically.</p>
+<p class="part-sub">The project's first external runtime dependency — what it buys, and how much smaller that turned out to be than first thought.</p>
 <p class="filebar">File: <code>sleuth/repl.py</code>, <code>requirements.txt</code></p>
 
 <div class="concept">
 <strong class="tag">Concept — why not just print()/input() like a normal script?</strong>
-A plain <code>print()</code>/<code>input()</code> loop can only ever append text to the bottom of a
-scrolling terminal — there's no way to pin a bordered input box to the bottom of the screen while a
-separate transcript area scrolls above it (the Claude Code / Hermes style layout), because that needs the
-terminal's <strong>alternate screen buffer</strong>, raw keyboard input handling, and a real render loop
-that redraws specific screen regions on demand. That's a fundamentally different capability from sequential
-line printing, and it's exactly what a real terminal UI (TUI) library provides.
-<code>prompt_toolkit</code> is this project's first external runtime dependency (everything else is either
-Python stdlib or a raw REST call via <code>httpx</code>) — a deliberate, acknowledged departure from the
-"hand-roll everything" philosophy, justified because a persistent bordered widget genuinely cannot be built
-with print()/readline() at all, not because it would just be tedious.
+Two things a bare <code>input()</code> loop cannot do, and they are the entire justification for a
+dependency here. First, <strong>line editing</strong>: <code>input()</code> gives you no left/right cursor
+movement, no word-wise deletion, no history recall — every terminal that feels usable implements those,
+and implementing them means putting the terminal into raw mode and decoding escape sequences by hand.
+Second, <strong>styled output with correct terminal detection</strong>: emitting ANSI color safely means
+knowing whether the destination is a real TTY, what it supports, and how to reset state cleanly.
+<br><br>
+<code>prompt_toolkit</code> is this project's first external runtime dependency (everything else is Python
+stdlib or a raw REST call via <code>httpx</code>) — a deliberate, acknowledged departure from the
+"hand-roll everything" philosophy.
 </div>
 
-<span class="imp">from prompt_toolkit import Application</span>
+<div class="note">
+<strong>This section shrank by more than half.</strong> The original REPL imported eleven prompt_toolkit
+names to build a full-screen application: <code>Application</code>, <code>Buffer</code>,
+<code>Document</code>, <code>HSplit</code>/<code>Layout</code>/<code>Window</code>,
+<code>BufferControl</code>, <code>Lexer</code>, <code>Frame</code>/<code>TextArea</code>, and
+<code>get_app</code>/<code>get_app_or_none</code>. Every one of them is now gone — they existed only to
+construct and drive the screen that Part 10 explains why we no longer take over. What remains is a much
+smaller surface: one input widget, one styled-print function, and the types needed to test them.
+</div>
+
+<span class="imp">from prompt_toolkit import PromptSession, print_formatted_text</span>
 <p class="explain">
-The top-level object representing "a running full-screen terminal program." Owns the event loop that reads
-keystrokes, re-renders the screen, and dispatches key bindings — everything else imported below is a
-building block <em>handed to</em> an <code>Application</code> instance, not a standalone thing used on its
-own.
+The two names that replaced all eleven. <code>PromptSession</code> is "ask the user for one line of input,
+with full line editing and history" — it draws the prompt, handles the keystrokes, and returns a string. It
+manages only the input line, not the screen. <code>print_formatted_text</code> is a drop-in
+<code>print()</code> that understands <code>(style, text)</code> fragments and emits real ANSI color,
+handling TTY detection and attribute resets itself. Between them they cover everything this REPL needs from
+the library.
 </p>
 
-<span class="imp">from prompt_toolkit.application.current import get_app, get_app_or_none</span>
+<span class="imp">from prompt_toolkit.formatted_text import FormattedText</span>
 <p class="explain">
-Code deep inside helper classes (<code>_Transcript</code>, the spinner) sometimes needs to reach "the
-currently running Application" without that instance being explicitly passed down through every function
-call — <code>get_app()</code> is prompt_toolkit's context-local accessor for that.
-<code>get_app_or_none()</code> is the same idea but returns <code>None</code> instead of raising when no
-application is running (used in <code>_Transcript._sync()</code>, Part 10, so tests that build a
-<code>_Transcript</code> in isolation, with no real <code>Application</code> running at all, don't crash on
-every append).
+The explicit wrapper type marking a list of <code>(style, text)</code> tuples as "already-parsed styled
+text." Without it, prompt_toolkit would treat a bare string as plain text — and, more importantly, a string
+containing HTML-like or ANSI-like characters could be misinterpreted. Wrapping in
+<code>FormattedText</code> says "these fragments are final, render them literally," which matters because
+this transcript prints arbitrary source code and model output.
 </p>
 
-<span class="imp">from prompt_toolkit.buffer import Buffer</span>
+<span class="imp">from prompt_toolkit.history import InMemoryHistory</span>
 <p class="explain">
-A <code>Buffer</code> is prompt_toolkit's model of "some editable (or read-only) text plus a cursor
-position" — the same underlying primitive backs both the transcript pane (read-only, Part 10) and the
-single-line question input box (editable). Using the same primitive for both is what lets the rest of the
-UI (scrolling, rendering, key bindings) treat them uniformly.
-</p>
-
-<span class="imp">from prompt_toolkit.document import Document</span>
-<p class="explain">
-An immutable snapshot of a <code>Buffer</code>'s text plus its cursor position at one point in time — every
-time the transcript's content changes, a brand-new <code>Document</code> is constructed and handed to the
-buffer via <code>set_document()</code> (Part 10) rather than mutating text in place, matching
-prompt_toolkit's own internal model of how buffer content updates.
-</p>
-
-<span class="imp">from prompt_toolkit.input.base import Input / from prompt_toolkit.output.base import Output</span>
-<p class="explain">
-Abstract types for "where keystrokes come from" and "where rendered frames go." <code>run_repl</code>
-accepts these as optional parameters purely for testability — real usage from <code>cli.py</code> leaves
-both at their default (the real terminal), but tests construct a fake pipe input
-(<code>prompt_toolkit.input.create_pipe_input()</code>) and a <code>DummyOutput()</code> so the whole REPL
-can be driven and asserted on without a real terminal attached at all, the same dependency-injection
-pattern used everywhere else in this codebase for testability (an injectable <code>session_factory</code>,
-an injectable <code>generator</code>).
+Gives the prompt up-arrow recall of previous questions for the life of the session. Deliberately
+<em>in-memory</em> rather than <code>FileHistory</code>: questions asked about a codebase are session-scoped
+and can contain fragments a user would not expect to be written to disk, so history dies with the process.
+Note this is a capability the old full-screen version could not have at all — it bound
+<code>up</code> globally to transcript scrolling and thereby stole the key from its own input box (Part 14).
 </p>
 
 <span class="imp">from prompt_toolkit.key_binding import KeyBindings</span>
 <p class="explain">
-A registry mapping key combinations (<code>"c-c"</code>, <code>"pageup"</code>, <code>"end"</code>) to
-handler functions — Part 14 covers every binding this REPL defines and exactly what each one does.
+The registry for custom key handlers. It is still imported and still passed to the
+<code>PromptSession</code>, but it now registers <em>nothing</em> — see Part 14 for why an empty
+<code>KeyBindings</code> is the correct final state rather than an oversight, and why removing five custom
+bindings is what <em>fixed</em> the keyboard.
 </p>
 
-<span class="imp">from prompt_toolkit.layout import HSplit, Layout, Window</span>
+<span class="imp">from prompt_toolkit.input.base import Input / from prompt_toolkit.output.base import Output</span>
 <p class="explain">
-The screen-layout primitives: <code>HSplit</code> stacks child elements vertically (here: transcript pane,
-a one-line horizontal divider, the input box — top to bottom), <code>Window</code> is a rectangular region
-that renders one piece of content (a buffer, via a control), and <code>Layout</code> wraps the whole
-composed tree as what an <code>Application</code> actually renders each frame.
-</p>
-
-<span class="imp">from prompt_toolkit.layout.controls import BufferControl</span>
-<p class="explain">
-The glue between a <code>Buffer</code> (raw text + cursor) and a <code>Window</code> (a screen region) —
-tells the window <em>how</em> to render that buffer's content, including which <code>Lexer</code> (below)
-to use for per-character/per-line styling.
-</p>
-
-<span class="imp">from prompt_toolkit.lexers import Lexer</span>
-<p class="explain">
-The base class this file subclasses (<code>_TranscriptLexer</code>, Part 10) to answer "what color should
-each line/span of text be" — the actual mechanism that makes tool-call lines dim, the user's own questions
-bold, and the model's answer render with markdown-lite styling, all inside one plain-text
-<code>Buffer</code> that has no native concept of styled text at all.
+Abstract types for "where keystrokes come from" and "where rendered output goes."
+<code>run_repl</code> accepts both as optional parameters purely for testability — real usage from
+<code>cli.py</code> leaves them at their defaults (the real terminal), while tests construct a fake pipe
+input (<code>prompt_toolkit.input.create_pipe_input()</code>) and a <code>DummyOutput()</code> so the whole
+REPL can be driven and asserted on with no terminal attached. <code>Output</code> earns a second job in the
+new design: <code>_Transcript</code> and <code>_Spinner</code> both take one, which is exactly what lets
+the spinner's <code>cursor_backward</code>/<code>erase_end_of_line</code> calls be silently skipped under a
+test harness (Part 12).
 </p>
 
 <span class="imp">from prompt_toolkit.styles import Style</span>
 <p class="explain">
-Defines the actual color/weight values a style <em>class name</em> (like <code>"class:accent"</code>,
-referenced throughout this file and by the lexer) maps to — Part 9 covers the exact palette and where the
-hex values come from.
+Defines the actual color/weight values a style <em>class name</em> (like <code>"class:accent"</code>) maps
+to — Part 9 covers the exact palette and where the hex values come from. Now passed to both the
+<code>PromptSession</code> and every <code>print_formatted_text</code> call, since there is no longer a
+single long-lived <code>Application</code> holding it for the whole program.
 </p>
 
-<span class="imp">from prompt_toolkit.widgets import Frame, TextArea</span>
+<span class="imp">import signal</span>
 <p class="explain">
-Higher-level, pre-built components rather than raw primitives — <code>TextArea</code> is the actual editable
-question-input widget (wrapping a <code>Buffer</code> + key handling + an accept callback for Enter),
-<code>Frame</code> draws the bordered box with a title around it (the "❯ ask a question · enter to send ·
-..." label visible at the bottom of the REPL). These are the one place this file uses prompt_toolkit's
-higher-level widgets rather than composing raw <code>Window</code>/<code>BufferControl</code> by hand — a
-deliberate mix: raw primitives everywhere <em>custom</em> rendering behavior is needed (the transcript, Part
-10), pre-built widgets everywhere standard behavior (a bordered box, an editable single-line field) is
-exactly what's wanted with nothing to customize.
+Python stdlib, and new to this file. Used for exactly one thing: installing a <code>SIGINT</code> handler
+for the duration of a turn so that Ctrl-C can cancel an in-flight question (Part 13). This is necessary
+because while a turn is running, the prompt widget is <em>not</em> reading input — prompt_toolkit's key
+handling is inactive, so an OS-level signal is the only interrupt that still arrives.
+</p>
+
+<span class="imp">import time</span>
+<p class="explain">
+Also stdlib, also new. Only <code>time.monotonic()</code> is used, to compute the spinner's elapsed-seconds
+counter (Part 12). <code>monotonic()</code> rather than <code>time.time()</code> deliberately: it cannot
+jump backwards if the system clock is adjusted mid-question, which would otherwise render a negative
+elapsed time.
 </p>
 
 <span class="imp">from sleuth.retrieve.agent_session import AgentSession, AnswerEvent, ToolCallEvent, ToolResultEvent</span>
 <p class="explain">
-The entire connection point back to Part 1-7's subsystem — everything above this line is generic terminal
-UI machinery that has never heard of SLEUTH; this one import is where the REPL actually becomes
-<em>this project's</em> REPL rather than a blank terminal application shell.
+The one import that ties this file to the rest of the project, and the only one that survived the rewrite
+completely untouched — the session class plus the three event types the REPL renders. Worth stating plainly:
+<strong>the entire UI was replaced without changing a single line of <code>agent_session.py</code></strong>,
+which is the clearest possible evidence that Part 5's event contract was the right boundary to draw.
 </p>
 
 </section>
@@ -859,98 +994,92 @@ whole font-rendering dependency.
 </section>
 
 <section class="part" id="p10">
-<h2>Part 10 — The Transcript: a read-only Buffer as a scrolling pane</h2>
-<p class="part-sub">The core rendering trick: how per-line/per-span color is even possible inside a widget that only ever holds plain text.</p>
+<h2>Part 10 — The Transcript: printing into the terminal's own scrollback</h2>
+<p class="part-sub">The single most important architectural decision in this file — and it is a decision about what <em>not</em> to build.</p>
 <p class="filebar">File: <code>sleuth/repl.py</code></p>
 
 <div class="concept">
-<strong class="tag">Concept — a Buffer has no concept of "styled text" at all</strong>
-A prompt_toolkit <code>Buffer</code> is fundamentally just a string plus a cursor position — it has no
-built-in way to say "this word is bold" or "this line is dim." Coloring is instead achieved entirely
-through a separate object, a <code>Lexer</code>, that the rendering pipeline consults on every redraw:
-"given this document, what (style, text) fragments should line N actually render as?" This is architecturally
-identical to how syntax highlighting works in a real code editor — the editor's buffer holds plain text,
-and a separate syntax analysis pass decides what color each token gets, recomputed as needed rather than
-baked into the stored text itself.
+<strong class="tag">Concept — a full-screen app has to reimplement the terminal</strong>
+Terminals have two screen buffers. The <em>normal</em> buffer is the one with scrollback: everything ever
+printed stays there, and the terminal itself handles scrolling it — mouse wheel, two-finger touchpad
+swipe, PageUp, click-and-drag text selection, copy, even the terminal's own find function. The
+<em>alternate</em> buffer is a blank fixed-size screen with no history, which is what full-screen programs
+like <code>vim</code>, <code>htop</code> and <code>less</code> switch into.
+<br><br>
+The moment a program enters the alternate buffer, it inherits responsibility for <em>all</em> of that:
+scrolling, following new output, selection. None of it comes for free anymore. That is a large amount of
+machinery to rebuild, and rebuilding it badly is worse than not having it.
 </div>
 
-<pre class="code"><code>class _TranscriptLexer(Lexer):
-    def __init__(self, get_line_fragments):
-        self._get_line_fragments = get_line_fragments
-
-    def lex_document(self, document: Document):
-        fragments = self._get_line_fragments()
-        def get_line(lineno: int):
-            if lineno &lt; len(fragments):
-                return fragments[lineno]
-            text = document.lines[lineno] if lineno &lt; len(document.lines) else ""
-            return [("", text)]
-        return get_line</code></pre>
-<div class="explain">
-<ul>
-  <li><code>lex_document</code> doesn't return styled text directly — it returns a <em>function</em>
-      (<code>get_line</code>) that prompt_toolkit calls, on demand, for whichever line numbers are actually
-      visible on screen right now. This is a lazy-evaluation pattern: a transcript with thousands of lines
-      of history never needs every line's styling computed on every redraw, only the handful currently
-      scrolled into view.</li>
-  <li><code>get_line_fragments</code> is a callback (a <code>Callable</code>, not a fixed list) passed in
-      from <code>_Transcript</code> below — the lexer doesn't own or store any content itself, it always
-      asks its owner for the current fragment list fresh, so it never goes stale relative to whatever the
-      transcript most recently appended.</li>
-</ul>
+<div class="warn">
+<strong>This is what the first version got wrong.</strong>
+The original REPL was <code>Application(full_screen=True)</code> with a hand-written transcript pane: a
+read-only <code>Buffer</code>, a custom <code>Lexer</code> for per-line color, a <code>following</code>
+flag for tail-mode, and key bindings for line/page scrolling. It looked right and was fundamentally
+broken. Mouse scroll was disabled outright (<code>mouse_support=False</code>), so no wheel or touchpad
+event ever reached the app. Worse, it could not have worked even if enabled: prompt_toolkit's
+<code>Window._scroll()</code> recomputes the scroll position <em>from the cursor</em> on every repaint,
+the transcript pinned the cursor to its own last line, and the spinner forced a repaint every 80ms — so
+any scroll position the user reached was snapped back to the bottom within one frame. See
+<a href="#p17">Part 17</a> for the full post-mortem.
 </div>
+
+<p class="explain">
+Claude Code, Codex and Hermes all sidestep this entirely: they never enter the alternate buffer. The
+transcript is simply <em>printed</em>, like any ordinary command's output, and only the input line is a
+managed widget. Scrolling works because the terminal is doing it. That is now what SLEUTH does, and it is
+why <code>_Transcript</code> shrank to this:
+</p>
 
 <pre class="code"><code>class _Transcript:
-    def __init__(self):
+    def __init__(self, output: Output | None = None):
         self.lines: list[str] = []
-        self.fragments: list[list[tuple[str, str]]] = []
-        self.buffer = Buffer(read_only=True)
-        self.following = True
+        self._output = output
 
-    def _sync(self) -&gt; None:
-        text = "\n".join(self.lines)
-        cursor_position = len(text) if self.following else min(self.buffer.cursor_position, len(text))
-        self.buffer.set_document(Document(text, cursor_position=cursor_position), bypass_readonly=True)
-        app = get_app_or_none()
-        if app is not None:
-            app.invalidate()
+    def _emit(self, fragments: list[tuple[str, str]]) -&gt; None:
+        self.lines.append("".join(text for _, text in fragments))
+        print_formatted_text(
+            FormattedText(fragments),
+            style=STYLE,
+            output=self._output,
+        )
 
     def append(self, text: str, style: str = "") -&gt; None:
         for line in text.split("\n"):
-            self.lines.append(line)
-            self.fragments.append([(style, line)] if style else [])
-        self._sync()</code></pre>
+            self._emit([(style, line)])</code></pre>
 <div class="explain">
 <ul>
-  <li>Two parallel lists, kept in lockstep: <code>lines</code> is the plain text the <code>Buffer</code>
-      actually holds (needed for prompt_toolkit's own cursor/scroll math, which operates on real text), and
-      <code>fragments</code> is what the lexer hands back for rendering — one <code>(style, text)</code>
-      pair per recorded line, or an empty list (meaning "render this line with no override, whatever the
-      base style is") when no explicit style was given.</li>
-  <li><code>Buffer(read_only=True)</code> — the transcript is never directly editable by the user (only the
-      separate input <code>TextArea</code> is), so mutation always goes through <code>append</code>/
-      <code>replace_last</code>/<code>pop</code>, never direct keystrokes. <code>bypass_readonly=True</code>
-      in <code>set_document</code> is what lets <em>this code</em>, specifically, still update a buffer
-      that's read-only from the user's perspective.</li>
-  <li><code>self.following</code>/the ternary in <code>_sync</code> is the auto-scroll mechanism: while
-      <code>following</code> is true (the default), every new line pins the cursor to the very end of the
-      text, so the view always tracks the newest content (like <code>tail -f</code>). The moment the user
-      manually scrolls (Part 14), <code>following</code> flips to false and the cursor position is instead
-      clamped to wherever it already was — new lines keep arriving and being recorded, but the visible
-      viewport doesn't get yanked back down mid-read. <code>scroll_to_bottom()</code> (bound to the End key)
-      is the only thing that re-engages <code>following</code>.</li>
-  <li><code>app.invalidate()</code> is prompt_toolkit's "please redraw" signal — without it, updating the
-      underlying buffer's document wouldn't necessarily trigger a visible repaint on the next event-loop
-      tick.</li>
+  <li><code>print_formatted_text</code> is prompt_toolkit's styled equivalent of <code>print()</code>. It
+      takes the same <code>(style, text)</code> fragment list the old <code>Lexer</code> produced and writes
+      it to the terminal with real ANSI color — so Part 11's markdown renderer needed
+      <strong>no changes at all</strong>. The fragment format was always the right abstraction; only the
+      thing consuming it changed.</li>
+  <li>There is no <code>Buffer</code>, no <code>Lexer</code>, no <code>Document</code>, no
+      <code>fragments</code> list, no <code>following</code> flag, no <code>_sync()</code>, no
+      <code>scroll()</code>, no <code>invalidate()</code>. Roughly 200 lines became 15. Everything they
+      existed to do, the terminal already did better.</li>
+  <li><code>self.lines</code> survives, but only as a <em>record</em> of what was printed — not as the
+      thing being rendered. It has two jobs: <code>run_repl()</code> returns it (tests assert against it,
+      since a <code>DummyOutput</code> swallows real rendering), and it makes this class trivially
+      testable. Nothing reads it to draw the screen.</li>
+  <li><code>output</code> is injectable purely for testing. Real usage passes <code>None</code>, meaning
+      "the actual terminal."</li>
 </ul>
 </div>
+
+<div class="note">
+<strong>The tradeoff, stated honestly.</strong> The bordered input box is no longer pinned to the bottom of
+the screen — it scrolls up with the content, exactly like Claude Code's does. That is the price of letting
+the terminal own scrolling, and it is a price worth paying: a pinned box that fights your touchpad is
+worse than an unpinned one that doesn't.
+</div>
+
 <p class="explain">
-<code>append_markdown</code> (not shown in full here) is a small variant of <code>append</code> specifically
-for the model's final answer text — it runs each line through <code>_render_markdown_line</code> (Part 11)
-instead of applying one flat style to the whole thing, and supports an optional <code>prefix</code> so the
-"● " answer marker renders inline on the same row as the first line of the answer rather than on its own
-line (a real, small polish fix made live during development — see this project's memory notes on the
-dot-alignment issue).
+<code>append_markdown</code> and <code>append_lines</code> are thin variants of <code>append</code>, both
+routing to the same <code>_emit</code>. One extra method deserves mention:
+<code>record_question()</code>, which appends the user's question to <code>self.lines</code>
+<em>without printing it</em> — because the prompt widget has already drawn <code>❯ &lt;question&gt;</code>
+into the scrollback as part of accepting the keystrokes. Printing it again would double it on screen.
 </p>
 
 </section>
@@ -1005,189 +1134,270 @@ handing the remainder off to this inline function.
 </section>
 
 <section class="part" id="p12">
-<h2>Part 12 — The spinner: a transcript line that repaints itself</h2>
-<p class="part-sub">A "thinking" indicator with nowhere obvious to live, since there's no fixed status bar in this layout.</p>
+<h2>Part 12 — The spinner: repainting one terminal line in place</h2>
+<p class="part-sub">A "thinking" indicator that must never touch the transcript — because the version that did, corrupted it.</p>
 <p class="filebar">File: <code>sleuth/repl.py</code></p>
 
+<div class="warn">
+<strong>The original spinner silently ate the transcript.</strong>
+It worked by appending a blank <em>transcript line</em>, then overwriting that line on a timer via
+<code>replace_last()</code>. Two things made that fatal. First, <code>start()</code> was a no-op if a task
+was already running (<code>if self._task is None</code>), but <code>process_question</code> called
+<code>start()</code> again after every tool call <em>without stopping it first</em> — so the original
+timer kept running. Second, <code>replace_last()</code> overwrites whatever line is currently last, and
+by then that was no longer the spinner's placeholder: it was real content appended in the meantime. The
+running timer overwrote genuine tool output with <code>⠙ thinking...</code>, and <code>stop()</code>'s
+<code>transcript.pop()</code> then deleted a real line. With three tool calls in one turn, everything
+after the first was destroyed. <a href="#p17">Part 17</a> has the captured proof.
+</div>
+
+<div class="concept">
+<strong class="tag">Concept — in-place animation with three escape codes</strong>
+Now that output goes to normal scrollback (Part 10), the spinner can do what command-line tools have always
+done: write text, then move the cursor back over it and overwrite it. Three terminal operations are all it
+takes — <code>cursor_backward(n)</code> to step back over what was written,
+<code>erase_end_of_line()</code> to clear it, then write the next frame. The animation happens on one
+physical line that never becomes part of the scrollback history, so there is nothing for it to corrupt.
+</div>
+
 <pre class="code"><code>class _Spinner:
+    def _write(self, text: str) -&gt; None:
+        if self._output is None:
+            return
+        if self._width:
+            self._output.cursor_backward(self._width)
+            self._output.erase_end_of_line()
+        self._output.write(text)
+        self._output.flush()
+        self._width = len(text)
+
     async def _spin(self) -&gt; None:
-        self._transcript.append("", "class:dim")
-        self._owns_line = True
+        started = time.monotonic()
         i = 0
         try:
             while True:
                 frame = _SPINNER_FRAMES[i % len(_SPINNER_FRAMES)]
-                self._transcript.replace_last(f"{frame} thinking...", "class:dim")
+                elapsed = time.monotonic() - started
+                self._write(f"{frame} thinking… {elapsed:.0f}s (ctrl-c to interrupt)")
                 i += 1
                 await asyncio.sleep(_SPINNER_INTERVAL)
         except asyncio.CancelledError:
-            pass
+            raise
+        finally:
+            self._clear()
 
     def start(self) -&gt; None:
-        if self._task is None:
-            self._task = asyncio.ensure_future(self._spin())
-
-    async def stop(self) -&gt; None:
-        if self._task is not None:
-            self._task.cancel()
-            try:
-                await self._task
-            except asyncio.CancelledError:
-                pass
-            self._task = None
-        if self._owns_line:
-            self._transcript.pop()
-            self._owns_line = False</code></pre>
+        if self._task is None or self._task.done():
+            self._task = asyncio.ensure_future(self._spin())</code></pre>
 <div class="explain">
 <ul>
-  <li>Rather than a fixed status-bar widget, the spinner claims one line of the transcript itself — appends
-      a blank placeholder line, then repeatedly overwrites <em>that same line</em>
-      (<code>replace_last</code>) with the next spinner frame, on an <code>asyncio.sleep(0.08)</code> timer,
-      which is what produces the visible spinning animation inside the normal scrolling flow rather than a
-      separate screen region.</li>
-  <li><code>start()</code>/<code>stop()</code> are idempotent — calling <code>start()</code> while already
-      running is a no-op (<code>if self._task is None</code>), and <code>stop()</code> cancels the
-      background task and cleanly awaits its cancellation (swallowing the expected
-      <code>asyncio.CancelledError</code>) before removing the placeholder line — this is what prevents a
-      half-finished spinner frame from being left behind in the transcript once real content needs to
-      appear where it was.</li>
-  <li>The REPL's turn-processing code (Part 13) starts the spinner before the first model call, stops it
-      the instant the <em>first</em> event of any kind arrives (a tool call or the final answer — whichever
-      comes first), and restarts it again after each tool result while waiting for the model's next
-      response — so it's really acting as a "waiting on the model" indicator, not a single "thinking once"
-      animation for the whole multi-tool-call question.</li>
+  <li><code>self._width</code> tracks how many characters were last written, which is what makes
+      <code>cursor_backward</code> land in exactly the right place. Frames differ in length (the elapsed
+      seconds grow from <code>1s</code> to <code>10s</code>), so a fixed backward step would leave stale
+      characters behind.</li>
+  <li>The <code>finally: self._clear()</code> matters more than it looks. Cancellation is the
+      <em>normal</em> way this task ends, and without the <code>finally</code>, a cancelled spinner would
+      leave a half-drawn frame sitting on the line where real output is about to be printed. Note also
+      <code>except asyncio.CancelledError: raise</code> — deliberately re-raised, not swallowed, so the
+      task is correctly recorded as cancelled rather than as completed normally.</li>
+  <li><code>self._task.done()</code> in <code>start()</code> is the fix for the bug above: a task that has
+      finished or been cancelled no longer blocks a restart. The old <code>if self._task is None</code>
+      left a dead task in place, so subsequent <code>start()</code> calls silently did nothing while the
+      real spinner had already stopped.</li>
+  <li>The elapsed-seconds counter is a deliberate honesty feature. An agentic turn can legitimately run for
+      tens of seconds (up to six non-streaming model calls), and a spinner with a visibly ticking timer is
+      the difference between "it's working" and "it's frozen" — which was the user's original complaint.
+      It also advertises <code>ctrl-c to interrupt</code>, which is now true (Part 13).</li>
+  <li><code>if self._output is None: return</code> makes the spinner a silent no-op under a test harness
+      that passes no output, so tests never depend on animation timing.</li>
 </ul>
 </div>
 
 </section>
 
 <section class="part" id="p13">
-<h2>Part 13 — <code>run_repl</code>: wiring it together, turn scheduling</h2>
-<p class="part-sub">The function that actually assembles every piece above into one running Application — and a subtle ordering bug its scheduling logic exists to prevent.</p>
+<h2>Part 13 — <code>run_repl</code>: the prompt loop and interruptible turns</h2>
+<p class="part-sub">An ordinary <code>while True</code> loop — plus the one genuinely hard problem: making a long model call cancellable.</p>
 <p class="filebar">File: <code>sleuth/repl.py</code></p>
 
 <div class="concept">
-<strong class="tag">Concept — why does submitting a question need a scheduler at all?</strong>
-A naive REPL might just <code>await</code> the whole question-answering process directly inside the key
-handler that fires on Enter. The problem: prompt_toolkit's key handlers aren't meant to block for seconds
-at a time (an LLM call plus several tool round trips can easily take that long) — the UI needs to keep
-rendering, and a user needs to be able to type <code>exit</code> immediately after submitting a question
-without it queuing behind a blocking call. The fix is to run each turn as its own background task, but that
-introduces a real new problem on its own: what if the user submits a second question, or hits Ctrl-C to
-exit, <em>before</em> the first question has finished answering? Without care, both could run concurrently
-and interleave their output into the transcript in a confusing order, or "exit" could fire mid-answer and
-tear down the UI while a background task is still trying to write to it.
+<strong class="tag">Concept — with the terminal owning the screen, the loop gets boring</strong>
+The old version needed a scheduler. Because it was one long-lived <code>Application</code>, submitting a
+question happened inside a <em>key handler</em>, and key handlers must not block for seconds — so each turn
+became a background task, which then needed a queue to stop two turns interleaving their output.
+<br><br>
+A scrollback REPL has no such problem. <code>prompt_async()</code> asks for one line and returns it; the
+prompt widget is torn down while the turn runs and rebuilt for the next question. Turns are therefore
+<em>sequential by construction</em> — there is no second turn to interleave with, and the whole
+<code>schedule()</code>/<code>pending</code> machinery disappears.
 </div>
 
-<pre class="code"><code>pending: dict[str, asyncio.Task | None] = {"task": None}
+<pre class="code"><code>prompt_session: PromptSession[str] = PromptSession(
+    message=FormattedText([("class:prompt", "❯ ")]),
+    style=STYLE,
+    history=InMemoryHistory(),
+    multiline=False,
+    key_bindings=kb,
+    input=input,
+    output=output,
+)
 
-def schedule(coro_factory) -&gt; None:
-    previous = pending["task"]
-    async def runner():
-        if previous is not None:
-            await previous
-        await coro_factory()
-    pending["task"] = get_app().create_background_task(runner())</code></pre>
+while True:
+    try:
+        question = await prompt_session.prompt_async()
+    except KeyboardInterrupt:
+        continue          # Ctrl-C at an empty prompt: clear the line, like a shell
+    except EOFError:
+        break             # Ctrl-D: leave
+
+    question = question.strip()
+    if not question:
+        continue
+    if question.lower() in EXIT_COMMANDS:
+        transcript.record_question(question)
+        break
+
+    transcript.record_question(question)
+    await run_turn_interruptibly(question)</code></pre>
 <div class="explain">
 <ul>
-  <li><code>pending</code> holds at most one in-flight "chain" of scheduled work at a time — every new
-      <code>schedule()</code> call captures whatever was previously pending, and its own
-      <code>runner()</code> <code>await</code>s that previous task <em>before</em> doing its own work. This
-      builds a strict FIFO queue out of ordinary <code>await</code> chaining: question 1 runs, then (once
-      it's fully done) question 2 runs, then <code>exit</code> runs — never interleaved, regardless of how
-      quickly the user types them one after another.</li>
-  <li>This is exactly what makes "type a question, then immediately type <code>exit</code> before it's
-      answered" behave correctly: <code>exit</code>'s own scheduled task will wait for the in-flight
-      question to fully finish (including its transcript output) before actually closing the application —
-      both for a real human (who naturally waits anyway before typing again) and for tests that pipe in
-      several lines of input back-to-back with no real delay between them, where this ordering guarantee is
-      the only thing standing between a passing test and a flaky, order-dependent one.</li>
-  <li><code>get_app().create_background_task(...)</code> — prompt_toolkit's own supported way to run a
-      coroutine "in the background" relative to the Application's main render loop, rather than a bare
-      <code>asyncio.ensure_future</code>, so the Application's own lifecycle management is aware of it.</li>
+  <li><code>history=InMemoryHistory()</code> gives up-arrow recall of previous questions — which the old
+      version could never have, because it bound <code>up</code> globally to transcript scrolling and thus
+      stole the key from its own input box (Part 14).</li>
+  <li><code>KeyboardInterrupt</code> and <code>EOFError</code> are how prompt_toolkit reports Ctrl-C and
+      Ctrl-D <em>while waiting for input</em>. Distinguishing them matters: Ctrl-C at an idle prompt should
+      clear the line and continue (shell behavior), whereas Ctrl-D means "I'm done."</li>
+  <li><code>await run_turn_interruptibly(question)</code> is a plain <code>await</code> — the loop simply
+      stops here until the turn finishes. No queue, no ordering guarantees to maintain, nothing to get
+      subtly wrong.</li>
+</ul>
+</div>
+
+<h3>Making a turn interruptible</h3>
+
+<div class="warn">
+<strong>Ctrl-C used to be queued behind the very thing it was meant to cancel.</strong>
+The old key binding did <code>schedule(do_exit)</code>, and <code>schedule</code>'s runner began with
+<code>await previous</code> — so pressing Ctrl-C appended an exit request to the <em>end</em> of the queue,
+behind the in-flight turn. Since a turn can run up to <code>MAX_ITERATIONS</code> (6) non-streaming model
+calls, each with a 60-second HTTP timeout plus a retry, the REPL could be unquittable and uncancellable for
+several minutes. There was no per-turn cancellation of any kind.
+</div>
+
+<pre class="code"><code>async def run_turn_interruptibly(question: str) -&gt; None:
+    task = asyncio.ensure_future(process_question(question))
+
+    def on_sigint(_signum, _frame) -&gt; None:
+        task.cancel()
+
+    previous_handler = None
+    installed = False
+    try:
+        previous_handler = signal.signal(signal.SIGINT, on_sigint)
+        installed = True
+    except (ValueError, OSError):
+        pass
+
+    try:
+        await task
+    except asyncio.CancelledError:
+        await spinner.stop()
+        transcript.append("  ⏹ interrupted", "class:dim")
+        transcript.append("")
+    finally:
+        if installed:
+            signal.signal(signal.SIGINT, previous_handler)</code></pre>
+<div class="explain">
+<ul>
+  <li>The turn runs as a real <code>asyncio</code> task specifically so it has a <code>cancel()</code>
+      method. <code>cancel()</code> raises <code>CancelledError</code> at the coroutine's next
+      <code>await</code> point — which, mid-HTTP-request, is essentially immediate.</li>
+  <li>Why a raw <code>signal</code> handler rather than a prompt_toolkit key binding? Because while the
+      turn is running, <strong>the prompt widget is not reading input</strong> — prompt_toolkit's key
+      handling is not active at all, so there is no binding to trigger. The OS-level SIGINT that Ctrl-C
+      generates is the only signal that still arrives.</li>
+  <li>The handler is installed for the turn's duration and the previous one is restored in
+      <code>finally</code> — leaving a permanent handler installed would break Ctrl-C handling for the
+      prompt itself (which relies on prompt_toolkit's own behavior) after the first question.</li>
+  <li><code>except (ValueError, OSError): pass</code> is a deliberate graceful degradation.
+      <code>signal.signal()</code> only works on the main thread and is unavailable in some embedded hosts;
+      there, the turn is simply not interruptible rather than crashing at startup.</li>
+  <li>Catching <code>CancelledError</code> around the <code>await</code> is what turns a hard cancellation
+      into a clean, visible <code>⏹ interrupted</code> line, after which the loop continues to the next
+      prompt — the session is not torn down.</li>
 </ul>
 </div>
 
 <pre class="code"><code>async def process_question(question: str) -&gt; None:
-    transcript.append(f"❯ {question}", "class:user")
     spinner.start()
-    first_event = True
-    async for event in session.ask(question):
-        if first_event:
+    try:
+        async for event in session.ask(question):
             await spinner.stop()
-            first_event = False
-        if isinstance(event, ToolCallEvent):
-            transcript.append(_format_tool_call(event), "class:tool")
-            spinner.start()
-        elif isinstance(event, ToolResultEvent):
-            transcript.append(_format_tool_result(event), "class:dim")
-        elif isinstance(event, AnswerEvent):
-            transcript.append_markdown(event.text, prefix=[("class:accent", "● ")])
-            ...
-    await spinner.stop()
+            if isinstance(event, ToolCallEvent):
+                transcript.append(_format_tool_call(event), "class:tool")
+                spinner.start()
+            elif isinstance(event, ToolResultEvent):
+                transcript.append(_format_tool_result(event), "class:dim")
+                spinner.start()
+            elif isinstance(event, AnswerEvent):
+                transcript.append_markdown(event.text, prefix=[("class:accent", "● ")])
+                ...
+    finally:
+        await spinner.stop()
     transcript.append("")</code></pre>
 <div class="explain">
-This is the direct payoff of Part 5's event design: one <code>async for event in session.ask(question)</code>
-loop, one <code>isinstance</code> check per event type, each rendered completely differently — a tool call
-gets a gear-icon line and restarts the spinner (since the model still has to be called again after this
-tool's result comes back), a tool result gets a dim truncated preview, and the final answer gets full
-markdown-lite rendering with an accent-colored "●" marker. Nothing here needed to change when
-<code>AgentSession</code>'s internals were rebuilt (Part 6) — the event contract is the entire interface
-this function depends on.
+<ul>
+  <li>Still the direct payoff of Part 5's event design: one <code>async for</code>, one
+      <code>isinstance</code> check per event type. <code>AgentSession</code> was never touched by the REPL
+      rewrite — the event contract is the entire interface between them.</li>
+  <li>Note <code>await spinner.stop()</code> now runs unconditionally at the top of <em>every</em>
+      iteration, replacing the old <code>first_event</code> flag. Combined with the explicit
+      <code>start()</code> after each event, the spinner is always stopped before anything is printed and
+      restarted only afterward — which is precisely the invariant whose absence corrupted the transcript
+      before (Part 12).</li>
+  <li>The <code>try/finally</code> guarantees the spinner is stopped even if the turn is cancelled
+      mid-stream, so a cancelled turn can never leave an animating spinner behind.</li>
+</ul>
 </div>
 
 </section>
 
 <section class="part" id="p14">
-<h2>Part 14 — Key bindings and manual scroll vs. auto-follow</h2>
-<p class="part-sub">Letting a user read scrollback without fighting new output arriving underneath them.</p>
+<h2>Part 14 — Keys, scrolling, and who owns them</h2>
+<p class="part-sub">The shortest section in this document, and that is the entire point.</p>
 <p class="filebar">File: <code>sleuth/repl.py</code></p>
 
-<pre class="code"><code>kb = KeyBindings()
+<p class="explain">
+This section used to document five custom key bindings — <code>up</code>, <code>down</code>,
+<code>pageup</code>, <code>pagedown</code>, <code>end</code>/<code>c-end</code> — plus the
+<code>following</code> auto-follow state machine they drove. All of it is gone. The terminal scrolls its
+own scrollback, so there is nothing left to implement:
+</p>
 
-@kb.add("c-c")
-@kb.add("c-d")
-def _(event) -&gt; None:
-    schedule(do_exit)
+<table class="walk">
+<tr><th>Behavior</th><th>Before (full-screen)</th><th>Now (scrollback)</th></tr>
+<tr><td>Wheel / two-finger touchpad scroll</td><td>Impossible — <code>mouse_support=False</code>, and cursor-driven repaint would have overridden it anyway</td><td>The terminal does it</td></tr>
+<tr><td>Line / page scroll</td><td>Custom bindings, moving by <em>logical</em> lines against a <code>wrap_lines=True</code> window — so one keypress jumped many rows or none</td><td>The terminal does it</td></tr>
+<tr><td>Jump to newest output</td><td><code>scroll_to_bottom()</code> + <code>following</code> flag</td><td>The terminal does it</td></tr>
+<tr><td>Select and copy text</td><td>Not available at all</td><td>The terminal does it</td></tr>
+<tr><td>Up-arrow history recall</td><td>Broken — <code>up</code> was bound globally to scrolling</td><td><code>InMemoryHistory</code> (Part 13)</td></tr>
+<tr><td>End / Home within the input line</td><td>Broken — <code>end</code> was bound globally to scrolling</td><td>prompt_toolkit's defaults</td></tr>
+</table>
 
-@kb.add("up")
-def _(event) -&gt; None:
-    transcript.scroll(-1)
-
-@kb.add("pageup")
-def _(event) -&gt; None:
-    transcript.page_scroll(transcript_window.render_info.window_height if transcript_window.render_info else 10, down=False)
-
-@kb.add("end")
-@kb.add("c-end")
-def _(event) -&gt; None:
-    transcript.scroll_to_bottom()</code></pre>
+<pre class="code"><code>kb = KeyBindings()   # deliberately empty</code></pre>
 <div class="explain">
 <ul>
-  <li>Bound at the <em>application</em> level (via <code>KeyBindings()</code> passed to
-      <code>Application(key_bindings=kb, ...)</code>), not on the input <code>TextArea</code>'s own buffer
-      — this is deliberate: it means Up/Down/PageUp/PageDown scroll the transcript no matter which widget
-      currently has focus, and specifically doesn't fight prompt_toolkit's own default up/down-through-
-      history bindings, because those only apply within a focused <em>multiline</em> buffer and this REPL's
-      input box is explicitly single-line (<code>TextArea(multiline=False, ...)</code>) — so those default
-      bindings are simply never active to conflict with.</li>
-  <li><code>Ctrl-C</code>/<code>Ctrl-D</code> both route through the same <code>schedule(do_exit)</code>
-      queue as a typed <code>exit</code>/<code>quit</code> — not a raw, immediate interrupt — so an exit
-      triggered mid-answer still waits for the in-flight turn to finish cleanly (Part 13's ordering
-      guarantee applies here too, not just to typed exit commands).</li>
-  <li><code>transcript_window.render_info.window_height</code> — a real prompt_toolkit runtime property
-      giving the actual current height of the rendered window in terminal rows, used so PageUp/PageDown
-      scroll by "one screenful," whatever that currently is (a resized terminal changes this), falling back
-      to a fixed guess of 10 rows only if <code>render_info</code> isn't available yet (before the very
-      first frame has ever been rendered).</li>
+  <li>The <code>KeyBindings</code> object is still created and passed to the <code>PromptSession</code>, but
+      it registers nothing. It exists as the extension point for genuinely REPL-specific keys later (a
+      <code>/</code> command menu, say) without re-plumbing anything.</li>
+  <li>Every key that previously needed a custom binding now works <em>better</em> by falling through to
+      either the terminal or prompt_toolkit's own defaults. This is the payoff of Part 10's decision, made
+      concrete: the fix for "the keybindings don't work" was to stop writing keybindings.</li>
+  <li>Ctrl-C and Ctrl-D are no longer bindings at all — they surface as <code>KeyboardInterrupt</code> and
+      <code>EOFError</code> from <code>prompt_async()</code> while idle, and Ctrl-C becomes a real SIGINT
+      during a turn (Part 13). Two different mechanisms for two genuinely different situations.</li>
 </ul>
 </div>
-<p class="explain">
-Every one of these bindings routes through <code>_Transcript.scroll()</code>/<code>page_scroll()</code>
-(Part 10), which is what actually flips <code>following</code> to <code>False</code> the instant a manual
-scroll happens — the key-binding layer itself has no scroll-state logic of its own, it's purely input
-dispatch onto the transcript object that owns the actual behavior.
-</p>
 
 </section>
 
@@ -1240,39 +1450,176 @@ Terminal: type `sleuth` with no arguments
    │
    ▼  (Part 15)  cli.py: args.command is None → run_repl(".", config)
    │
-   ▼  (Part 13)  run_repl() builds the Application: transcript pane + divider + bordered input box
-   │              banner rendered (Part 9): logo mark, block-letter wordmark, dir/model info
+   ▼  (Part 13)  run_repl() prints the banner into normal scrollback (Part 9: logo mark,
+   │              block-letter wordmark, dir/model info), then enters its prompt loop
    │
-   ▼              user types a question, presses Enter → handle_submit → schedule(process_question)
-   │              (queued strictly after any still-in-flight previous turn, Part 13)
+   ▼              await prompt_async() → user types a question, presses Enter
+   │              (turns are sequential by construction — no scheduler, no queue)
+   │
+   ▼  (Part 13)  run_turn_interruptibly(): turn runs as a cancellable task,
+   │              SIGINT wired to cancel it → Ctrl-C works mid-answer
    │
    ▼  (Part 6)   AgentSession.ask(question) — question appended to the session's growing message list
    │
-   ▼  (Part 2)   model called non-streaming; response checked against the TOOL: <name> {json} protocol
+   ▼  (Part 2)   model called non-streaming; response checked against the TOOL: &lt;name&gt; {json} protocol
    │
-   ├─ tool call ──▶ (Part 5) yield ToolCallEvent → REPL prints "⚙ grep(...)", spinner restarts
+   ├─ tool call ──▶ (Part 5) yield ToolCallEvent → REPL prints "⚙ grep(...)"
    │                (Part 3) real tool runs: rg / rg --files / sed, sandboxed under the session's root
+   │                         UTF-8 decoded, no-op globs dropped, partial results kept
    │                (Part 5) yield ToolResultEvent → REPL prints a truncated preview
+   │                (Part 12) spinner repaints one terminal line, ticking elapsed seconds
    │                result appended to messages; loop continues, up to MAX_ITERATIONS (6)
    │
    └─ final answer ─▶ (Part 5) yield AnswerEvent
                       (Part 11) REPL renders it through the markdown-lite renderer, accent "●" marker
+                      (Part 10) printed via print_formatted_text into the terminal's scrollback,
+                                where the terminal itself owns scrolling / selection / copy
                       (Part 6)  _trim_messages() keeps the session's history bounded for the next question
    │
    ▼  user types another question — same AgentSession, same messages list, genuinely remembers
    │  what earlier tool calls in THIS session already found
    │
-   ▼  user types exit/quit or Ctrl-C/Ctrl-D → schedule(do_exit), waits for any in-flight turn, closes
+   ▼  exit/quit or Ctrl-D → loop breaks and returns the transcript
+      Ctrl-C at an idle prompt → clears the line and keeps going, like a shell
 </div>
 
 <p>
 That's the whole agentic subsystem, start to finish. Notice, same as the other two companion documents
 conclude: most of the genuinely hard engineering here isn't "AI" at all — it's a small hand-rolled text
-protocol, a sandboxing guard, message-history trimming, and a real terminal UI's render/scroll/focus
-mechanics. The two genuinely intelligent steps (the model deciding what to look at, and writing the final
-answer) are each a handful of lines; everything else in this document is the careful plumbing that makes
-those two steps usable, safe, and pleasant to actually sit in front of.
+protocol, a sandboxing guard, message-history trimming, and correct subprocess/terminal plumbing. The two
+genuinely intelligent steps (the model deciding what to look at, and writing the final answer) are each a
+handful of lines; everything else in this document is the careful plumbing that makes those two steps
+usable, safe, and pleasant to actually sit in front of.
 </p>
+
+<p>
+And — the lesson of Part 17 — the plumbing is also where every single real bug turned out to live. Not one
+of the six was in the prompt, the protocol, or the model's reasoning.
+</p>
+
+</section>
+
+<section class="part" id="p17">
+<h2>Part 17 — Post-mortem: six bugs, how they were found and proven fixed</h2>
+<p class="part-sub">The REPL "got stuck," scrolling didn't work, and a raw traceback appeared mid-answer. Here is what was actually wrong.</p>
+<p class="filebar">Files: <code>sleuth/repl.py</code>, <code>sleuth/retrieve/agent_session.py</code>, <code>sleuth/ingest/clone.py</code></p>
+
+<div class="concept">
+<strong class="tag">Concept — one search triggered three bugs at once</strong>
+The reported symptom was a single agentic question producing a wall of Python traceback plus
+<code>(invalid pattern or rg error: ...)</code>. Three independent defects stacked: the model passed
+<code>glob: "*"</code>, which dragged ~100k third-party library files into the search (bug 4); one of those
+files contained a UTF-8 curly quote that native Windows Python couldn't decode (bug 3); and a
+Linux-created symlink in the same tree made ripgrep exit 2, which caused SLEUTH to discard every real
+match and tell the model its search was invalid (bug 5). The model then retried the "failed" search until
+it ran out of iterations — the "gets stuck" symptom.
+</div>
+
+<h3>The six bugs</h3>
+
+<table class="walk">
+<tr><th>#</th><th>Bug</th><th>Symptom</th><th>Root cause</th></tr>
+<tr>
+  <td>1</td>
+  <td>Touchpad/wheel scroll did nothing</td>
+  <td>Two-finger scroll had no effect</td>
+  <td><code>mouse_support=False</code>, so prompt_toolkit never emitted scroll events. Unfixable in that design anyway: <code>Window._scroll()</code> recomputes scroll from the cursor every repaint, and the transcript pinned the cursor to its own tail while the spinner forced a repaint every 80ms</td>
+</tr>
+<tr>
+  <td>2</td>
+  <td>Screen froze / output vanished mid-answer</td>
+  <td>"The screen gets stuck"</td>
+  <td>The spinner was a <em>transcript line</em> mutated on a timer. <code>start()</code> no-op'd if a task existed, but was re-called after every tool call without stopping the old one — so the live timer overwrote real content via <code>replace_last()</code>, and <code>stop()</code>'s <code>pop()</code> deleted a genuine line</td>
+</tr>
+<tr>
+  <td>3</td>
+  <td><code>UnicodeDecodeError</code> traceback</td>
+  <td>Raw thread traceback printed over the REPL</td>
+  <td><code>text=True</code> with no <code>encoding=</code> decodes with the locale codepage (cp1252 on Windows). A UTF-8 curly quote raised on subprocess's <em>reader thread</em>, uncatchable, leaving <code>proc.stdout = None</code></td>
+</tr>
+<tr>
+  <td>4</td>
+  <td>420× output blowup</td>
+  <td>Context flooded with library code</td>
+  <td>Any explicit <code>--glob</code> switches ripgrep out of gitignore-respecting mode, so the no-op <code>glob="*"</code> un-ignored <code>.venv</code> and <code>node_modules</code></td>
+</tr>
+<tr>
+  <td>5</td>
+  <td>Real matches thrown away</td>
+  <td><code>(invalid pattern or rg error)</code> on a valid pattern; model retried until iteration cap</td>
+  <td>rg exits 2 if <em>any</em> path is unreadable (WSL symlinks, <code>os error 1920</code>). Exit 2 was treated as total failure even with matches on stdout</td>
+</tr>
+<tr>
+  <td>6</td>
+  <td>Citations mangled on Windows</td>
+  <td>Absolute host paths leaked into model context</td>
+  <td><code>line.split(":", 2)</code> broke on the drive-letter colon in <code>C:\repo\a.py:1:x</code>, so <code>relative_to()</code> always failed</td>
+</tr>
+</table>
+
+<div class="note">
+<strong>Bug 6 was not reported — it was found while verifying the others.</strong> It surfaced in the raw
+output of the cp1252 reproduction script, where a match line came back with a full
+<code>C:\Users\...\Temp\...</code> path still attached. Worth noting because it had been silently wrong on
+every Windows run since the tool was written.
+</div>
+
+<h3>How each fix was proven, not assumed</h3>
+
+<div class="explain">
+<ul>
+  <li><strong>Reproduce before fixing.</strong> Bug 3's exact traceback was reproduced first — same
+      <code>0x9d</code> byte, same <code>subprocess.py:1599 _readerthread</code> frame as the user's
+      report. That run also revealed the downstream
+      <code>AttributeError: 'NoneType' object has no attribute 'splitlines'</code>, confirming the output
+      was silently lost rather than merely garbled.</li>
+  <li><strong>Measure claims, don't estimate them.</strong> Bug 4's "420×" is a measurement:
+      <code>2,440,969</code> bytes with <code>--glob '*'</code> versus <code>5,815</code> bytes without,
+      and 12,853 versus 0 <code>.venv</code> files.</li>
+  <li><strong>Test the fix against the old code.</strong> Every regression test was run against the
+      reverted source and confirmed to <em>fail</em> there. This caught a bad test: the first version of
+      the bug-2 spinner test passed against the buggy code, because the existing
+      <code>FakeSession</code> yields all events synchronously, so the spinner's timer never got scheduled
+      mid-turn. Rewritten with real <code>await</code>s between events, it failed correctly — and the
+      captured failure showed <code>alpha_file.py</code> and every later event replaced by
+      <code>⠙ thinking...</code>, exactly the predicted corruption.</li>
+  <li><strong>Verify where the bug actually lives.</strong> Bugs 3's tests cannot fail under WSL, whose
+      locale is already UTF-8. They were verified separately against native Windows Python with
+      <code>cp1252</code>: FAIL before, PASS after.</li>
+  <li><strong>Test the real rendering path.</strong> The REPL rewrite was smoke-tested through a real PTY
+      with an actual <code>Vt100_Output</code> (not <code>DummyOutput</code>), confirming banner, ANSI
+      color, markdown, in-place spinner, and clean exit — because a <code>DummyOutput</code> would have
+      hidden any escape-code mistake.</li>
+  <li><strong>Guard the fix from over-reach.</strong> Two tests exist purely to pin the <em>limits</em> of
+      fixes: a real glob (<code>*.py</code>) must still filter (bug 4), and exit 2 with empty stdout must
+      still report an error so the model can correct its own regex (bug 5).</li>
+</ul>
+</div>
+
+<div class="note">
+<strong>Final state:</strong> 206 tests passing, 0 failing. The suite also went from
+"164 passed" to "206 passed" over these two rounds — most of the increase is these regression tests.
+</div>
+
+<h3>The rejected fix, and why it was rejected</h3>
+
+<p class="explain">
+Bug 4's first attempted fix was an exclusion list: <code>--glob '!.venv' --glob '!node_modules'</code>.
+It was measured, and it <em>leaked 7,202 files</em> from <code>.venv-win/</code> — a third virtualenv
+directory that simply wasn't on the list. That is the whole argument against denylists in one number:
+they encode a snapshot of what someone remembered, and <code>.gitignore</code> already encodes the truth.
+The shipped fix drops the no-op glob so ripgrep's own ignore logic is never overridden in the first place.
+</p>
+
+<div class="concept">
+<strong class="tag">Concept — the pattern shared by five of six bugs</strong>
+Bugs 1, 2, 3, 5 and 6 all have the same shape: <strong>an error that could not be seen from where it
+happened.</strong> Mouse events that were never emitted. A timer overwriting lines with no error. A
+decode exception on a thread nobody was watching. A warning exit code indistinguishable from a fatal one.
+A path parse that silently produced a wrong-but-plausible string. None of them threw an exception into
+code that could handle it — which is exactly why they survived a green test suite, and why "reproduce it
+first, then prove the test fails without the fix" was the only reliable way through.
+</div>
 
 </section>
 
@@ -1290,4 +1637,3 @@ this material.
 </main>
 </body>
 </html>
-</content>

@@ -2,6 +2,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+import asyncio
 import yaml
 
 from sleuth.config import Config
@@ -16,6 +17,19 @@ from sleuth.retrieve.answer import build_prompt
 from sleuth.retrieve.search import search_chunks
 
 TOP_K = 8
+
+# Groq's free-tier per-minute token budget (confirmed live: 8000
+# tokens/minute) is easily blown through by more than 2-3 cases in a
+# single eval run — each case fires up to 2 Groq calls back-to-back
+# (answer generation + judge scoring), and a single answer-generation
+# call against real repo excerpts already runs 2000-3500+ tokens before
+# the judge call adds more on top. A 3s pause between cases (tried first)
+# was nowhere near enough — Groq's token bucket needs up to a full minute
+# to refill (see x-ratelimit-reset-tokens), not a few seconds — so this
+# pauses close to the full window between cases. Slower, but keeps a
+# multi-case run from failing partway through with no fallback to catch
+# it (chat_with_fallback has only Groq configured, no NIM key set).
+INTER_CASE_DELAY_SECONDS = 65.0
 
 JUDGE_PROMPT = (
     "You are grading a code-assistant answer against a reference answer. "
@@ -88,7 +102,12 @@ async def run_eval(golden_yaml_path: str, conn, config: Config) -> str:
     judge = get_generator(config)
 
     results: list[CaseResult] = []
-    for case in cases:
+    for i, case in enumerate(cases):
+        if i > 0:
+            # Paced BEFORE each case except the first, not after the last —
+            # no point delaying once there's no more work left to do.
+            await asyncio.sleep(INTER_CASE_DELAY_SECONDS)
+
         query_vector = (await embedder.embed_batch([case.question]))[0]
         search_results = search_chunks(conn, repo_id, query_vector, top_k=TOP_K)
         hit, rr = _hit_and_rank(search_results, case)

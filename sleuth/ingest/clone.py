@@ -32,7 +32,15 @@ def clone_repo(url: str, dest_dir: str, retries: int = 2, backoff_seconds: float
         result = subprocess.run(
             ["git", "clone", "--depth", "1", url, str(dest)],
             capture_output=True,
-            text=True,
+            # Pinned UTF-8 rather than text=True's locale default (cp1252 on
+            # native Windows Python): git writes UTF-8 diagnostics, and this
+            # stderr is both pattern-matched below and stored verbatim in
+            # repos.error_message for the UI. A locale decode failure here
+            # raises on subprocess's background reader thread, where it
+            # cannot be caught, so a clone failure would surface as an
+            # unrelated crash instead of a recorded error.
+            encoding="utf-8",
+            errors="replace",
         )
         if result.returncode == 0:
             return dest

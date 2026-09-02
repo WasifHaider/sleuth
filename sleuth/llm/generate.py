@@ -131,4 +131,13 @@ async def chat_with_fallback(
         except (httpx.HTTPStatusError, httpx.TransportError) as exc:
             last_error = exc
             continue
-    raise RuntimeError(f"All generators in fallback chain failed: {last_error}")
+    # httpx.TransportError subclasses (timeouts, connection resets, ...) can
+    # have an empty str() when the underlying socket/SSL error carries no
+    # message text — str(last_error) alone can render as a totally blank
+    # "All generators in fallback chain failed: " with no way to tell a
+    # rate-limited 429 apart from a silent connection timeout. Always
+    # include the exception's type name (and repr() rather than str() for
+    # the detail) so there's something to diagnose even when the message
+    # itself is empty.
+    detail = f"{type(last_error).__name__}: {last_error!r}" if last_error is not None else "no generators configured"
+    raise RuntimeError(f"All generators in fallback chain failed: {detail}")

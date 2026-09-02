@@ -97,3 +97,26 @@ def test_get_fallback_chain_without_nim_key_is_primary_only():
 
     chain = get_fallback_chain(config)
     assert len(chain) == 1
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_chat_with_fallback_error_includes_exception_type_when_message_empty():
+    # httpx.TransportError subclasses (timeouts, connection resets) can carry
+    # an empty str() when the underlying socket/SSL error has no message
+    # text — a real failure observed running `sleuth eval` against a
+    # rate-limited provider: the RuntimeError raised was
+    # "All generators in fallback chain failed: " with nothing after the
+    # colon, indistinguishable from a bug. The error must always name at
+    # least the exception TYPE, even when its message is blank.
+    respx.post("https://api.groq.com/openai/v1/chat/completions").mock(
+        side_effect=httpx.ConnectError("")
+    )
+
+    chain = [GroqGenerator(api_key="k", model_name="m")]
+
+    with pytest.raises(RuntimeError) as exc_info:
+        async for _ in chat_with_fallback(chain, [{"role": "user", "content": "hi"}], stream=False):
+            pass
+
+    assert "ConnectError" in str(exc_info.value)
