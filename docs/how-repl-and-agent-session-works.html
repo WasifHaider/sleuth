@@ -1,0 +1,1293 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SLEUTH — How the REPL &amp; AgentSession Work (Import by Import)</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #ffffff; --fg: #1a1a1a; --muted: #5c5c5c; --border: #e2e2e2;
+    --code-bg: #f5f5f5; --code-fg: #24292e;
+    --accent: #2563eb; --accent2: #0f766e;
+    --note-bg: #fff7e6; --note-border: #e8c064;
+    --concept-bg: #eef2ff; --concept-border: #6366f1;
+    --warn-bg: #fef2f2; --warn-border: #dc2626;
+    --step-bg: #eff6ff; --step-num: #2563eb;
+    --done: #15803d; --done-bg: #dcfce7;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #111318; --fg: #e8e8e8; --muted: #9a9a9a; --border: #2a2d34;
+      --code-bg: #1b1e24; --code-fg: #d8dee9;
+      --accent: #60a5fa; --accent2: #5eead4;
+      --note-bg: #26210f; --note-border: #7a5c1e;
+      --concept-bg: #1c1f3a; --concept-border: #818cf8;
+      --warn-bg: #2a1414; --warn-border: #f87171;
+      --step-bg: #101d33; --step-num: #60a5fa;
+      --done: #4ade80; --done-bg: #123320;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 2.5rem 1.25rem 6rem; background: var(--bg); color: var(--fg);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+    line-height: 1.65;
+  }
+  main { max-width: 920px; margin: 0 auto; }
+  h1 { font-size: 1.9rem; margin-bottom: 0.3rem; }
+  .subtitle { color: var(--muted); margin-top: 0; margin-bottom: 2rem; font-size: 0.98rem; max-width: 74ch; }
+  nav.toc { border: 1px solid var(--border); border-radius: 10px; padding: 1rem 1.25rem; margin-bottom: 3rem; font-size: 0.9rem; }
+  nav.toc h2 { margin: 0 0 0.6rem; font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); }
+  nav.toc ol { columns: 2; column-gap: 2rem; margin: 0; padding-left: 1.2rem; }
+  nav.toc li { break-inside: avoid; margin-bottom: 0.35rem; }
+  nav.toc a { color: var(--fg); text-decoration: none; }
+  nav.toc a:hover { color: var(--accent); text-decoration: underline; }
+
+  section.part { border-top: 3px solid var(--accent); padding-top: 1.5rem; margin-bottom: 4rem; }
+  section.part h2 { font-size: 1.5rem; margin: 0 0 0.2rem; }
+  .part-sub { color: var(--muted); font-size: 0.92rem; margin: 0 0 1.4rem; }
+
+  h3 { font-size: 1.15rem; margin: 2.2rem 0 0.6rem; border-bottom: 1px solid var(--border); padding-bottom: 0.3rem; }
+  h4 { font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.04em; color: var(--accent2); margin: 1.5rem 0 0.4rem; }
+  p { margin: 0.6rem 0; }
+  code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--code-bg); padding: 0.1rem 0.35rem; border-radius: 4px; font-size: 0.87em;
+  }
+  pre.code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--code-bg); color: var(--code-fg); border: 1px solid var(--border); border-radius: 8px;
+    padding: 0.9rem 1.1rem; overflow-x: auto; font-size: 0.82rem; line-height: 1.55; margin: 0.4rem 0 1.1rem;
+  }
+  pre.code code { background: none; padding: 0; border-radius: 0; font-size: 1em; }
+  .explain { margin: 0.3rem 0 1.3rem; }
+  .explain ul { margin: 0.3rem 0; padding-left: 1.3rem; }
+  .explain li { margin-bottom: 0.4rem; }
+
+  .concept { background: var(--concept-bg); border-left: 4px solid var(--concept-border); border-radius: 6px; padding: 0.9rem 1.1rem; font-size: 0.92rem; margin: 1rem 0 1.4rem; }
+  .concept strong.tag { display: block; text-transform: uppercase; letter-spacing: 0.04em; font-size: 0.72rem; color: var(--concept-border); margin-bottom: 0.4rem; }
+
+  .note { background: var(--note-bg); border: 1px solid var(--note-border); border-radius: 8px; padding: 0.85rem 1.05rem; font-size: 0.9rem; margin: 1rem 0; }
+  .note strong { display: inline-block; margin-bottom: 0.2rem; }
+
+  .warn { background: var(--warn-bg); border: 1px solid var(--warn-border); border-radius: 8px; padding: 0.85rem 1.05rem; font-size: 0.9rem; margin: 1rem 0; }
+  .warn strong { color: var(--warn-border); display: inline-block; margin-bottom: 0.2rem; }
+
+  .filebar { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.8rem; color: var(--muted); margin: 0.2rem 0 1rem; }
+  .filebar code { background: var(--code-bg); padding: 0.1rem 0.35rem; border-radius: 4px; }
+
+  table.walk { width: 100%; border-collapse: collapse; margin: 0.6rem 0 1.3rem; font-size: 0.87rem; }
+  table.walk th, table.walk td { border: 1px solid var(--border); padding: 0.5rem 0.7rem; text-align: left; vertical-align: top; }
+  table.walk th { background: var(--code-bg); }
+
+  .diagram {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.8rem;
+    background: var(--code-bg); border: 1px solid var(--border); border-radius: 8px; padding: 1rem;
+    overflow-x: auto; white-space: pre; margin: 0.6rem 0 1.3rem; color: var(--code-fg);
+  }
+
+  footer.closing { border-top: 3px solid var(--accent2); padding-top: 1.5rem; }
+  footer.closing h2 { font-size: 1.35rem; }
+  a { color: var(--accent); }
+  .badge { display: inline-block; font-size: 0.7rem; font-weight: 700; padding: 0.15rem 0.55rem; border-radius: 999px; background: var(--done-bg); color: var(--done); margin-left: 0.5rem; vertical-align: middle; }
+  .imp { display: block; font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 0.8rem; background: var(--code-bg); border: 1px solid var(--border); border-radius: 6px; padding: 0.4rem 0.7rem; margin: 0.4rem 0 0.2rem; }
+</style>
+</head>
+<body>
+<main>
+
+<h1>SLEUTH — How the REPL &amp; AgentSession Work</h1>
+<p class="subtitle">
+  The agentic/live half of SLEUTH: no database, no embeddings, no upfront indexing — just an LLM given
+  three small tools and let loose on a local directory, plus a full-screen terminal UI built around it.
+  Same teaching style as its companions (<code>how-indexing-works.html</code>, <code>how-chat-works.html</code>):
+  concept first, then real code, then — since this document was specifically requested to go one level
+  deeper — <em>every import at the top of both files</em> gets its own short "why this one, why it matters
+  here" explanation before the code that uses it. Read this after the other two; it assumes you already
+  understand RAG, embeddings, and vector search from them.
+</p>
+
+<nav class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li><a href="#p0">Part 0 — The big picture: what problem does this solve, and why two files</a></li>
+    <li><a href="#p1">Part 1 — <code>agent_session.py</code>'s imports, one by one</a></li>
+    <li><a href="#p2">Part 2 — The text protocol: how a plain LLM does "tool calling" with no native API</a></li>
+    <li><a href="#p3">Part 3 — The three tools: ripgrep, sed, and a path-traversal sandbox</a></li>
+    <li><a href="#p4">Part 4 — <code>AgentSession</code>: the dataclass, and why <code>field(init=False)</code></a></li>
+    <li><a href="#p5">Part 5 — Events: how the loop talks to callers without knowing who they are</a></li>
+    <li><a href="#p6">Part 6 — <code>ask()</code>: the actual loop, message growth, and the trim policy</a></li>
+    <li><a href="#p7">Part 7 — <code>agentic.py</code>: the thin one-shot wrapper</a></li>
+    <li><a href="#p8">Part 8 — <code>repl.py</code>'s imports: why a whole new UI toolkit</a></li>
+    <li><a href="#p9">Part 9 — Branding as data: the banner, wordmark, and color palette</a></li>
+    <li><a href="#p10">Part 10 — The Transcript: a read-only Buffer as a scrolling pane</a></li>
+    <li><a href="#p11">Part 11 — A hand-rolled markdown-lite renderer for the model's answers</a></li>
+    <li><a href="#p12">Part 12 — The spinner: a transcript line that repaints itself</a></li>
+    <li><a href="#p13">Part 13 — <code>run_repl</code>: wiring the Application together, turn scheduling</a></li>
+    <li><a href="#p14">Part 14 — Key bindings and manual scroll vs. auto-follow</a></li>
+    <li><a href="#p15">Part 15 — Wired into the CLI: one line in <code>cli.py</code></a></li>
+    <li><a href="#p16">Closing — the whole thing as one diagram</a></li>
+  </ol>
+</nav>
+
+<section class="part" id="p0">
+<h2>Part 0 — The big picture</h2>
+<p class="part-sub">What problem does this whole subsystem solve, and why does it need to exist as a second retrieval mode alongside indexed search?</p>
+
+<div class="concept">
+<strong class="tag">Concept — retrieval without an index</strong>
+<code>how-indexing-works.html</code> and <code>how-chat-works.html</code> both describe a mode that needs an
+upfront investment: clone a repo, chunk it, embed every chunk, store it in Postgres — <em>then</em>
+questions are cheap. That's the right trade for a remote GitHub repo you'll ask many questions about over
+days. But sometimes you just want to ask ONE quick question about the code sitting in your current local
+directory right now — <code>cd</code> into a project and ask "where's the retry logic" without waiting
+through a full index run first. Agentic mode is built for exactly that case: skip indexing entirely, and
+instead give the LLM itself three small tools — <code>grep</code>, <code>list_files</code>,
+<code>read_file</code> — and let it decide, turn by turn, what to look at. This mirrors how a human explores
+an unfamiliar codebase far more directly than "compute a vector and find its nearest neighbors" does — and
+it costs nothing upfront, at the price of a hard cap on how much ground it can cover per question (Part 6).
+</div>
+
+<p>Two files carry this whole subsystem, and it's worth being clear about the boundary between them before diving in:</p>
+<table class="walk">
+  <tr><th>File</th><th>What it owns</th><th>Knows about a terminal UI?</th></tr>
+  <tr><td><code>sleuth/retrieve/agent_session.py</code></td>
+      <td>The tool-call protocol, the three tools, the multi-turn loop itself — this is the actual "agent"</td>
+      <td>No — it <code>yield</code>s plain dataclass events and has zero <code>print</code>/terminal code anywhere</td></tr>
+  <tr><td><code>sleuth/repl.py</code></td>
+      <td>A full-screen terminal interface: reads what a user types, drives an <code>AgentSession</code>, renders its events as colored, scrolling text</td>
+      <td>Yes — everything terminal-specific lives here, nowhere else</td></tr>
+</table>
+<div class="note">
+<strong>Why this split matters, concretely:</strong> <code>AgentSession</code> is reused by three different
+callers that have nothing to do with a terminal — the one-shot <code>sleuth agentic</code> CLI command
+(Part 7), the interactive REPL this document mostly covers, and — a genuine third caller, not a
+hypothetical — the repo-summarization step that now runs during ingestion itself
+(<code>sleuth/summarize.py::summarize_repo_agentic</code>, see <code>how-indexing-works.html</code> Part 10).
+If tool-call parsing and terminal rendering were tangled together in one file, that third caller would have
+had no clean class to import — it would either duplicate the loop or drag a terminal dependency into a
+background ingestion task that never prints anything to any screen at all.
+</div>
+
+</section>
+
+<section class="part" id="p1">
+<h2>Part 1 — <code>agent_session.py</code>'s imports, one by one</h2>
+<p class="part-sub">Every top-of-file import, and specifically why this module needs it and not something heavier or lighter.</p>
+<p class="filebar">File: <code>sleuth/retrieve/agent_session.py</code></p>
+
+<span class="imp">import json</span>
+<p class="explain">
+The model's tool-call arguments arrive as a JSON object embedded in plain text
+(<code>TOOL: grep {"pattern": "foo"}</code> — Part 2). Standard library <code>json.loads</code> is all
+that's needed to turn that string into a real Python <code>dict</code> — no schema validation library, no
+Pydantic model, because the "schema" here is just "some tool, some string-keyed JSON object," and each
+tool function (Part 3) does its own <code>args.get(key, default)</code> extraction rather than needing a
+formal contract enforced up front.
+</p>
+
+<span class="imp">import re</span>
+<p class="explain">
+Two distinct regex uses in this file, both small and specific: recognizing the <code>TOOL: name {...}</code>
+line shape (<code>_TOOL_LINE_RE</code>, Part 2), and nothing else — the actual tool implementations (Part 3)
+now shell out to ripgrep/sed rather than using Python regex for scanning file contents, which is a change
+from this module's very first version (see the warning in Part 3).
+</p>
+
+<span class="imp">import subprocess</span>
+<p class="explain">
+The three tools are implemented by shelling out to real, battle-tested command-line programs — ripgrep
+(<code>rg</code>) for <code>grep</code>/<code>list_files</code>, <code>sed</code> for <code>read_file</code>
+— rather than hand-rolling file-walking and line-matching in pure Python. <code>subprocess.run</code> with
+an explicit argument list (never a formatted shell string) is what makes that safe: Part 3 covers exactly
+why <code>shell=False</code>-by-default argument lists matter when one of those arguments is text the LLM
+itself supplied.
+</p>
+
+<span class="imp">from collections.abc import AsyncIterator</span>
+<p class="explain">
+The return type of <code>AgentSession.ask()</code> — it doesn't return one answer, it's an
+<strong>async generator</strong> that <code>yield</code>s a sequence of events (tool calls, tool results,
+finally an answer) as they happen, so a caller can react to each one live instead of waiting for the whole
+multi-step loop to finish silently. <code>AsyncIterator[AgentEvent]</code> is the type-hint spelling of
+"something you can <code>async for</code> over, that produces <code>AgentEvent</code> values" — the same
+pattern <code>pipeline-deep-dive.html</code> Part 1 introduces for LLM token streaming, reused here for a
+different kind of stream: whole structured events, not raw text tokens.
+</p>
+
+<span class="imp">from dataclasses import dataclass, field</span>
+<p class="explain">
+<code>@dataclass</code> is used repeatedly in this file — for the three event types (Part 5) and for
+<code>AgentSession</code> itself (Part 4). <code>field</code> specifically is needed for
+<code>AgentSession</code>'s <code>init=False</code> fields (Part 4) — a dataclass feature beyond the basic
+"generate <code>__init__</code> from the field list" behavior <code>pipeline-deep-dive.html</code> Part 1
+covers, needed here because some of this class's fields shouldn't be constructor arguments at all, only
+things computed once construction finishes.
+</p>
+
+<span class="imp">from pathlib import Path</span>
+<p class="explain">
+Every tool operates relative to one root directory — the directory the user pointed the REPL/CLI at.
+<code>Path</code> objects (rather than raw strings) are what let the code write
+<code>root / path</code> to safely join a path, and <code>.resolve()</code> to get an absolute,
+symlink-resolved form for the sandboxing check in Part 3 — string concatenation would get both of those
+wrong on different platforms (Windows vs. POSIX separators) and wouldn't have a built-in way to normalize
+away <code>..</code> segments at all.
+</p>
+
+<span class="imp">import httpx</span>
+<p class="explain">
+Not used to make HTTP calls directly in this file — imported specifically so <code>ask()</code>'s
+<code>except</code> clauses (Part 6) can catch <code>httpx.HTTPStatusError</code>/
+<code>httpx.TransportError</code> by name. Those are the exact exception types
+<code>sleuth/llm/generate.py</code>'s <code>Generator</code> classes raise on a real network/API failure
+(<code>how-chat-works.html</code> Part 8) — catching them specifically, rather than a bare
+<code>except Exception</code>, means a genuine bug in this module's own code (a <code>TypeError</code>, an
+<code>AttributeError</code>) still propagates and fails loudly instead of being silently swallowed and
+shown to the user as "the model backend is unavailable."
+</p>
+
+<span class="imp">from sleuth.config import Config</span>
+<p class="explain">
+The same immutable, frozen <code>Config</code> dataclass every other module in this project reads API
+keys and model settings from (<code>pipeline-deep-dive.html</code> Part 2) — <code>AgentSession</code>
+takes it once at construction and uses it to build its own default generator chain (Part 4), exactly the
+same pattern <code>stream_answer</code> uses for chat.
+</p>
+
+<span class="imp">from sleuth.llm.generate import GroqGenerator, Generator, NimGenerator, chat_with_fallback</span>
+<p class="explain">
+The exact same <code>Generator</code> ABC, concrete provider classes, and fallback-chain helper that back
+regular indexed chat (<code>how-chat-works.html</code> Part 8) — reused here without a single line of new
+LLM-provider code. What's different is <em>which model</em> gets used (Part 4 explains
+<code>AGENTIC_GROQ_MODEL</code>) and <em>how</em> the chain is built, not the underlying mechanism for
+talking to Groq/NIM at all. This is the same "shared building blocks, not shared endpoints" reuse pattern
+the eval harness uses (<code>pipeline-deep-dive.html</code> Part 17).
+</p>
+
+</section>
+
+<section class="part" id="p2">
+<h2>Part 2 — The text protocol: tool calling with no native API</h2>
+<p class="part-sub">How an LLM that has no built-in "function calling" feature still reliably calls tools.</p>
+<p class="filebar">File: <code>sleuth/retrieve/agent_session.py</code></p>
+
+<div class="concept">
+<strong class="tag">Concept — why not use a provider's native tool-calling API?</strong>
+Many LLM providers offer a structured "function calling" mode: you describe available tools as a JSON
+schema, and the model returns a properly typed tool-call object instead of free text. SLEUTH deliberately
+doesn't use that — consistent with the project's "no black-box library doing this for you" philosophy, the
+system prompt itself defines a tiny, fully transparent text protocol: respond with exactly one line
+<code>TOOL: toolname {"arg": "value"}</code> to call a tool, or plain prose (no such prefix) to give a final
+answer. This is more fragile — a model that slightly deviates in formatting can break the parser — but
+every part of what "tool calling" even means here is one small regex and a <code>json.loads</code> call
+away, not hidden inside a provider SDK.
+</div>
+
+<pre class="code"><code>SYSTEM_PROMPT = (
+    "You are a code assistant investigating a local codebase to answer the user's "
+    "question. You have three tools:\n"
+    "  grep(pattern, glob=null) -- regex search across files, first 50 matches\n"
+    "  list_files(glob) -- list files matching a glob\n"
+    "  read_file(path, start_line=null, end_line=null) -- read up to 400 lines of a file\n"
+    "To call a tool, respond with EXACTLY one line in this form and nothing else:\n"
+    'TOOL: <tool_name> {"arg": "value", ...}\n'
+    "Example of a correct tool call (args must be a valid JSON object with "
+    "double-quoted keys/values):\n"
+    'TOOL: grep {"pattern": "def foo", "glob": "*.py"}\n'
+    "Do not add explanation before or after the TOOL: line when calling a tool.\n"
+    "When you have enough information to answer, respond with your final answer as "
+    "plain prose (no TOOL: prefix)."
+)
+
+_TOOL_LINE_RE = re.compile(r"^TOOL:\s*(\w+)\s*(\{.*\})\s*$", re.MULTILINE)</code></pre>
+<div class="explain">
+<ul>
+  <li>The system prompt now includes a <strong>worked example</strong> of a correctly formatted call —
+      this wasn't in the original one-shot version. Empirically, models following a hand-rolled text
+      protocol are meaningfully more reliable when shown one concrete instance of the exact shape expected,
+      not just an abstract grammar description.</li>
+  <li><code>_TOOL_LINE_RE</code>: <code>^TOOL:\s*(\w+)\s*(\{.*\})\s*$</code> with <code>re.MULTILINE</code>
+      — anchors to any line start/end in the text (not just the whole string's start/end), matches the
+      literal <code>TOOL:</code> prefix plus whitespace, captures the tool name as word characters, then
+      captures everything from the first <code>{</code> to the <em>last</em> <code>}</code> on that line as
+      the JSON blob (greedy <code>.*</code>, which matters for correctly capturing nested JSON objects).</li>
+</ul>
+</div>
+
+<pre class="code"><code>class MalformedToolCall(Exception):
+    def __init__(self, raw_text: str, parse_error: str):
+        self.raw_text = raw_text
+        self.parse_error = parse_error
+        super().__init__(f"malformed tool call: {parse_error}")
+
+
+def _parse_tool_call(text: str) -&gt; tuple[str, dict] | None:
+    match = _TOOL_LINE_RE.search(text.strip())
+    if not match:
+        return None
+    try:
+        args = json.loads(match.group(2))
+    except json.JSONDecodeError as exc:
+        raise MalformedToolCall(raw_text=match.group(0), parse_error=str(exc)) from exc
+    return match.group(1), args</code></pre>
+<div class="warn">
+<strong>A real correctness gap this fixes, versus the module's original version:</strong> the very first
+implementation of this parser treated "matched the <code>TOOL:</code> shape but the JSON failed to parse"
+identically to "no tool call at all" — both fell through to "just show this text as the final answer." That
+meant a model that almost-but-not-quite got the JSON right (a trailing comma, single quotes instead of
+double) would have its broken, literal <code>TOOL: grep {pattern: foo}</code> line shown to the user
+<em>as if it were the answer to their question</em> — confusing and wrong. <code>MalformedToolCall</code>
+is a distinct exception specifically so the caller (<code>ask()</code>, Part 6) can tell these two cases
+apart: a genuine final answer gets shown to the user; a malformed tool call gets fed back to the model as an
+error message instead, giving it a chance to correct its own syntax on the next turn — and it still counts
+toward the iteration cap, so a persistently broken model still terminates rather than looping forever.
+</div>
+
+</section>
+
+<section class="part" id="p3">
+<h2>Part 3 — The three tools: ripgrep, sed, and a sandbox</h2>
+<p class="part-sub">What the model can actually touch, and the two real hardening changes made since the first version.</p>
+<p class="filebar">File: <code>sleuth/retrieve/agent_session.py</code></p>
+
+<div class="warn">
+<strong>Change #1 — from hand-rolled Python to real CLI tools.</strong> The original <code>grep</code> tool
+was a pure-Python implementation: <code>root.rglob("*")</code>, read every file, regex-match every line by
+hand. That has two real problems a hand-rolled walk doesn't solve for free: it has no concept of
+<code>.gitignore</code> (so it would happily grep through <code>node_modules</code>/<code>.venv</code>/
+<code>dist</code>/<code>build</code> unless every such directory is separately, manually excluded), and it
+re-implements regex/encoding/binary-file-detection edge cases that a real, heavily used tool already handles
+correctly. The current version shells out to <strong>ripgrep</strong> (<code>rg</code>) instead — it
+respects <code>.gitignore</code> automatically, and is simply a better-tested implementation of the same
+idea.
+</div>
+
+<pre class="code"><code>def _tool_grep(root: Path, pattern: str, glob: str | None = None) -&gt; str:
+    args = ["rg", "--line-number", "--no-heading", "--color", "never", "--no-require-git"]
+    if glob:
+        args += ["--glob", glob]
+    args += [pattern, str(root)]
+    try:
+        proc = subprocess.run(args, capture_output=True, text=True, cwd=root)
+    except FileNotFoundError:
+        return "(error: ripgrep (rg) is not installed or not on PATH)"
+
+    if proc.returncode == 2:
+        return f"(invalid pattern or rg error: {proc.stderr.strip()})"
+    ...</code></pre>
+<div class="explain">
+<ul>
+  <li><code>args = ["rg", ...]</code> — an <strong>argument list</strong>, not a single formatted shell
+      string. This is the deliberate, load-bearing safety choice: <code>subprocess.run</code> given a list
+      never invokes a shell to interpret it, so a model-supplied <code>pattern</code> containing shell
+      metacharacters (<code>;</code>, <code>|</code>, backticks) is passed to <code>rg</code> as one
+      opaque argument, never as something a shell could execute. Building this as
+      <code>f"rg {pattern} {root}"</code> and running it with <code>shell=True</code> would have been a
+      textbook command-injection vulnerability the moment an adversarial or just-confused model produced a
+      pattern like <code>"; rm -rf / #"</code>.</li>
+  <li><code>--no-require-git</code> — ripgrep by default assumes it's inside a git repo and behaves
+      slightly differently if not; this flag makes it work identically for a plain directory the REPL was
+      pointed at, git repo or not.</li>
+  <li><code>proc.returncode == 2</code> is ripgrep's own convention for "a real error" (bad regex, bad glob,
+      unreadable path) — fed back as a tool result string, never raised, so the model sees its own mistake
+      and can retry with a corrected pattern instead of the whole session crashing.</li>
+  <li><code>FileNotFoundError</code> is caught specifically for the case where <code>rg</code> itself isn't
+      installed — a clear, actionable message instead of an opaque traceback (this is a real environment
+      gap the project hit directly: see this file's memory notes on WSL needing
+      <code>sudo apt-get install ripgrep</code>).</li>
+</ul>
+</div>
+
+<pre class="code"><code>def _tool_read_file(root: Path, path: str, start_line=None, end_line=None) -&gt; str:
+    resolved_root = root.resolve()
+    target = (root / path).resolve()
+    if not (target == resolved_root or resolved_root in target.parents):
+        return f"(error: path {path!r} escapes the sandboxed root directory)"
+    if not target.is_file():
+        return f"(error reading {path}: not a file)"
+
+    start = max((start_line or 1), 1)
+    requested_end = end_line if end_line is not None else start + READ_FILE_MAX_LINES - 1
+    end = min(requested_end, start + READ_FILE_MAX_LINES - 1)
+    proc = subprocess.run(["sed", "-n", f"{start},{end}p", str(target)], capture_output=True, text=True)
+    ...</code></pre>
+<div class="warn">
+<strong>Change #2 — the path-traversal guard.</strong> The original version joined
+<code>root / path</code> and read it directly, with no check that the result actually stayed under
+<code>root</code>. A model asked (or tricked, or simply confused) into requesting
+<code>read_file("../../../../etc/passwd")</code> would have had that request honored — Python's
+<code>/</code> path-join doesn't stop <code>..</code> segments from walking back out of the intended
+directory. <code>target.resolve()</code> collapses any <code>..</code> segments and symlinks into a final
+absolute path, and <code>resolved_root in target.parents</code> (or an exact match, for reading the root
+directory itself) is the actual guard: if the resolved path isn't under the sandboxed root, the tool refuses
+and returns an error string instead of ever touching the filesystem outside the intended directory. Low
+severity for a personal local tool where you trust the model isn't adversarial — but a genuine hardening fix,
+not a hypothetical one.
+</div>
+<p class="explain">
+<code>read_file</code> shells out to <code>sed -n '&lt;start&gt;,&lt;end&gt;p'</code> rather than reading
+the whole file into Python and slicing a list — consistent with the grep/list_files tools also shelling out
+rather than hand-rolling. <code>end</code> is capped at <code>start + READ_FILE_MAX_LINES - 1</code>
+(400 lines) regardless of what the model asked for, the same token-budget-protection idea as
+<code>GREP_MAX_MATCHES</code>: an unbounded read of a huge file could itself blow the model's context window.
+</p>
+
+</section>
+
+<section class="part" id="p4">
+<h2>Part 4 — <code>AgentSession</code>: the dataclass</h2>
+<p class="part-sub">Why some fields are constructor arguments and others explicitly aren't.</p>
+<p class="filebar">File: <code>sleuth/retrieve/agent_session.py</code></p>
+
+<pre class="code"><code>AGENTIC_GROQ_MODEL = "qwen/qwen3.8-27b"
+
+@dataclass
+class AgentSession:
+    path: str
+    config: Config | None = None
+    generator: Generator | None = None
+    fallback_chain: list[Generator] | None = None
+    max_messages: int = DEFAULT_MAX_MESSAGES
+    root: Path = field(init=False)
+    messages: list[dict] = field(init=False)
+    _chain: list[Generator] = field(init=False)
+
+    def __post_init__(self) -&gt; None:
+        self.root = Path(self.path)
+        self.messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        if self.fallback_chain is not None:
+            self._chain = self.fallback_chain
+        elif self.generator is not None:
+            self._chain = [self.generator]
+        else:
+            self._chain = _default_agentic_chain(self.config)</code></pre>
+<div class="explain">
+<ul>
+  <li><code>path</code>, <code>config</code>, <code>generator</code>, <code>fallback_chain</code>,
+      <code>max_messages</code> are real constructor arguments — what a caller supplies to create a session
+      (<code>AgentSession("/some/repo", config=cfg)</code> is the common case; tests instead pass
+      <code>generator=</code> or <code>fallback_chain=</code> to inject a fake, never touching a real API).</li>
+  <li><code>root</code>, <code>messages</code>, <code>_chain</code> are marked <code>field(init=False)</code>
+      — they must <em>not</em> be constructor arguments at all, because they're not raw inputs, they're
+      <em>derived</em> from the real inputs. Accepting them as constructor args would let a caller construct
+      a session with, say, <code>messages</code> already populated with something other than a fresh system
+      prompt — a footgun with no legitimate use case. <code>__post_init__</code> (a dataclass hook that runs
+      automatically right after the generated <code>__init__</code> finishes) is where they actually get
+      computed.</li>
+  <li><strong>The override precedence in <code>__post_init__</code> matters and is deliberate:</strong> an
+      explicit <code>fallback_chain</code> wins over everything (full caller control, mainly for tests);
+      failing that, a single <code>generator</code> is treated as a one-generator chain (a convenience for
+      "I don't need fallback, just use this one"); only if neither is supplied does it fall through to
+      building the real default chain from <code>config</code>. This is never routed through
+      <code>get_fallback_chain(config)</code> (the helper regular chat uses) — that helper pins
+      <code>config.groq_model</code>, which is tuned for answer-quality on indexed chat, a different concern
+      from "will this model reliably follow a strict text protocol."</li>
+</ul>
+</div>
+
+<div class="note">
+<strong>Why <code>AGENTIC_GROQ_MODEL</code> is a separate constant, and why this specific model:</strong> the
+code comment above this constant documents a real empirical check (2026-08-31) against Groq's catalog —
+the shared default chat model threw <code>400 output_parse_failed</code> on this exact prompt shape (some
+models actively refuse to emit non-JSON structured text once they detect what looks like a function-call
+request), another candidate hit rate limits before a fair test could even run, and <code>qwen/qwen3.8-27b</code>
+reliably produced a well-formed <code>TOOL: name {...}</code> line once the system prompt included one
+worked example (Part 2). This is a genuinely different tuning problem from "which model gives the best
+prose answer," which is exactly why it's a separate constant instead of reusing <code>config.groq_model</code>.
+</div>
+
+</section>
+
+<section class="part" id="p5">
+<h2>Part 5 — Events: how the loop talks to callers</h2>
+<p class="part-sub">The seam that lets a REPL show live tool-call activity without the loop itself knowing anything about terminals.</p>
+<p class="filebar">File: <code>sleuth/retrieve/agent_session.py</code></p>
+
+<pre class="code"><code>@dataclass
+class ToolCallEvent:
+    name: str
+    args: dict
+
+@dataclass
+class ToolResultEvent:
+    name: str
+    result: str
+
+@dataclass
+class AnswerEvent:
+    text: str
+    truncated: bool = False
+
+AgentEvent = ToolCallEvent | ToolResultEvent | AnswerEvent</code></pre>
+<div class="concept">
+<strong class="tag">Concept — why three small dataclasses instead of just yielding text?</strong>
+The original one-shot <code>run_agentic</code> only ever <code>yield</code>ed the final answer text — a
+caller watching it had no visibility into <em>what the model was doing</em> along the way, just silence
+followed by an answer. That's fine for a script piping output to a file, but actively bad for an
+interactive REPL: a user staring at a blank screen for several seconds with no indication whether the model
+is "thinking" or has hung has a worse experience than one who can see <code>⚙ grep(pattern='...')</code>
+scroll by live. Three distinct event types — dataclasses, not just tagged dicts — give the REPL (or any
+future caller) a type it can <code>isinstance()</code>-check and render differently: a tool call gets a
+gear icon and dim styling, a tool result gets truncated preview text, a final answer gets full
+markdown-lite rendering (Part 11). <code>AgentEvent = ToolCallEvent | ToolResultEvent | AnswerEvent</code>
+is a <strong>union type</strong> — "this variable is one of these three shapes" — used as the element type
+of the <code>AsyncIterator</code> Part 1 introduced.
+</div>
+<p class="explain">
+Crucially, nothing in this file ever calls <code>print()</code> or imports anything terminal-related. The
+loop's only communication with the outside world is <code>yield</code>ing these three event types — which
+is exactly what makes the same class usable from a REPL that renders them as colored scrolling text
+(<code>repl.py</code>, Part 13), from a one-shot CLI command that just prints tool-call lines then the
+final answer (<code>agentic.py</code>, Part 7), and from a background ingestion task that discards every
+event except the final <code>AnswerEvent</code>'s text (<code>summarize_repo_agentic</code>, see
+<code>how-indexing-works.html</code> Part 10) — three completely different consumers of the identical
+stream, none of which required a single change to this file.
+</p>
+
+</section>
+
+<section class="part" id="p6">
+<h2>Part 6 — <code>ask()</code>: the loop, message growth, and trimming</h2>
+<p class="part-sub">The actual multi-turn mechanism, and what changed to make repeated questions in one session sustainable.</p>
+<p class="filebar">File: <code>sleuth/retrieve/agent_session.py</code></p>
+
+<pre class="code"><code>async def ask(self, question: str) -&gt; AsyncIterator[AgentEvent]:
+    self.messages.append({"role": "user", "content": question})
+
+    for _ in range(MAX_ITERATIONS):
+        try:
+            response_text = await _call(self._chain, self.messages)
+        except (httpx.HTTPStatusError, httpx.TransportError, RuntimeError):
+            yield AnswerEvent(text=UNAVAILABLE_MESSAGE)
+            return
+
+        try:
+            parsed = _parse_tool_call(response_text)
+        except MalformedToolCall as exc:
+            self.messages.append({"role": "assistant", "content": response_text})
+            error_result = f"(error: malformed TOOL call — args must be valid JSON: {exc.parse_error})"
+            self.messages.append({"role": "user", "content": f"Tool result: {error_result}"})
+            self._trim_messages()
+            continue
+
+        if parsed is None:
+            self.messages.append({"role": "assistant", "content": response_text})
+            yield AnswerEvent(text=response_text)
+            self._trim_messages()
+            return
+
+        self.messages.append({"role": "assistant", "content": response_text})
+        name, args = parsed
+        yield ToolCallEvent(name=name, args=args)
+        result = _dispatch_tool(name, args, self.root)
+        yield ToolResultEvent(name=name, result=result)
+        self.messages.append({"role": "user", "content": f"Tool result: {result}"})
+        self._trim_messages()
+    ...</code></pre>
+<div class="explain">
+<ul>
+  <li><code>self.messages.append({"role": "user", "content": question})</code> — the very first line, and
+      the single most important difference from the original one-shot version: <code>self.messages</code>
+      is an instance attribute, not a local variable created fresh inside this function. A <em>second</em>
+      call to <code>ask()</code> on the same <code>AgentSession</code> appends to whatever's already there
+      from the first question's entire back-and-forth — the model genuinely sees the full prior
+      conversation, tool calls and all, which is what lets a REPL user ask a follow-up question ("what does
+      that function call") that only makes sense in light of what the first question already established.</li>
+  <li>The loop runs <code>MAX_ITERATIONS</code> (6) times per question. Each pass calls the model
+      non-streaming (<code>_call</code> wraps <code>chat_with_fallback(chain, messages, stream=False)</code>
+      and joins the result) — non-streaming is required here for the same reason
+      <code>pipeline-deep-dive.html</code> Part 16 explains: the loop needs the model's <em>complete</em>
+      response before it can decide "is this a tool call or a final answer," which is impossible to know
+      from a partial stream of tokens.</li>
+  <li>Three distinct outcomes per iteration, each handled differently: a malformed tool call feeds the
+      parse error back and <code>continue</code>s (Part 2); a real final answer <code>yield</code>s an
+      <code>AnswerEvent</code> and <code>return</code>s immediately, ending the whole generator; a valid
+      tool call <code>yield</code>s <code>ToolCallEvent</code> <em>then</em> <code>ToolResultEvent</code>
+      (in that order, deliberately — Part 5 explains why that ordering lets a REPL show "in flight" before
+      showing the result), appends both to <code>messages</code>, and loops again.</li>
+  <li>Only <code>httpx.HTTPStatusError</code>/<code>httpx.TransportError</code>/<code>RuntimeError</code>
+      (the last is what <code>chat_with_fallback</code> raises once <em>every</em> generator in the chain
+      has failed) turn into the friendly <code>UNAVAILABLE_MESSAGE</code> answer — anything else propagates
+      as a real exception, so a genuine bug in this code doesn't get silently mislabeled as "the model
+      backend is down."</li>
+</ul>
+</div>
+
+<pre class="code"><code>def _trim_messages(self) -&gt; None:
+    while len(self.messages) > self.max_messages:
+        del self.messages[1:3]</code></pre>
+<div class="concept">
+<strong class="tag">Concept — why trimming exists at all, and why this specific approach</strong>
+The old one-shot <code>run_agentic</code> never needed this: <code>messages</code> was a fresh local list
+per call, thrown away the moment the function returned, so it could never grow unbounded across many
+questions. A multi-turn <code>AgentSession</code> is fundamentally different — a real interactive REPL
+session could run for dozens of questions, and every tool call/result pair from every one of them stays in
+<code>messages</code> unless something prunes it. Left unbounded, the prompt sent to the LLM on question 40
+would include the full transcript of questions 1 through 39, which is both slow and eventually exceeds the
+model's context window entirely.
+</div>
+<p class="explain">
+<code>del self.messages[1:3]</code> drops indices 1 and 2 — the <em>oldest</em> non-system message pair —
+every time the list exceeds <code>max_messages</code>, in a loop (so a single huge tool result can still
+trigger multiple trims in one pass if needed). Index 0 (the system prompt) is always preserved by starting
+the slice at 1. Deleting exactly a <em>pair</em> at a time, not a single message, is deliberate: an
+assistant's tool-call message and the following user-role "tool result" message are logically one
+unit — deleting only one half would leave a dangling, orphaned tool-result message with no corresponding
+call for the model to make sense of, or vice versa. This is the classic trade-off of any fixed context
+window: the model progressively "forgets" the earliest parts of a very long session, but never ends up with
+a malformed, half-orphaned message list.
+</p>
+
+</section>
+
+<section class="part" id="p7">
+<h2>Part 7 — <code>agentic.py</code>: the thin one-shot wrapper</h2>
+<p class="part-sub">What's left in the original file after the AgentSession extraction — and why it's kept at all.</p>
+<p class="filebar">File: <code>sleuth/retrieve/agentic.py</code></p>
+
+<pre class="code"><code>"""One-shot agentic Q&amp;A: sleuth agentic &lt;path&gt; &lt;question&gt;.
+
+Thin backward-compatible wrapper around AgentSession — a single question,
+one throwaway session, exits after the answer.
+"""
+
+async def run_agentic(question: str, path: str, config: Config, generator=None) -&gt; AsyncIterator[str]:
+    session = AgentSession(path, config=config, generator=generator)
+    async for event in session.ask(question):
+        if isinstance(event, AnswerEvent):
+            text = event.text
+            if event.truncated:
+                text += "\n\n(Note: search was cut short after reaching the iteration limit.)"
+            yield text</code></pre>
+<div class="explain">
+<ul>
+  <li>Everything this file used to contain directly — the system prompt, the regex, all three tool
+      implementations, the loop itself — now lives in <code>agent_session.py</code>. What's left is a
+      single async generator function that constructs a throwaway, single-question
+      <code>AgentSession</code>, drives it, and re-yields only the plain answer text.</li>
+  <li>Kept as its own function (rather than having <code>cli.py</code> call <code>AgentSession</code>
+      directly) purely for interface stability — <code>sleuth agentic &lt;path&gt; &lt;question&gt;</code>'s
+      contract from before the refactor (a function that takes a question/path/config and streams plain
+      text back) is unchanged, so nothing calling it needed to change at all when the internals were
+      rebuilt underneath.</li>
+  <li>It deliberately discards every <code>ToolCallEvent</code>/<code>ToolResultEvent</code> — the one-shot
+      CLI command's output contract has always just been the final answer text, printed straight to
+      stdout, with no live tool-call activity shown (unlike the REPL, Part 13, which renders every event).
+      A user who wants to see tool-call activity live uses the REPL instead.</li>
+</ul>
+</div>
+
+</section>
+
+<section class="part" id="p8">
+<h2>Part 8 — <code>repl.py</code>'s imports: why a whole new UI toolkit</h2>
+<p class="part-sub">The project's first external runtime dependency — what it buys, and why the low-level pieces specifically.</p>
+<p class="filebar">File: <code>sleuth/repl.py</code>, <code>requirements.txt</code></p>
+
+<div class="concept">
+<strong class="tag">Concept — why not just print()/input() like a normal script?</strong>
+A plain <code>print()</code>/<code>input()</code> loop can only ever append text to the bottom of a
+scrolling terminal — there's no way to pin a bordered input box to the bottom of the screen while a
+separate transcript area scrolls above it (the Claude Code / Hermes style layout), because that needs the
+terminal's <strong>alternate screen buffer</strong>, raw keyboard input handling, and a real render loop
+that redraws specific screen regions on demand. That's a fundamentally different capability from sequential
+line printing, and it's exactly what a real terminal UI (TUI) library provides.
+<code>prompt_toolkit</code> is this project's first external runtime dependency (everything else is either
+Python stdlib or a raw REST call via <code>httpx</code>) — a deliberate, acknowledged departure from the
+"hand-roll everything" philosophy, justified because a persistent bordered widget genuinely cannot be built
+with print()/readline() at all, not because it would just be tedious.
+</div>
+
+<span class="imp">from prompt_toolkit import Application</span>
+<p class="explain">
+The top-level object representing "a running full-screen terminal program." Owns the event loop that reads
+keystrokes, re-renders the screen, and dispatches key bindings — everything else imported below is a
+building block <em>handed to</em> an <code>Application</code> instance, not a standalone thing used on its
+own.
+</p>
+
+<span class="imp">from prompt_toolkit.application.current import get_app, get_app_or_none</span>
+<p class="explain">
+Code deep inside helper classes (<code>_Transcript</code>, the spinner) sometimes needs to reach "the
+currently running Application" without that instance being explicitly passed down through every function
+call — <code>get_app()</code> is prompt_toolkit's context-local accessor for that.
+<code>get_app_or_none()</code> is the same idea but returns <code>None</code> instead of raising when no
+application is running (used in <code>_Transcript._sync()</code>, Part 10, so tests that build a
+<code>_Transcript</code> in isolation, with no real <code>Application</code> running at all, don't crash on
+every append).
+</p>
+
+<span class="imp">from prompt_toolkit.buffer import Buffer</span>
+<p class="explain">
+A <code>Buffer</code> is prompt_toolkit's model of "some editable (or read-only) text plus a cursor
+position" — the same underlying primitive backs both the transcript pane (read-only, Part 10) and the
+single-line question input box (editable). Using the same primitive for both is what lets the rest of the
+UI (scrolling, rendering, key bindings) treat them uniformly.
+</p>
+
+<span class="imp">from prompt_toolkit.document import Document</span>
+<p class="explain">
+An immutable snapshot of a <code>Buffer</code>'s text plus its cursor position at one point in time — every
+time the transcript's content changes, a brand-new <code>Document</code> is constructed and handed to the
+buffer via <code>set_document()</code> (Part 10) rather than mutating text in place, matching
+prompt_toolkit's own internal model of how buffer content updates.
+</p>
+
+<span class="imp">from prompt_toolkit.input.base import Input / from prompt_toolkit.output.base import Output</span>
+<p class="explain">
+Abstract types for "where keystrokes come from" and "where rendered frames go." <code>run_repl</code>
+accepts these as optional parameters purely for testability — real usage from <code>cli.py</code> leaves
+both at their default (the real terminal), but tests construct a fake pipe input
+(<code>prompt_toolkit.input.create_pipe_input()</code>) and a <code>DummyOutput()</code> so the whole REPL
+can be driven and asserted on without a real terminal attached at all, the same dependency-injection
+pattern used everywhere else in this codebase for testability (an injectable <code>session_factory</code>,
+an injectable <code>generator</code>).
+</p>
+
+<span class="imp">from prompt_toolkit.key_binding import KeyBindings</span>
+<p class="explain">
+A registry mapping key combinations (<code>"c-c"</code>, <code>"pageup"</code>, <code>"end"</code>) to
+handler functions — Part 14 covers every binding this REPL defines and exactly what each one does.
+</p>
+
+<span class="imp">from prompt_toolkit.layout import HSplit, Layout, Window</span>
+<p class="explain">
+The screen-layout primitives: <code>HSplit</code> stacks child elements vertically (here: transcript pane,
+a one-line horizontal divider, the input box — top to bottom), <code>Window</code> is a rectangular region
+that renders one piece of content (a buffer, via a control), and <code>Layout</code> wraps the whole
+composed tree as what an <code>Application</code> actually renders each frame.
+</p>
+
+<span class="imp">from prompt_toolkit.layout.controls import BufferControl</span>
+<p class="explain">
+The glue between a <code>Buffer</code> (raw text + cursor) and a <code>Window</code> (a screen region) —
+tells the window <em>how</em> to render that buffer's content, including which <code>Lexer</code> (below)
+to use for per-character/per-line styling.
+</p>
+
+<span class="imp">from prompt_toolkit.lexers import Lexer</span>
+<p class="explain">
+The base class this file subclasses (<code>_TranscriptLexer</code>, Part 10) to answer "what color should
+each line/span of text be" — the actual mechanism that makes tool-call lines dim, the user's own questions
+bold, and the model's answer render with markdown-lite styling, all inside one plain-text
+<code>Buffer</code> that has no native concept of styled text at all.
+</p>
+
+<span class="imp">from prompt_toolkit.styles import Style</span>
+<p class="explain">
+Defines the actual color/weight values a style <em>class name</em> (like <code>"class:accent"</code>,
+referenced throughout this file and by the lexer) maps to — Part 9 covers the exact palette and where the
+hex values come from.
+</p>
+
+<span class="imp">from prompt_toolkit.widgets import Frame, TextArea</span>
+<p class="explain">
+Higher-level, pre-built components rather than raw primitives — <code>TextArea</code> is the actual editable
+question-input widget (wrapping a <code>Buffer</code> + key handling + an accept callback for Enter),
+<code>Frame</code> draws the bordered box with a title around it (the "❯ ask a question · enter to send ·
+..." label visible at the bottom of the REPL). These are the one place this file uses prompt_toolkit's
+higher-level widgets rather than composing raw <code>Window</code>/<code>BufferControl</code> by hand — a
+deliberate mix: raw primitives everywhere <em>custom</em> rendering behavior is needed (the transcript, Part
+10), pre-built widgets everywhere standard behavior (a bordered box, an editable single-line field) is
+exactly what's wanted with nothing to customize.
+</p>
+
+<span class="imp">from sleuth.retrieve.agent_session import AgentSession, AnswerEvent, ToolCallEvent, ToolResultEvent</span>
+<p class="explain">
+The entire connection point back to Part 1-7's subsystem — everything above this line is generic terminal
+UI machinery that has never heard of SLEUTH; this one import is where the REPL actually becomes
+<em>this project's</em> REPL rather than a blank terminal application shell.
+</p>
+
+</section>
+
+<section class="part" id="p9">
+<h2>Part 9 — Branding as data: banner, wordmark, palette</h2>
+<p class="part-sub">Why the CLI's colors and logo aren't invented, and how a block-letter wordmark is built without a font dependency.</p>
+<p class="filebar">File: <code>sleuth/repl.py</code></p>
+
+<pre class="code"><code># Exact brand hex values from web/src/theme.css's storm (default dark) theme
+_ACCENT = "#ECBC6B"  # gold — primary brand color
+_TEXT = "#F2F5F2"
+_TEXT_MUTED = "#9CA9A3"
+_TEXT_FAINT = "#5C6863"
+_STATUS_NEUTRAL = "#C89B6A"
+
+STYLE = Style.from_dict({
+    "": f"fg:{_TEXT}",
+    "accent": f"fg:{_ACCENT} bold",
+    "muted": f"fg:{_TEXT_MUTED}",
+    ...
+})</code></pre>
+<p class="explain">
+Every hex value here is copied directly from <code>web/src/theme.css</code>'s <code>storm</code> theme
+(the web app's default dark theme, <code>how-chat-works.html</code>/the web Task 11 writeup in
+<code>docs/progress.html</code> cover its origin) rather than invented — the deliberate reasoning being that
+the CLI and the web app should read as the same product to someone who uses both, not two visually unrelated
+tools that happen to share a name. <code>Style.from_dict</code> maps short class names
+(<code>"accent"</code>, <code>"muted"</code>, ...) to real terminal styling strings — every place in this
+file that writes <code>"class:accent"</code> as a style tag is referring back to this one table, so changing
+a color anywhere means editing exactly one dict, not hunting down every hardcoded escape code.
+</p>
+
+<pre class="code"><code>_BLOCK_FONT = {
+    "S": [" ███ ", "█    ", " ███ ", "    █", " ███ "],
+    "L": ["█    ", "█    ", "█    ", "█    ", "█████"],
+    ...
+}
+
+def _render_wordmark(word: str, spacing: int = 1) -&gt; list[str]:
+    rows = ["" for _ in range(5)]
+    for ch in word:
+        glyph = _BLOCK_FONT[ch]
+        for i in range(5):
+            rows[i] += glyph[i] + " " * spacing
+    return rows</code></pre>
+<p class="explain">
+Rather than pulling in a figlet-style ASCII-art font library (another external dependency, for something
+purely cosmetic), the six letters SLEUTH actually needs are hand-drawn as a small dict: each letter maps to
+a list of 5 strings, one per row of a 5-row-tall block letter, using plain Unicode block-drawing characters
+(<code>█</code>). <code>_render_wordmark</code> then builds the whole word row-by-row: for each of the 5
+rows, walk every letter in order and concatenate that letter's row-<code>i</code> string plus a spacing gap
+— the same "build one row across every letter, then move to the next row" approach a real typesetting
+system uses, just at a tiny, purpose-built scale (six letters, never any other text) that doesn't justify a
+whole font-rendering dependency.
+</p>
+
+</section>
+
+<section class="part" id="p10">
+<h2>Part 10 — The Transcript: a read-only Buffer as a scrolling pane</h2>
+<p class="part-sub">The core rendering trick: how per-line/per-span color is even possible inside a widget that only ever holds plain text.</p>
+<p class="filebar">File: <code>sleuth/repl.py</code></p>
+
+<div class="concept">
+<strong class="tag">Concept — a Buffer has no concept of "styled text" at all</strong>
+A prompt_toolkit <code>Buffer</code> is fundamentally just a string plus a cursor position — it has no
+built-in way to say "this word is bold" or "this line is dim." Coloring is instead achieved entirely
+through a separate object, a <code>Lexer</code>, that the rendering pipeline consults on every redraw:
+"given this document, what (style, text) fragments should line N actually render as?" This is architecturally
+identical to how syntax highlighting works in a real code editor — the editor's buffer holds plain text,
+and a separate syntax analysis pass decides what color each token gets, recomputed as needed rather than
+baked into the stored text itself.
+</div>
+
+<pre class="code"><code>class _TranscriptLexer(Lexer):
+    def __init__(self, get_line_fragments):
+        self._get_line_fragments = get_line_fragments
+
+    def lex_document(self, document: Document):
+        fragments = self._get_line_fragments()
+        def get_line(lineno: int):
+            if lineno &lt; len(fragments):
+                return fragments[lineno]
+            text = document.lines[lineno] if lineno &lt; len(document.lines) else ""
+            return [("", text)]
+        return get_line</code></pre>
+<div class="explain">
+<ul>
+  <li><code>lex_document</code> doesn't return styled text directly — it returns a <em>function</em>
+      (<code>get_line</code>) that prompt_toolkit calls, on demand, for whichever line numbers are actually
+      visible on screen right now. This is a lazy-evaluation pattern: a transcript with thousands of lines
+      of history never needs every line's styling computed on every redraw, only the handful currently
+      scrolled into view.</li>
+  <li><code>get_line_fragments</code> is a callback (a <code>Callable</code>, not a fixed list) passed in
+      from <code>_Transcript</code> below — the lexer doesn't own or store any content itself, it always
+      asks its owner for the current fragment list fresh, so it never goes stale relative to whatever the
+      transcript most recently appended.</li>
+</ul>
+</div>
+
+<pre class="code"><code>class _Transcript:
+    def __init__(self):
+        self.lines: list[str] = []
+        self.fragments: list[list[tuple[str, str]]] = []
+        self.buffer = Buffer(read_only=True)
+        self.following = True
+
+    def _sync(self) -&gt; None:
+        text = "\n".join(self.lines)
+        cursor_position = len(text) if self.following else min(self.buffer.cursor_position, len(text))
+        self.buffer.set_document(Document(text, cursor_position=cursor_position), bypass_readonly=True)
+        app = get_app_or_none()
+        if app is not None:
+            app.invalidate()
+
+    def append(self, text: str, style: str = "") -&gt; None:
+        for line in text.split("\n"):
+            self.lines.append(line)
+            self.fragments.append([(style, line)] if style else [])
+        self._sync()</code></pre>
+<div class="explain">
+<ul>
+  <li>Two parallel lists, kept in lockstep: <code>lines</code> is the plain text the <code>Buffer</code>
+      actually holds (needed for prompt_toolkit's own cursor/scroll math, which operates on real text), and
+      <code>fragments</code> is what the lexer hands back for rendering — one <code>(style, text)</code>
+      pair per recorded line, or an empty list (meaning "render this line with no override, whatever the
+      base style is") when no explicit style was given.</li>
+  <li><code>Buffer(read_only=True)</code> — the transcript is never directly editable by the user (only the
+      separate input <code>TextArea</code> is), so mutation always goes through <code>append</code>/
+      <code>replace_last</code>/<code>pop</code>, never direct keystrokes. <code>bypass_readonly=True</code>
+      in <code>set_document</code> is what lets <em>this code</em>, specifically, still update a buffer
+      that's read-only from the user's perspective.</li>
+  <li><code>self.following</code>/the ternary in <code>_sync</code> is the auto-scroll mechanism: while
+      <code>following</code> is true (the default), every new line pins the cursor to the very end of the
+      text, so the view always tracks the newest content (like <code>tail -f</code>). The moment the user
+      manually scrolls (Part 14), <code>following</code> flips to false and the cursor position is instead
+      clamped to wherever it already was — new lines keep arriving and being recorded, but the visible
+      viewport doesn't get yanked back down mid-read. <code>scroll_to_bottom()</code> (bound to the End key)
+      is the only thing that re-engages <code>following</code>.</li>
+  <li><code>app.invalidate()</code> is prompt_toolkit's "please redraw" signal — without it, updating the
+      underlying buffer's document wouldn't necessarily trigger a visible repaint on the next event-loop
+      tick.</li>
+</ul>
+</div>
+<p class="explain">
+<code>append_markdown</code> (not shown in full here) is a small variant of <code>append</code> specifically
+for the model's final answer text — it runs each line through <code>_render_markdown_line</code> (Part 11)
+instead of applying one flat style to the whole thing, and supports an optional <code>prefix</code> so the
+"● " answer marker renders inline on the same row as the first line of the answer rather than on its own
+line (a real, small polish fix made live during development — see this project's memory notes on the
+dot-alignment issue).
+</p>
+
+</section>
+
+<section class="part" id="p11">
+<h2>Part 11 — A hand-rolled markdown-lite renderer</h2>
+<p class="part-sub">The model's answers can contain **bold**, `code`, headings, bullets — turning that into real terminal styling without a markdown library.</p>
+<p class="filebar">File: <code>sleuth/repl.py</code></p>
+
+<pre class="code"><code>_INLINE_CODE_RE = re.compile(r"`([^`]+)`")
+_BOLD_RE = re.compile(r"\*\*([^*]+)\*\*")
+_HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$")
+_BULLET_RE = re.compile(r"^(\s*)([-*])\s+(.*)$")
+
+def _render_inline_markdown(text: str, base_style: str) -&gt; list[tuple[str, str]]:
+    fragments = []
+    pos = 0
+    pattern = re.compile(f"{_BOLD_RE.pattern}|{_INLINE_CODE_RE.pattern}")
+    for match in pattern.finditer(text):
+        if match.start() &gt; pos:
+            fragments.append((base_style, text[pos:match.start()]))
+        if match.group(1) is not None:
+            fragments.append(("class:answer.bold", match.group(1)))
+        else:
+            fragments.append(("class:answer.code", match.group(2)))
+        pos = match.end()
+    if pos &lt; len(text):
+        fragments.append((base_style, text[pos:]))
+    return fragments or [(base_style, text)]</code></pre>
+<div class="concept">
+<strong class="tag">Concept — why not just pull in a real markdown library?</strong>
+A real markdown parser (CommonMark-compliant) handles tables, nested blockquotes, link syntax, footnotes —
+none of which ever actually appear in this model's answers, which are always prose paragraphs and short
+lists. Pulling in a full dependency to handle cases that structurally can't occur here would be adding
+weight for nothing. Instead this is a deliberately tiny "markdown-lite" subset: headings, bold, inline
+code, and bullets — exactly the constructs a chat LLM's plain-prose answers actually use, hand-matched with
+four small regexes.
+</div>
+<p class="explain">
+<code>_render_inline_markdown</code> is the interesting part: it can't just run the bold regex over the whole
+line and then separately run the code regex, because a span like <code>**bold `code`**</code> would have its
+inner backticks silently missed once the bold pass has already consumed the entire match as one opaque
+bold fragment. Instead, one combined pattern (<code>bold_pattern|code_pattern</code>) is scanned once,
+left to right, via <code>finditer</code> — at each match, whichever pattern actually matched
+(<code>match.group(1)</code> is non-<code>None</code> for bold, <code>None</code> for code, since only one
+alternative in an <code>A|B</code> regex ever actually captures) determines which style class the matched
+span gets, and any plain text between matches is appended with the caller's <code>base_style</code>
+untouched. <code>_render_markdown_line</code> layers heading/bullet detection on top, per whole line, before
+handing the remainder off to this inline function.
+</p>
+
+</section>
+
+<section class="part" id="p12">
+<h2>Part 12 — The spinner: a transcript line that repaints itself</h2>
+<p class="part-sub">A "thinking" indicator with nowhere obvious to live, since there's no fixed status bar in this layout.</p>
+<p class="filebar">File: <code>sleuth/repl.py</code></p>
+
+<pre class="code"><code>class _Spinner:
+    async def _spin(self) -&gt; None:
+        self._transcript.append("", "class:dim")
+        self._owns_line = True
+        i = 0
+        try:
+            while True:
+                frame = _SPINNER_FRAMES[i % len(_SPINNER_FRAMES)]
+                self._transcript.replace_last(f"{frame} thinking...", "class:dim")
+                i += 1
+                await asyncio.sleep(_SPINNER_INTERVAL)
+        except asyncio.CancelledError:
+            pass
+
+    def start(self) -&gt; None:
+        if self._task is None:
+            self._task = asyncio.ensure_future(self._spin())
+
+    async def stop(self) -&gt; None:
+        if self._task is not None:
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+            self._task = None
+        if self._owns_line:
+            self._transcript.pop()
+            self._owns_line = False</code></pre>
+<div class="explain">
+<ul>
+  <li>Rather than a fixed status-bar widget, the spinner claims one line of the transcript itself — appends
+      a blank placeholder line, then repeatedly overwrites <em>that same line</em>
+      (<code>replace_last</code>) with the next spinner frame, on an <code>asyncio.sleep(0.08)</code> timer,
+      which is what produces the visible spinning animation inside the normal scrolling flow rather than a
+      separate screen region.</li>
+  <li><code>start()</code>/<code>stop()</code> are idempotent — calling <code>start()</code> while already
+      running is a no-op (<code>if self._task is None</code>), and <code>stop()</code> cancels the
+      background task and cleanly awaits its cancellation (swallowing the expected
+      <code>asyncio.CancelledError</code>) before removing the placeholder line — this is what prevents a
+      half-finished spinner frame from being left behind in the transcript once real content needs to
+      appear where it was.</li>
+  <li>The REPL's turn-processing code (Part 13) starts the spinner before the first model call, stops it
+      the instant the <em>first</em> event of any kind arrives (a tool call or the final answer — whichever
+      comes first), and restarts it again after each tool result while waiting for the model's next
+      response — so it's really acting as a "waiting on the model" indicator, not a single "thinking once"
+      animation for the whole multi-tool-call question.</li>
+</ul>
+</div>
+
+</section>
+
+<section class="part" id="p13">
+<h2>Part 13 — <code>run_repl</code>: wiring it together, turn scheduling</h2>
+<p class="part-sub">The function that actually assembles every piece above into one running Application — and a subtle ordering bug its scheduling logic exists to prevent.</p>
+<p class="filebar">File: <code>sleuth/repl.py</code></p>
+
+<div class="concept">
+<strong class="tag">Concept — why does submitting a question need a scheduler at all?</strong>
+A naive REPL might just <code>await</code> the whole question-answering process directly inside the key
+handler that fires on Enter. The problem: prompt_toolkit's key handlers aren't meant to block for seconds
+at a time (an LLM call plus several tool round trips can easily take that long) — the UI needs to keep
+rendering, and a user needs to be able to type <code>exit</code> immediately after submitting a question
+without it queuing behind a blocking call. The fix is to run each turn as its own background task, but that
+introduces a real new problem on its own: what if the user submits a second question, or hits Ctrl-C to
+exit, <em>before</em> the first question has finished answering? Without care, both could run concurrently
+and interleave their output into the transcript in a confusing order, or "exit" could fire mid-answer and
+tear down the UI while a background task is still trying to write to it.
+</div>
+
+<pre class="code"><code>pending: dict[str, asyncio.Task | None] = {"task": None}
+
+def schedule(coro_factory) -&gt; None:
+    previous = pending["task"]
+    async def runner():
+        if previous is not None:
+            await previous
+        await coro_factory()
+    pending["task"] = get_app().create_background_task(runner())</code></pre>
+<div class="explain">
+<ul>
+  <li><code>pending</code> holds at most one in-flight "chain" of scheduled work at a time — every new
+      <code>schedule()</code> call captures whatever was previously pending, and its own
+      <code>runner()</code> <code>await</code>s that previous task <em>before</em> doing its own work. This
+      builds a strict FIFO queue out of ordinary <code>await</code> chaining: question 1 runs, then (once
+      it's fully done) question 2 runs, then <code>exit</code> runs — never interleaved, regardless of how
+      quickly the user types them one after another.</li>
+  <li>This is exactly what makes "type a question, then immediately type <code>exit</code> before it's
+      answered" behave correctly: <code>exit</code>'s own scheduled task will wait for the in-flight
+      question to fully finish (including its transcript output) before actually closing the application —
+      both for a real human (who naturally waits anyway before typing again) and for tests that pipe in
+      several lines of input back-to-back with no real delay between them, where this ordering guarantee is
+      the only thing standing between a passing test and a flaky, order-dependent one.</li>
+  <li><code>get_app().create_background_task(...)</code> — prompt_toolkit's own supported way to run a
+      coroutine "in the background" relative to the Application's main render loop, rather than a bare
+      <code>asyncio.ensure_future</code>, so the Application's own lifecycle management is aware of it.</li>
+</ul>
+</div>
+
+<pre class="code"><code>async def process_question(question: str) -&gt; None:
+    transcript.append(f"❯ {question}", "class:user")
+    spinner.start()
+    first_event = True
+    async for event in session.ask(question):
+        if first_event:
+            await spinner.stop()
+            first_event = False
+        if isinstance(event, ToolCallEvent):
+            transcript.append(_format_tool_call(event), "class:tool")
+            spinner.start()
+        elif isinstance(event, ToolResultEvent):
+            transcript.append(_format_tool_result(event), "class:dim")
+        elif isinstance(event, AnswerEvent):
+            transcript.append_markdown(event.text, prefix=[("class:accent", "● ")])
+            ...
+    await spinner.stop()
+    transcript.append("")</code></pre>
+<div class="explain">
+This is the direct payoff of Part 5's event design: one <code>async for event in session.ask(question)</code>
+loop, one <code>isinstance</code> check per event type, each rendered completely differently — a tool call
+gets a gear-icon line and restarts the spinner (since the model still has to be called again after this
+tool's result comes back), a tool result gets a dim truncated preview, and the final answer gets full
+markdown-lite rendering with an accent-colored "●" marker. Nothing here needed to change when
+<code>AgentSession</code>'s internals were rebuilt (Part 6) — the event contract is the entire interface
+this function depends on.
+</div>
+
+</section>
+
+<section class="part" id="p14">
+<h2>Part 14 — Key bindings and manual scroll vs. auto-follow</h2>
+<p class="part-sub">Letting a user read scrollback without fighting new output arriving underneath them.</p>
+<p class="filebar">File: <code>sleuth/repl.py</code></p>
+
+<pre class="code"><code>kb = KeyBindings()
+
+@kb.add("c-c")
+@kb.add("c-d")
+def _(event) -&gt; None:
+    schedule(do_exit)
+
+@kb.add("up")
+def _(event) -&gt; None:
+    transcript.scroll(-1)
+
+@kb.add("pageup")
+def _(event) -&gt; None:
+    transcript.page_scroll(transcript_window.render_info.window_height if transcript_window.render_info else 10, down=False)
+
+@kb.add("end")
+@kb.add("c-end")
+def _(event) -&gt; None:
+    transcript.scroll_to_bottom()</code></pre>
+<div class="explain">
+<ul>
+  <li>Bound at the <em>application</em> level (via <code>KeyBindings()</code> passed to
+      <code>Application(key_bindings=kb, ...)</code>), not on the input <code>TextArea</code>'s own buffer
+      — this is deliberate: it means Up/Down/PageUp/PageDown scroll the transcript no matter which widget
+      currently has focus, and specifically doesn't fight prompt_toolkit's own default up/down-through-
+      history bindings, because those only apply within a focused <em>multiline</em> buffer and this REPL's
+      input box is explicitly single-line (<code>TextArea(multiline=False, ...)</code>) — so those default
+      bindings are simply never active to conflict with.</li>
+  <li><code>Ctrl-C</code>/<code>Ctrl-D</code> both route through the same <code>schedule(do_exit)</code>
+      queue as a typed <code>exit</code>/<code>quit</code> — not a raw, immediate interrupt — so an exit
+      triggered mid-answer still waits for the in-flight turn to finish cleanly (Part 13's ordering
+      guarantee applies here too, not just to typed exit commands).</li>
+  <li><code>transcript_window.render_info.window_height</code> — a real prompt_toolkit runtime property
+      giving the actual current height of the rendered window in terminal rows, used so PageUp/PageDown
+      scroll by "one screenful," whatever that currently is (a resized terminal changes this), falling back
+      to a fixed guess of 10 rows only if <code>render_info</code> isn't available yet (before the very
+      first frame has ever been rendered).</li>
+</ul>
+</div>
+<p class="explain">
+Every one of these bindings routes through <code>_Transcript.scroll()</code>/<code>page_scroll()</code>
+(Part 10), which is what actually flips <code>following</code> to <code>False</code> the instant a manual
+scroll happens — the key-binding layer itself has no scroll-state logic of its own, it's purely input
+dispatch onto the transcript object that owns the actual behavior.
+</p>
+
+</section>
+
+<section class="part" id="p15">
+<h2>Part 15 — Wired into the CLI: one line</h2>
+<p class="part-sub">How this whole subsystem becomes reachable by typing nothing but `sleuth`.</p>
+<p class="filebar">File: <code>sleuth/cli.py</code></p>
+
+<pre class="code"><code>parser = argparse.ArgumentParser(prog="sleuth")
+subparsers = parser.add_subparsers(dest="command", required=False)
+...
+
+async def main(argv: list[str] | None = None) -&gt; None:
+    args = _build_parser().parse_args(argv)
+    config = load_config()
+
+    if args.command is None:
+        await run_repl(".", config)
+        return
+    ...</code></pre>
+<div class="explain">
+<ul>
+  <li><code>required=False</code> on <code>add_subparsers</code> is the one flag that makes this possible at
+      all — by default, <code>argparse</code> subparsers are required, meaning running the bare program name
+      with no subcommand is an error. Turning that off is what lets <code>args.command</code> come back as
+      <code>None</code> instead of <code>argparse</code> exiting with a usage error first.</li>
+  <li><code>if args.command is None: await run_repl(".", config); return</code> — the entire routing
+      decision, right at the top of <code>main()</code>, before any database connection is ever opened.
+      <code>"."</code> is passed as the path — the REPL always scopes itself to the current working
+      directory when launched this way, exactly matching how <code>cd</code>ing into a project and typing
+      <code>claude</code> or <code>hermes</code> with no arguments works for those tools, which is the
+      explicit UX this was modeled on.</li>
+  <li>Notice this branch returns <em>before</em> <code>get_connection(config.database_url)</code> is ever
+      called (further down in <code>main()</code>, used by <code>add</code>/<code>list</code>/
+      <code>ask</code>/<code>eval</code>) — the REPL, like <code>sleuth agentic</code>, never touches
+      Postgres at all. This is why the REPL/agentic path works identically from either the WSL dev
+      environment or a native Windows Python install, unlike the DB-backed commands, which this project's
+      own memory notes flag as needing WSL specifically because of a Windows-to-Docker port-forwarding
+      issue.</li>
+</ul>
+</div>
+
+</section>
+
+<section class="part" id="p16">
+<h2>Closing — the whole thing, one diagram</h2>
+
+<div class="diagram">
+Terminal: type `sleuth` with no arguments
+   │
+   ▼  (Part 15)  cli.py: args.command is None → run_repl(".", config)
+   │
+   ▼  (Part 13)  run_repl() builds the Application: transcript pane + divider + bordered input box
+   │              banner rendered (Part 9): logo mark, block-letter wordmark, dir/model info
+   │
+   ▼              user types a question, presses Enter → handle_submit → schedule(process_question)
+   │              (queued strictly after any still-in-flight previous turn, Part 13)
+   │
+   ▼  (Part 6)   AgentSession.ask(question) — question appended to the session's growing message list
+   │
+   ▼  (Part 2)   model called non-streaming; response checked against the TOOL: <name> {json} protocol
+   │
+   ├─ tool call ──▶ (Part 5) yield ToolCallEvent → REPL prints "⚙ grep(...)", spinner restarts
+   │                (Part 3) real tool runs: rg / rg --files / sed, sandboxed under the session's root
+   │                (Part 5) yield ToolResultEvent → REPL prints a truncated preview
+   │                result appended to messages; loop continues, up to MAX_ITERATIONS (6)
+   │
+   └─ final answer ─▶ (Part 5) yield AnswerEvent
+                      (Part 11) REPL renders it through the markdown-lite renderer, accent "●" marker
+                      (Part 6)  _trim_messages() keeps the session's history bounded for the next question
+   │
+   ▼  user types another question — same AgentSession, same messages list, genuinely remembers
+   │  what earlier tool calls in THIS session already found
+   │
+   ▼  user types exit/quit or Ctrl-C/Ctrl-D → schedule(do_exit), waits for any in-flight turn, closes
+</div>
+
+<p>
+That's the whole agentic subsystem, start to finish. Notice, same as the other two companion documents
+conclude: most of the genuinely hard engineering here isn't "AI" at all — it's a small hand-rolled text
+protocol, a sandboxing guard, message-history trimming, and a real terminal UI's render/scroll/focus
+mechanics. The two genuinely intelligent steps (the model deciding what to look at, and writing the final
+answer) are each a handful of lines; everything else in this document is the careful plumbing that makes
+those two steps usable, safe, and pleasant to actually sit in front of.
+</p>
+
+</section>
+
+<footer class="closing">
+<h2>What to do next</h2>
+<p>
+Read this alongside <code>docs/how-indexing-works.html</code> and <code>docs/how-chat-works.html</code> —
+together the three cover the entire system end to end. For the deepest line-by-line treatment of the
+underlying Python mechanics all three lean on constantly (dataclasses, ABCs, async/await, generators), see
+<code>docs/pipeline-deep-dive.html</code>, whose own Part 16 now points back here rather than duplicating
+this material.
+</p>
+</footer>
+
+</main>
+</body>
+</html>
+</content>

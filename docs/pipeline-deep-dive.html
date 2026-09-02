@@ -186,10 +186,12 @@
   implement it (dataclasses, ABCs, async/await, generators — for a reader who knows Python but hasn't
   used these particular features much), <em>then</em> the actual SLEUTH code doing it. Now covers Plan 1
   (core pipeline + CLI) <em>and</em> Plan 2 (the FastAPI + React web app), plus every real fix/feature
-  layered on since. Two focused companions now exist for a single, slower pass through each half of the
-  request lifecycle: <code>docs/how-indexing-works.html</code> (repo URL → searchable code) and
-  <code>docs/how-chat-works.html</code> (a question → a cited, streamed answer) — read those first if you
-  want the story in order; come back to this one for the deepest dive on any individual mechanism.
+  layered on since. Three focused companions now exist for a single, slower pass through one part of the
+  system each: <code>docs/how-indexing-works.html</code> (repo URL → searchable code),
+  <code>docs/how-chat-works.html</code> (a question → a cited, streamed answer), and
+  <code>docs/how-repl-and-agent-session-works.html</code> (the tool-calling agent loop and its interactive
+  terminal UI) — read those first if you want each story in order; come back to this one for the deepest
+  dive on any individual mechanism.
 </p>
 
 <nav class="toc">
@@ -2199,9 +2201,9 @@ def run() -> None:
 </section>
 
 <section class="part" id="p16">
-<h2>Part 16 — Agentic mode: the tool-use loop</h2>
+<h2>Part 16 — Agentic mode: the tool-use loop <span class="badge">rebuilt since original write-up — see the dedicated companion below</span></h2>
 <p class="part-sub">No database, no embeddings — the LLM investigates the repo itself, like a human would.</p>
-<p class="filebar">Files: <code>sleuth/retrieve/agentic.py</code></p>
+<p class="filebar">Files: <code>sleuth/retrieve/agent_session.py</code>, <code>sleuth/retrieve/agentic.py</code>, <code>sleuth/repl.py</code></p>
 
 <div class="concept">
 <strong class="tag">Concept — what makes this "agentic," and why does it exist alongside indexed search?</strong>
@@ -2218,175 +2220,32 @@ model calls tools in a loop, observing results, deciding the next action — is 
 an "agent" as the term is used in LLM engineering right now.
 </div>
 
-<pre class="code"><code>SYSTEM_PROMPT = (
-    "You are a code assistant investigating a local codebase to answer the user's "
-    "question. You have three tools:\n"
-    "  grep(pattern, glob=null) -- regex search across files, first 50 matches\n"
-    "  list_files(glob) -- list files matching a glob\n"
-    "  read_file(path, start_line=null, end_line=null) -- read up to 400 lines of a file\n"
-    "To call a tool, respond with EXACTLY one line in this form and nothing else:\n"
-    'TOOL: <tool_name> {"arg": "value", ...}\n'
-    "When you have enough information to answer, respond with your final answer as "
-    "plain prose (no TOOL: prefix)."
-)
-
-_TOOL_LINE_RE = re.compile(r"^TOOL:\s*(\w+)\s*(\{.*\})\s*$", re.MULTILINE)
-
-
-def _parse_tool_call(text: str) -> tuple[str, dict] | None:
-    match = _TOOL_LINE_RE.search(text.strip())
-    if not match:
-        return None
-    try:
-        args = json.loads(match.group(2))
-    except json.JSONDecodeError:
-        return None
-    return match.group(1), args</code></pre>
-<div class="explain">
-<ul>
-  <li><strong>This is a hand-rolled text protocol, not a "function calling" API feature.</strong> Some
-      LLM providers offer a native structured "tool calling" mode where the model returns properly typed
-      JSON tool-call objects instead of free text. SLEUTH's agentic mode doesn't use that — per the
-      project's "no black-box library... for them" ethos, it defines its own tiny protocol directly in
-      the system prompt: the model must respond with the literal text <code>TOOL: toolname {"json":
-      "args"}</code> on one line to call a tool, or plain prose (no such prefix) when it's ready to give
-      a final answer. This is more fragile than a provider's native structured mode (a model that
-      slightly deviates in formatting breaks the parser) but is fully transparent and provider-agnostic
-      — works identically with Groq or NIM, whichever the fallback chain (Part 13) resolves to.</li>
-  <li><code>_TOOL_LINE_RE</code> is a compiled regex: <code>^TOOL:\s*(\w+)\s*(\{.*\})\s*$</code> with
-      <code>re.MULTILINE</code>. Breaking it down — <code>^</code>/<code>$</code> anchor to a line start
-      /end (only meaningful because of <code>MULTILINE</code>, which makes <code>^</code>/<code>$</code>
-      match at every line boundary in the text, not just the very start/end of the whole string).
-      <code>TOOL:\s*</code> matches the literal prefix plus any whitespace. <code>(\w+)</code> captures
-      the tool name (word characters only). <code>\s*(\{.*\})\s*</code> captures everything from the
-      first <code>{</code> to the last <code>}</code> on that line as the JSON arguments blob —
-      <code>.*</code> is greedy, so it grabs as much as possible up to the last closing brace on the line,
-      which matters for JSON containing nested objects.</li>
-  <li><code>_parse_tool_call</code> returns either <code>(tool_name, args_dict)</code> or
-      <code>None</code> — <code>None</code> covers two distinct cases treated identically by the caller:
-      no <code>TOOL:</code> line was found at all (the model gave its final prose answer), OR a
-      <code>TOOL:</code> line was found but its JSON was malformed (<code>json.JSONDecodeError</code>
-      caught explicitly). Both cases fall through to "treat this response as the final answer" — a
-      pragmatic choice: rather than crashing or retrying on a malformed tool call, the loop just accepts
-      whatever text came back as the answer. This is a reasonable simplification for a hand-rolled
-      protocol, though worth knowing it means a genuinely broken tool-call attempt silently becomes a
-      (probably bad) final answer instead of an explicit error.</li>
-</ul>
+<div class="note">
+<strong>This section is intentionally brief now.</strong> The original single-shot version of this code
+(<code>run_agentic</code>, a hand-rolled pure-Python grep, no session state across questions) was later
+extracted and rebuilt as a reusable <code>AgentSession</code> class so the same tool loop could back
+three different callers: the one-shot <code>sleuth agentic</code> command, a full persistent interactive
+REPL (<code>sleuth</code> with no subcommand), and the repo-summarization step covered in
+<code>how-indexing-works.html</code> Part 10. That rebuild is substantial enough — a real class with
+message-history trimming, ripgrep/sed-backed tools instead of hand-rolled Python, a path-traversal
+sandboxing guard, and a whole `prompt_toolkit` terminal UI — that it now has its own dedicated,
+import-by-import companion document: <code>docs/how-repl-and-agent-session-works.html</code>. Read that
+for the full current treatment; what follows here is kept short and points there rather than duplicating
+it.
 </div>
 
-<pre class="code"><code>async def run_agentic(question: str, path: str, config: Config, generator=None) -> AsyncIterator[str]:
-    generator = generator or get_generator(config)
-    root = Path(path)
-    messages = [
-        {"role": "system", "content": SYSTEM_PROMPT},
-        {"role": "user", "content": question},
-    ]
-
-    for _ in range(MAX_ITERATIONS):
-        response_text = await _call(generator, messages)
-        parsed = _parse_tool_call(response_text)
-
-        if parsed is None:
-            yield response_text
-            return
-
-        messages.append({"role": "assistant", "content": response_text})
-        name, args = parsed
-        result = _dispatch_tool(name, args, root)
-        messages.append({"role": "user", "content": f"Tool result: {result}"})
-
-    messages.append({"role": "user", "content": "Iteration limit reached. Answer the original question "
-                      "with what you've gathered so far, as plain prose."})
-    response_text = await _call(generator, messages)
-    yield response_text + "\n\n(Note: search was cut short after reaching the iteration limit.)"</code></pre>
-<div class="explain">
-<ul>
-  <li><code>generator = generator or get_generator(config)</code> — accepts an optional pre-built
-      generator (used by tests, to inject a fake/mock generator instead of hitting a real API), defaults
-      to constructing the real one from config otherwise. Note this uses <code>get_generator</code>
-      (Part 13's single-provider factory), <em>not</em> <code>get_fallback_chain</code> — agentic mode
-      does not get automatic Groq→NIM fallback; a provider failure here just raises. A deliberate
-      simplicity trade-off, or possibly an area worth extending later.</li>
-  <li><code>messages</code> starts as a two-entry list (system prompt + the user's question) and
-      <strong>grows every iteration</strong> — each tool call and its result get appended as
-      <code>{"role": "assistant", ...}</code> (the model's own tool-call text) then
-      <code>{"role": "user", ...}</code> (the tool's result, framed as if the user is reporting it back
-      — a common convention since most chat APIs don't have a dedicated "tool result" role in this
-      hand-rolled protocol). By the time the model is asked to respond again, it sees the <em>entire</em>
-      conversation so far — its own past tool calls and every result — which is how it "remembers" what
-      it already searched for and read, and can decide what to look at next instead of repeating itself.</li>
-  <li>The loop runs <code>for _ in range(MAX_ITERATIONS)</code> — <code>MAX_ITERATIONS = 6</code>. Each
-      pass: call the model non-streaming (<code>_call</code> wraps <code>generator.chat(messages,
-      stream=False)</code> and joins the single yielded chunk — see Part 13's note on why
-      <code>stream=False</code> is required here: the loop needs the model's <em>complete</em> response
-      before it can decide "is this a tool call or the final answer?", which is impossible to know from
-      a partial stream of tokens). If the response parses as a tool call, dispatch it, append both the
-      call and its result to <code>messages</code>, and loop again. If it does NOT parse as a tool call
-      (<code>parsed is None</code>), treat it as the final answer — <code>yield</code> it and
-      <code>return</code> immediately, ending the whole generator.</li>
-  <li><strong>The iteration cap matters:</strong> if the model is still calling tools after 6 rounds
-      without giving a final answer, the loop doesn't just cut off silently — it appends one more
-      explicit instruction message ("Iteration limit reached. Answer with what you've gathered so far")
-      forcing a final answer out of the model on this extra, 7th call, then appends a note to the user
-      that the search was cut short. This guards against runaway loops (a model that keeps
-      grep-ing forever, burning API calls/time indefinitely) while still trying to give a useful partial
-      answer rather than just failing outright.</li>
-</ul>
-</div>
-
-<h3>The tools themselves — deliberately small and sandboxed</h3>
-<pre class="code"><code>def _tool_grep(root: Path, pattern: str, glob: str | None = None) -> str:
-    regex = re.compile(pattern)
-    matches = []
-    paths = sorted(root.rglob(glob or "*"))
-    for path in paths:
-        if not path.is_file() or ".git" in path.parts:
-            continue
-        try:
-            text = path.read_text(errors="ignore")
-        except OSError:
-            continue
-        for lineno, line in enumerate(text.splitlines(), start=1):
-            if regex.search(line):
-                matches.append(f"{path.relative_to(root)}:{lineno}: {line.strip()}")
-                if len(matches) >= GREP_MAX_MATCHES:
-                    return "\n".join(matches) + "\n... (truncated at 50 matches)"
-    return "\n".join(matches) if matches else "(no matches)"</code></pre>
-<div class="explain">
-<ul>
-  <li>This is a hand-written grep, not a subprocess call to the real <code>grep</code> binary (unlike
-      Part 7's clone, which does shell out to real <code>git</code>) — likely because a pure-Python
-      implementation avoids platform differences in grep flags/behavior and keeps the whole tool
-      sandboxed to a single well-understood code path.</li>
-  <li><code>errors="ignore"</code> on <code>read_text</code> — silently drops bytes that can't be
-      decoded as UTF-8 rather than raising, so one file with unusual encoding doesn't blow up the whole
-      search; similarly the <code>try/except OSError: continue</code> skips files that can't be read at
-      all (permissions, broken symlinks) without aborting.</li>
-  <li><code>GREP_MAX_MATCHES = 50</code> — a hard cap, enforced by returning early the moment it's hit,
-      not just truncating the final list. This bounds both the tool's own runtime (won't keep scanning a
-      huge repo after 50 matches are already found) and, just as importantly, how many tokens get fed
-      back into the model's context as a "tool result" — an unbounded grep result on a big codebase
-      could itself blow the context budget.</li>
-  <li>Every tool takes <code>root: Path</code> as its scope, and <code>root</code> is always exactly the
-      <code>path</code> argument the user passed to <code>sleuth agentic &lt;path&gt; &lt;question&gt;</code>
-      — there's no way for the model to <code>read_file("/etc/passwd")</code> or otherwise escape that
-      directory via these specific tool implementations as written (paths are joined under
-      <code>root</code>, e.g. <code>target = root / path</code> in <code>_tool_read_file</code>), though
-      it's worth knowing this project hasn't hardened against a deliberately malicious path like
-      <code>"../../etc/passwd"</code> — Python's <code>/</code> path-join wouldn't stop
-      <code>..</code> segments from escaping <code>root</code>, and there's no explicit check here that
-      the resolved path stays inside <code>root</code>.</li>
-</ul>
-</div>
-
-<div class="question">
-  <strong>Q for you:</strong> That last point (no path-escape guard on <code>read_file</code>/
-  <code>grep</code>) is a genuine, small security gap — low-severity for a personal local tool where you
-  trust the model not to be adversarial, but worth knowing about. Want me to treat this as a real finding
-  and either (a) just flag it here and leave it, since it's a personal project, or (b) actually fix it as
-  a small hands-on exercise for you (add a <code>resolved.is_relative_to(root.resolve())</code> check),
-  so you get some practice extending this codebase yourself?
-</div>
+<p>
+The core protocol is unchanged from the original design and still worth understanding on its own: the
+model is not using any LLM provider's native "function calling" API. SLEUTH defines its own tiny text
+protocol directly in the system prompt — respond with exactly one line
+<code>TOOL: toolname {"json": "args"}</code> to call a tool, or plain prose (no such prefix) to give a
+final answer. This is more fragile than a provider's native structured mode (a model that slightly
+deviates in formatting breaks the parser) but is fully transparent and provider-agnostic — the same
+philosophy driving every other "no vendor SDK" decision in this codebase. <code>AgentSession</code>
+additionally distinguishes "no tool call at all" (a real final answer) from "a tool call whose JSON args
+failed to parse" (fed back to the model as an error so it can retry, rather than silently shown to the
+user as a broken raw line) — a real correctness gap the original one-shot version had.
+</p>
 
 </section>
 
@@ -3284,19 +3143,20 @@ seams in the first place.
 </p>
 
 <p>
-Two companion documents now exist alongside this one, and are genuinely the better starting point if you
-want the full step-by-step story of either half of the system rather than this document's exhaustive,
+Three companion documents now exist alongside this one, and are genuinely the better starting point if you
+want the full step-by-step story of any one part of the system rather than this document's exhaustive,
 concept-plus-mechanism-plus-code treatment of every individual piece:
 </p>
 <table class="walk">
 <tr><th>Document</th><th>What it covers</th></tr>
 <tr><td><code>docs/how-indexing-works.html</code></td><td>Everything that happens between pasting a GitHub URL and a repo reaching <code>status = "ready"</code> — clone, parse, chunk, hash, embed, store, summarize, plus failure/retry/delete</td></tr>
 <tr><td><code>docs/how-chat-works.html</code></td><td>Everything that happens between pressing Enter on a question and a cited answer finishing on screen — embed, search, route, prompt, generate, stream, persist</td></tr>
+<tr><td><code>docs/how-repl-and-agent-session-works.html</code></td><td>The agentic tool-calling loop (<code>AgentSession</code>) and the interactive terminal REPL built on top of it — no database, no embeddings, the LLM investigates the repo itself</td></tr>
 </table>
 <p>
 This document remains the place for the deepest dive on the underlying Python/Postgres/tree-sitter
-mechanics (Parts 1-9) and the multi-language chunking internals (Parts 15-18) that the other two documents
-deliberately don't re-explain in full each time they reference them.
+mechanics (Parts 1-9) and the multi-language chunking internals (Parts 15-18) that the other companion
+documents deliberately don't re-explain in full each time they reference them.
 </p>
 
 </section>
@@ -3343,11 +3203,12 @@ deliberately don't re-explain in full each time they reference them.
 <p>
 This now covers the entire system as it stands: all 14 tasks of Plan 1, all 13 tasks of Plan 2, and every
 real production fix/feature layered on afterward (doc-vs-code ranking, global/architecture retrieval,
-repo/chat lifecycle). Two companion documents — <code>docs/how-indexing-works.html</code> and
-<code>docs/how-chat-works.html</code> — now exist specifically for a slower, single-pass walk through each
-half of the request lifecycle; this document remains the exhaustive reference for the underlying mechanics
-(Parts 1-9) and the full multi-language chunking internals (Parts 15-18) both companions lean on without
-re-explaining.
+repo/chat lifecycle, the AgentSession/REPL rebuild). Three companion documents —
+<code>docs/how-indexing-works.html</code>, <code>docs/how-chat-works.html</code>, and
+<code>docs/how-repl-and-agent-session-works.html</code> — now exist specifically for a slower, single-pass
+walk through each part of the system; this document remains the exhaustive reference for the underlying
+mechanics (Parts 1-9) and the full multi-language chunking internals (Parts 15-18) all three companions
+lean on without re-explaining.
 </p>
 <p>
 Read through it, then come back with whatever's fuzzy — including anything not explicitly flagged as a

@@ -104,25 +104,26 @@ async def stream_progress(repo_id: str, request: Request, user: dict = Depends(r
         raise HTTPException(status_code=404, detail="repo not found")
 
     async def event_stream():
-        # Catch-up frame: fires immediately on (re)connect, before waiting on
-        # anything. Without this, a client that (re)connects mid-indexing —
-        # a page refresh being the common case, since a full reload always
-        # tears down the previous SSE connection and this route opens a
-        # fresh one from scratch — would see nothing at all until the NEXT
-        # step change, sitting on stale/blank state for however long that
-        # takes. A stateless GET (the plain /progress route above) never
-        # had this gap because every request just asks "what's the state
-        # right now" — this stream has to do that explicitly once up front.
-        current = progress_store.get(repo_id)
-        if current is None:
-            current = {"step": repo["status"], "detail": {}, "log": [], "elapsed_seconds": 0}
-        yield sse_frame("progress", json.dumps(current))
-        last_step = current["step"]
+        # Change detection is driven by progress_store's monotonic
+        # "version" counter, not "step" — a stage like embedding_progress
+        # calls record() once per batch (up to hundreds of times) with the
+        # SAME step name and only the detail payload (done/total) changing,
+        # so comparing step alone went silent for an entire stage. version
+        # is bumped unconditionally on every record() call and never
+        # truncated, unlike step (repeats) or log (capped at 20 entries in
+        # progress_store.py) — the only value here guaranteed to move on
+        # every real update.
+        #
+        # last_version starts at None so the very first loop iteration
+        # always sees a "change" and emits immediately — that's the
+        # catch-up frame for a (re)connect mid-indexing (e.g. a page
+        # refresh), folded into the same code path the rest of the stream
+        # uses instead of a separate one-off yield before the loop. One
+        # path, exercised on every connection, rather than correct behavior
+        # living outside the loop and buggy behavior living inside it.
+        last_version = None
+        last_step = None
         last_sent_at = asyncio.get_event_loop().time()
-
-        if last_step in _TERMINAL_STEPS:
-            yield sse_frame("done", "{}")
-            return
 
         while True:
             if await request.is_disconnected():
@@ -132,14 +133,15 @@ async def stream_progress(repo_id: str, request: Request, user: dict = Depends(r
                 # this loop forever in the background.
                 return
 
-            await asyncio.sleep(_PROGRESS_POLL_INTERVAL)
             current = progress_store.get(repo_id)
             if current is None:
-                continue
+                current = {"step": repo["status"], "detail": {}, "log": [], "elapsed_seconds": 0, "version": -1}
             now = asyncio.get_event_loop().time()
-            if current["step"] != last_step:
+
+            if current["version"] != last_version:
                 yield sse_frame("progress", json.dumps(current))
                 last_step = current["step"]
+                last_version = current["version"]
                 last_sent_at = now
                 if last_step in _TERMINAL_STEPS:
                     yield sse_frame("done", "{}")
@@ -147,6 +149,8 @@ async def stream_progress(repo_id: str, request: Request, user: dict = Depends(r
             elif now - last_sent_at >= _HEARTBEAT_INTERVAL:
                 yield sse_heartbeat()
                 last_sent_at = now
+
+            await asyncio.sleep(_PROGRESS_POLL_INTERVAL)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 

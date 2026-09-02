@@ -619,9 +619,23 @@ class GroqGenerator(Generator):
 
 
 class NimGenerator(Generator):
-    model_name = "meta/llama-3.1-70b-instruct"
+    model_name = "meta/llama-3.2-90b-vision-instruct"
     timeout = 120
     def _url(self) -&gt; str: return NIM_URL</code></pre>
+<div class="warn">
+<strong>A real, still-open reliability gap:</strong> the original NIM fallback default,
+<code>meta/llama-3.1-70b-instruct</code>, was retired from NVIDIA's catalog — real calls to it started
+returning <code>410 Gone</code> even though the model ID isn't listed at all anymore in
+<code>GET /v1/models</code>. Checking the current catalog by hand (2026-09-01) turned up several
+candidates, and every one had a problem: three different models 404'd or 500'd on the generic chat
+completions endpoint despite being listed, one reasoning/"thinking" model hung for 60-150+ seconds even on
+a trivial "say OK" prompt, and another answered short prompts fine but hung indefinitely on a real
+multi-turn agentic question. <code>meta/llama-3.2-90b-vision-instruct</code> is what's configured now — a
+real, currently-invocable model, unlike the retired default — but its practical reliability as an actual
+fallback is <strong>unverified</strong> for this project's agentic tool loop specifically (see
+<code>docs/how-repl-and-agent-session-works.html</code>). In practice, Groq is the sole generator agentic
+mode actually exercises today.
+</div>
 <div class="explain">
 <ul>
   <li><code>Generator</code> is an <strong>Abstract Base Class</strong> — the same pattern as
@@ -782,21 +796,34 @@ while (true) {
 </section>
 
 <section class="part" id="p11">
-<h2>Part 11 — The other mode: agentic/live chat</h2>
-<p class="part-sub">Briefly — this mode skips almost everything above entirely. Full treatment lives in <code>pipeline-deep-dive.html</code> Part 16.</p>
-<p class="filebar">Files: <code>sleuth/retrieve/agentic.py</code></p>
+<h2>Part 11 — The other mode: agentic/live chat <span class="badge">now also an interactive session</span></h2>
+<p class="part-sub">Briefly — this mode skips almost everything above entirely. Full treatment lives in its own companion, <code>docs/how-repl-and-agent-session-works.html</code>.</p>
+<p class="filebar">Files: <code>sleuth/retrieve/agent_session.py</code>, <code>sleuth/retrieve/agentic.py</code>, <code>sleuth/repl.py</code></p>
 
 <p>
-<code>sleuth agentic</code> answers questions about your <em>current local directory</em>, with zero
+<code>sleuth agentic &lt;path&gt; &lt;question&gt;</code> (one-shot) and bare <code>sleuth</code> with no
+subcommand (a persistent multi-turn REPL) both answer questions about a <em>local directory</em>, with zero
 upfront indexing wait — no cloning, no chunking, no embeddings, no Postgres involvement at all. Instead of
 Part 4-5's "embed the question, vector-search pre-computed chunks," the LLM itself is given three tools —
 <code>grep</code>, <code>list_files</code>, <code>read_file</code> — and runs in a loop: it can request a
 tool call (a small structured text protocol, <code>TOOL: &lt;name&gt; {json}</code>), get the tool's real
 output fed back to it, and decide whether it now has enough to answer or needs to look at something else,
-capped at 6 iterations. This is the same fundamental RAG idea (find relevant evidence, then answer from it)
-but with the LLM doing its own retrieval decisions turn by turn, like a human exploring an unfamiliar repo,
-rather than one fixed vector-search step. Trade-off: nothing to wait for up front, but no incremental
-re-indexing benefit and a hard iteration cap on how much it can look at per question.
+capped at 6 iterations per question. This is the same fundamental RAG idea (find relevant evidence, then
+answer from it) but with the LLM doing its own retrieval decisions turn by turn, like a human exploring an
+unfamiliar repo, rather than one fixed vector-search step. Trade-off: nothing to wait for up front, but no
+incremental re-indexing benefit and a hard iteration cap on how much it can look at per question.
+</p>
+<p>
+This tool loop was extracted into a reusable <code>AgentSession</code> class specifically so it could back
+three different callers without three different implementations: the one-shot CLI command, the interactive
+REPL (where a session's <code>messages</code> persist across many questions in one run, so a later question
+can build on an earlier tool call's findings), and — covered in Part 10 of
+<code>how-indexing-works.html</code> — the repo-summarization step that now runs during ingestion itself.
+The full mechanics (why ripgrep/sed instead of hand-rolled Python, the path-traversal sandboxing guard, the
+message-trimming policy for a long-running session, the full-screen terminal UI built on
+<code>prompt_toolkit</code>) are covered end to end, import by import, in
+<code>docs/how-repl-and-agent-session-works.html</code> — read that if you're extending or debugging this
+mode specifically.
 </p>
 
 </section>
@@ -848,9 +875,10 @@ every one of these steps is a plain function you've now seen in full.
 <h2>What to do next</h2>
 <p>
 Read this once straight through alongside <code>docs/how-indexing-works.html</code> — together they cover
-the entire system end to end, from "paste a URL" to "get a cited answer." For the deepest line-by-line
-treatment of the underlying Python mechanics both documents lean on constantly (dataclasses, ABCs,
-async/await, generators, the tree-sitter/pgvector specifics), see
+the entire system end to end, from "paste a URL" to "get a cited answer." For the agentic/live mode
+mentioned briefly in Part 11, <code>docs/how-repl-and-agent-session-works.html</code> is its own full
+companion. For the deepest line-by-line treatment of the underlying Python mechanics all these documents
+lean on constantly (dataclasses, ABCs, async/await, generators, the tree-sitter/pgvector specifics), see
 <code>docs/pipeline-deep-dive.html</code>, which this update also brought current with everything built
 since Plan 1 — the web app, the doc-vs-code ranking fix, and the global/architecture retrieval work covered
 in Part 6 above.

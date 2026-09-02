@@ -754,9 +754,9 @@ real code strictly ahead of documentation.
 </section>
 
 <section class="part" id="p10">
-<h2>Part 10 — The new step: summarizing the whole repo <span class="badge">added post-launch</span></h2>
-<p class="part-sub">Why per-chunk search alone can't answer "rate my architecture," and what was added to fix it.</p>
-<p class="filebar">Files: <code>sleuth/summarize.py</code>, <code>sleuth/ingest/pipeline.py</code>, <code>sleuth/store.py</code></p>
+<h2>Part 10 — The new step: summarizing the whole repo <span class="badge">added post-launch, since rebuilt</span></h2>
+<p class="part-sub">Why per-chunk search alone can't answer "rate my architecture," what was added to fix it, and a real payload-size bug that forced a rebuild of how it works.</p>
+<p class="filebar">Files: <code>sleuth/summarize.py</code>, <code>sleuth/retrieve/agent_session.py</code>, <code>sleuth/ingest/pipeline.py</code>, <code>sleuth/store.py</code></p>
 
 <div class="concept">
 <strong class="tag">Concept — the gap this closes</strong>
@@ -768,48 +768,65 @@ reported gap in production use, and the fix is to produce one more artifact duri
 <em>does</em> describe the whole repo: a short, LLM-written architecture summary.
 </div>
 
-<pre class="code"><code>def build_repo_map(chunks) -&gt; str:
-    lines = []
-    for c in chunks:
-        if c.is_doc:
-            continue
-        symbol = c.symbol_name or "(module level)"
-        lines.append(f"{c.file_path}: {c.kind} {symbol}")
-    return "\n".join(lines)
+<div class="warn">
+<strong>The original approach's real bug: a linearly growing prompt.</strong> The first version of this
+feature (<code>build_repo_map</code>/<code>summarize_repo</code>, no longer in the codebase — see git
+history if curious) built one giant flat string of every chunk's <code>file: kind symbol</code> and sent it
+as a single chat completion. That prompt's size scales linearly with repo size — fine for a small repo, but
+a large enough one blows straight past Groq's request size limit and the whole summarization step fails
+with a <code>413 Payload Too Large</code>. The fix wasn't a bigger limit or truncation — it was to stop
+sending the whole listing upfront at all.
+</div>
+
+<pre class="code"><code>SUMMARY_QUESTION = (
+    "Explore this codebase using your tools (list_files, grep, read_file) and then "
+    "write a concise architecture summary: what the project is, its major "
+    "components/modules and what each does, and how they likely fit together. "
+    "Ground this in what you actually find — don't invent implementation details "
+    "you haven't seen. 3-6 short paragraphs, no preamble."
+)
 
 
-async def summarize_repo(chunks, generator) -&gt; str | None:
-    if not chunks:
+async def summarize_repo_agentic(
+    path: str, config: Config, generator: Generator | None = None,
+    fallback_chain: list[Generator] | None = None,
+) -&gt; str | None:
+    session = AgentSession(path, config=config, generator=generator, fallback_chain=fallback_chain)
+    try:
+        async for event in session.ask(SUMMARY_QUESTION):
+            if isinstance(event, AnswerEvent):
+                if event.text == UNAVAILABLE_MESSAGE:
+                    return None
+                return event.text
+    except Exception:
         return None
-    repo_map = build_repo_map(chunks)
-    if not repo_map:
-        return None
-    messages = [
-        {"role": "system", "content": SUMMARY_SYSTEM_PROMPT},
-        {"role": "user", "content": repo_map},
-    ]
-    return "".join([token async for token in generator.chat(messages, stream=False)])</code></pre>
+    return None</code></pre>
 <div class="explain">
 <ul>
-  <li><code>build_repo_map</code> deliberately sends the LLM <em>metadata only</em> — every non-doc
-      chunk's file path, kind, and symbol name, one line each — never full source text. This keeps the
-      prompt small and cheap regardless of how large the actual repo is, at the cost of the summary being
-      based on <em>structure</em> rather than deep implementation detail. That's an explicit, documented
-      trade-off (see <code>docs/superpowers/plans/2026-08-29-global-architecture-question-retrieval.md</code>):
-      a flat listing already fixes the reported gap, and a heavier hierarchical per-directory summarization
-      pass is deferred until an actual repo's file/symbol listing gets too large for one prompt.</li>
-  <li>This reuses the exact same <code>Generator</code> abstraction as chat generation
-      (<code>how-chat-works.html</code> covers it fully) — no new LLM provider code was written for this
-      feature, just a new prompt sent through the existing Groq/NIM chat interface with
-      <code>stream=False</code> (this step happens during background ingestion, nobody is watching tokens
-      arrive live, so there's no reason to stream them).</li>
+  <li>This reuses the exact same <code>AgentSession</code> tool loop that backs the interactive REPL and
+      the one-shot <code>sleuth agentic</code> command (its own companion document,
+      <code>docs/how-repl-and-agent-session-works.html</code>, covers this class fully) — instead of one
+      unbounded prompt, the model is handed <code>list_files</code>/<code>grep</code>/<code>read_file</code>
+      tools and <em>decides for itself</em> what's worth looking at (a README, the top-level directory
+      structure, a handful of entry-point files), converging on an answer within
+      <code>AgentSession.MAX_ITERATIONS</code> (6) round trips — a fixed, bounded cost regardless of whether
+      the repo has 50 files or 5,000, because the model is never handed the entire file/symbol listing at
+      once.</li>
+  <li>The trade-off runs the other way from before: the old version's summary was fast and cheap (one call)
+      but strictly metadata-only; this version costs up to 6 model round trips per repo but the resulting
+      summary can be grounded in real file contents the model chose to actually open, not just file/symbol
+      names.</li>
+  <li><code>event.text == UNAVAILABLE_MESSAGE</code> — <code>AgentSession</code> already turns a fully
+      failed fallback chain into a friendly, user-facing sentence rather than raising (so a live chat
+      question never crashes on a provider outage). That text is exactly right to show a human, but wrong
+      to silently store as if it were a real architecture summary — this check is what keeps the two
+      concerns separate.</li>
 </ul>
 </div>
 
-<p>Wired into the pipeline, right after chunking finishes:</p>
+<p>Wired into the pipeline, right after chunking finishes — note it now runs against the cloned repo directory on disk, not the in-memory chunk list:</p>
 <pre class="code"><code>try:
-    generator = get_generator(config)
-    summary = await summarize_repo(all_chunks, generator)
+    summary = await summarize_repo_agentic(str(repo_path), config)
     if summary:
         upsert_repo_summary(conn, repo_id, summary)
         conn.commit()
@@ -817,11 +834,14 @@ async def summarize_repo(chunks, generator) -&gt; str | None:
 except Exception as exc:
     emit("summary_failed", error=str(exc))</code></pre>
 <div class="note">
-<strong>Deliberately non-fatal.</strong> This whole block has its own private <code>try/except</code> that
-never re-raises — a flaky or rate-limited Groq call here must not block the rest of indexing (embedding,
-storing chunks, marking the repo ready) from succeeding. Local-search chat is the thing that already works
-reliably; summarization is additive, so its failure mode is "skip storing a summary and keep going," not
-"fail the whole repo." <code>repo_summaries</code> is a new table, one row per repo
+<strong>Still deliberately non-fatal, on two levels now.</strong> <code>summarize_repo_agentic</code> has
+its own internal <code>try/except</code> that swallows anything unexpected and returns <code>None</code>
+instead of raising — belt-and-braces underneath <code>AgentSession</code>'s own error handling, not a
+replacement for it. This outer <code>try/except</code> in the pipeline is a second, narrower safety net for
+anything that still slips through. Either way, a flaky or rate-limited Groq call here must not block the
+rest of indexing (embedding, storing chunks, marking the repo ready) from succeeding — summarization is
+additive, its failure mode is "skip storing a summary and keep going," never "fail the whole repo."
+<code>repo_summaries</code> is a table, one row per repo
 (<code>repo_id uuid PRIMARY KEY REFERENCES repos(id) ON DELETE CASCADE</code>), overwritten wholesale on
 every re-index rather than versioned or appended to.
 </div>
@@ -1046,9 +1066,11 @@ ends: what happens the moment a <code>ready</code> repo gets asked a real questi
 Read this once straight through, then go open the actual files it references — <code>sleuth/ingest/
 pipeline.py</code> is short enough to read in full in a few minutes, and every function it calls is
 covered somewhere above. Once the flow of "URL in, searchable rows out" feels solid, move to
-<code>docs/how-chat-works.html</code> for the other half of the system, and
-<code>docs/pipeline-deep-dive.html</code> for the deepest, most exhaustive line-by-line treatment of the
-underlying Python mechanics (dataclasses, ABCs, async/await, generators) this project leans on constantly.
+<code>docs/how-chat-works.html</code> for the other half of the system,
+<code>docs/how-repl-and-agent-session-works.html</code> for the tool-loop this document's Part 10 now
+reuses for summarization, and <code>docs/pipeline-deep-dive.html</code> for the deepest, most exhaustive
+line-by-line treatment of the underlying Python mechanics (dataclasses, ABCs, async/await, generators)
+this project leans on constantly.
 </p>
 </footer>
 
