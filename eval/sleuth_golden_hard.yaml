@@ -10,7 +10,7 @@
 #
 # Run separately from sleuth_golden_easy.yaml — see that file's header
 # comment for why (Groq per-minute token budget).
-repo: REPLACE_WITH_SLEUTH_REPO_ID
+repo: 46814ffa-37a3-4327-9d7b-d89ab3b3ff2e
 cases:
   - question: "Walk through what happens if repo summary generation fails during ingest_repo — does it fail the whole repo indexing, and why does it use the agentic tool loop instead of a single flat prompt built from every chunk?"
     expected_files:

@@ -115,7 +115,8 @@ export default function LandingPage() {
             <span>AST-LEVEL INDEXING</span>
             <span>TOOL-LOOP RETRIEVAL</span>
             <span>FILE:LINE CITATIONS</span>
-            <span>REPO-SCOPED CONTEXT</span>
+            <span>CODE-OVER-DOCS RANKING</span>
+            <span>EVAL-BACKED REGRESSIONS</span>
           </div>
         </div>
       </section>
@@ -197,6 +198,26 @@ export default function LandingPage() {
             <pre className="feature-detail">{`src/auth/session.ts:142–149
 src/api/middleware.ts:57–73
 scope: acme/platform`}</pre>
+          </div>
+          <div className="feature-card">
+            <div className="index">d.</div>
+            <h3>Code ranked ahead of docs</h3>
+            <p>Architecture write-ups under a repo's own <code>docs/</code> folder are
+              indexed too, but tagged and ranked strictly behind real implementation —
+              a prose summary can never crowd out the code it's describing.</p>
+            <pre className="feature-detail">{`[CODE] src/auth/session.ts
+[DOCUMENTATION] docs/auth.md
+→ code cited first`}</pre>
+          </div>
+          <div className="feature-card">
+            <div className="index">e.</div>
+            <h3>Checked against a golden set</h3>
+            <p>Every retrieval and prompt change runs through <code>sleuth eval</code> —
+              hit-rate@k, MRR, and an LLM-judge quality score against real question/answer
+              pairs, so regressions get caught, not eyeballed.</p>
+            <pre className="feature-detail">{`hit-rate@8, MRR
+avg judge score /5
+sleuth eval golden.yaml`}</pre>
           </div>
         </div>
       </section>

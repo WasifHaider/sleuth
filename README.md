@@ -4,6 +4,38 @@ RAG chatbot over GitHub repos — point it at a repo, ask questions about the
 code, get answers grounded in the actual source. See `CLAUDE.md` for the full
 project context, design docs, and build history.
 
+## What Sleuth does
+
+- **Structure-aware indexing** — tree-sitter parses each file to an AST and
+  chunks at function/method/class boundaries (not fixed-size text windows),
+  so a retrieved chunk is always a complete unit of code with its signature
+  and enclosing scope intact.
+- **Two retrieval modes** — *indexed* (clone → parse → chunk → embed →
+  pgvector, for a connected GitHub repo) and *agentic/live* (a hand-written
+  tool loop — `grep`/`list_files`/`read_file` — over the current local
+  directory, no indexing wait, no Postgres involved).
+- **Code ranked ahead of documentation** — chunks under any `docs`/`doc`
+  directory are tagged and labeled `[DOCUMENTATION]` in the prompt, and
+  retrieval always exhausts real `[CODE]` matches before falling back to
+  docs, so architecture write-ups can't crowd out the actual implementation
+  they describe.
+- **Global/architecture question routing** — broad questions ("summarize the
+  whole project", "rate this architecture") are detected by a keyword
+  classifier and answered against a repo-wide summary generated at index
+  time, instead of forcing a whole-repo question through top-k chunk search.
+- **Web app** — connect/re-index/delete repos, multiple chats per repo,
+  streamed (SSE) cited answers, live indexing progress, theme switching.
+- **`sleuth eval`** — a golden-set YAML per repo scores retrieval (hit-rate@k,
+  MRR) and answer quality (LLM-judge 1–5) end to end, so retrieval/prompt
+  changes are checked against a regression suite instead of eyeballed.
+- **Standalone REPL (`sleuth-repl`)** — the agentic tool-loop mode packaged
+  on its own with zero Postgres/Voyage/tree-sitter dependencies, for asking
+  questions against any local codebase with just a Groq key.
+
+No vendor RAG SDKs (Voyage/NIM/Groq are raw REST calls via `httpx`), no ORM
+(raw SQL via `psycopg`) — every piece of the pipeline is hand-written, see
+`CLAUDE.md` for why.
+
 ## Running locally
 
 Requires Postgres with the `vector` extension — either the local Docker
@@ -47,7 +79,11 @@ also available directly, without the web app:
 `agentic` runs live retrieval (grep/list_files/read_file over the current
 local directory) and never touches Postgres — no indexing wait, works on any
 local checkout. `eval` scores retrieval + answer quality against a golden-set
-YAML — see `eval/sample_repo.yaml` for the format.
+YAML — see `eval/sample_repo.yaml` for the format, and `eval/sleuth_golden_easy.yaml`
+/ `eval/sleuth_golden_hard.yaml` for real golden sets run against this repo
+itself.
+
+<!-- eval numbers: TBD -->
 
 ## Standalone REPL package (`sleuth-repl`)
 
