@@ -121,7 +121,13 @@ a:hover { color: var(--accent-hover); }
 
 .btn-primary { padding: 12px 22px; background: var(--accent); color: var(--accent-on); border-radius: 2px;
   font-weight: 600; font-size: 13.5px; cursor: pointer; border: none; white-space: nowrap; }
-.btn-primary:hover { background: var(--accent-hover); }
+/* Explicit color here matters for Link/<a>-rendered CTAs (Connect a repo,
+   Open chat, hero buttons): the global `a:hover { color: var(--accent-hover) }`
+   rule (near-white-tinted accent, meant for plain text links) otherwise wins
+   the cascade for the `color` property on hover, since this block previously
+   only touched `background` — text nearly vanished against the still-gold
+   background on every anchor-tag primary button. */
+.btn-primary:hover { background: var(--accent-hover); color: var(--accent-on); }
 .btn-secondary { padding: 12px 22px; background: transparent; color: var(--text); border-radius: 2px;
   font-weight: 600; font-size: 13.5px; cursor: pointer; border: 1px solid var(--border-strong); white-space: nowrap; }
 .btn-secondary:hover { border-color: var(--accent); color: var(--accent); }
@@ -336,7 +342,10 @@ a:hover { color: var(--accent-hover); }
   border-radius: 2px; white-space: nowrap;
   transition: opacity .3s ease, transform .3s cubic-bezier(.2,.7,.2,1), box-shadow .3s ease; }
 .repo-row:hover .repo-action { opacity: 1; transform: scale(1); }
-.repo-action:hover { box-shadow: 0 10px 26px var(--accent-wash); transform: translateY(-2px) scale(1.03); }
+/* color re-asserted here for the same reason as .btn-primary:hover above —
+   these render as <Link> (<a>) tags, so the global a:hover color rule
+   otherwise wins and washes the text out against the still-gold background. */
+.repo-action:hover { box-shadow: 0 10px 26px var(--accent-wash); transform: translateY(-2px) scale(1.03); color: var(--accent-on); }
 /* Delete/Cancel need to read as secondary next to the accent-colored
    primary action (Chat/Watch/Retry) — same pill shape, but a plain
    bordered/transparent surface so they don't compete for attention, and a

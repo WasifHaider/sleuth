@@ -17,7 +17,7 @@
 # pause long enough to respect Groq's 8000-tokens/minute free-tier budget
 # across a big combined file; splitting easy/hard into two smaller runs
 # keeps each run's total token usage further from that ceiling.
-repo: REPLACE_WITH_SLEUTH_REPO_ID
+repo: 46814ffa-37a3-4327-9d7b-d89ab3b3ff2e
 cases:
   - question: "How does classify_question decide whether a question is global or architecture-flavored versus a normal local question, and why does it use a regex instead of an LLM call?"
     expected_files:

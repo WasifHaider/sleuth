@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { deleteRepo, listRepos } from '../api';
+import { Link, useNavigate } from 'react-router-dom';
+import { deleteRepo, listRepos, retryRepo } from '../api';
 import AddRepoForm from './AddRepoForm';
 import RepoStatusBadge from './RepoStatusBadge';
 import { RepoListSkeleton } from './Skeleton';
@@ -28,12 +28,15 @@ function matchesFilter(repo, filter) {
 }
 
 export default function RepoList() {
+  const navigate = useNavigate();
   const [repos, setRepos] = useState(null);
   const [filter, setFilter] = useState('all');
   const [loadError, setLoadError] = useState(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState(null);
+  const [reindexingId, setReindexingId] = useState(null);
+  const [reindexError, setReindexError] = useState(null);
   const reposRef = useRef(null);
 
   async function refresh() {
@@ -84,6 +87,25 @@ export default function RepoList() {
     }
   }
 
+  // Backend has always allowed re-indexing any repo, ready or not —
+  // POST /repos/{id}/retry just flips status to pending and re-runs
+  // ingest_repo, no status check server-side (sleuth/api/routes/repos.py).
+  // The frontend only ever wired that up as "Retry" for failed repos
+  // (IndexingScreen); this is the same call exposed for ready ones too,
+  // so a user can deliberately re-index after the source repo changes.
+  async function handleReindex(repoId) {
+    setReindexingId(repoId);
+    setReindexError(null);
+    try {
+      await retryRepo(repoId);
+      navigate(`/app/indexing/${repoId}`);
+    } catch (err) {
+      setReindexError(err.message);
+    } finally {
+      setReindexingId(null);
+    }
+  }
+
   if (repos === null) {
     if (loadError) {
       return <p style={{ color: 'var(--status-neutral)' }}>Couldn't load repos: {loadError}</p>;
@@ -114,6 +136,7 @@ export default function RepoList() {
       </div>
 
       {deleteError && <div className="repo-error-banner" style={{ marginBottom: 16 }}>Delete failed: {deleteError}</div>}
+      {reindexError && <div className="repo-error-banner" style={{ marginBottom: 16 }}>Re-index failed: {reindexError}</div>}
 
       {repos.length === 0 ? (
         <div className="repos-empty">
@@ -181,7 +204,17 @@ export default function RepoList() {
                       ) : (
                         <>
                           {repo.status === 'ready' && (
-                            <Link className="repo-action" to={`/app/chat/${repo.id}`}>Chat</Link>
+                            <>
+                              <Link className="repo-action" to={`/app/chat/${repo.id}`}>Chat</Link>
+                              <button
+                                type="button"
+                                className="repo-action repo-action-secondary"
+                                disabled={reindexingId === repo.id}
+                                onClick={() => handleReindex(repo.id)}
+                              >
+                                {reindexingId === repo.id ? 'Re-indexing…' : 'Re-index'}
+                              </button>
+                            </>
                           )}
                           {(repo.status === 'indexing' || repo.status === 'pending') && (
                             <Link className="repo-action" to={`/app/indexing/${repo.id}`}>Watch</Link>
