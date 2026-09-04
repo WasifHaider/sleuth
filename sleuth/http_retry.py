@@ -34,6 +34,7 @@ async def post_with_retry(
     retries: int = 5,
     backoff_seconds: float = 1.0,
     max_backoff_seconds: float = DEFAULT_MAX_BACKOFF_SECONDS,
+    on_attempt=None,
     **kwargs,
 ) -> httpx.Response:
     # retries=5 (was 1): a single retry after a flat 1s wait can maybe
@@ -43,8 +44,29 @@ async def post_with_retry(
     # hit Voyage's rate limit and the old retries=1/1s config gave up and
     # raised straight through ingest_repo's failure path long before the
     # limit could plausibly have cleared.
+    #
+    # on_attempt: optional async callback awaited immediately before EVERY
+    # attempt (the first send AND every retry). Added because a caller's
+    # own client-side rate-limit pacer (see VoyageEmbedder's RPM/TPM
+    # windows in sleuth/ingest/embed.py) previously only ran once, before
+    # the FIRST attempt — a retry that fires minutes later (honoring a
+    # real Retry-After header) is a genuinely new HTTP request against the
+    # same per-minute budget, but the pacer's own bookkeeping had already
+    # recorded that request as consumed at the ORIGINAL attempt's
+    # timestamp. That drift between "when we think budget was spent" and
+    # "when the request actually landed on the server" compounds across a
+    # long batch run and was the real explanation for a live SLEUTH ingest
+    # continuing to hit 429s well past a token-aware batching fix. Calling
+    # on_attempt before every real network attempt keeps the pacer's
+    # accounting honest for retries, not just first tries. None (default)
+    # is a no-op, preserving every existing caller that doesn't pace at all
+    # (generation's fallback-chain retries, which intentionally give up
+    # fast rather than pace, per this function's own retries=1 override
+    # there).
     attempt = 0
     while True:
+        if on_attempt is not None:
+            await on_attempt()
         try:
             response = await client.post(url, **kwargs)
         except httpx.TransportError:

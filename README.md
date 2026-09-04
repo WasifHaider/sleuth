@@ -48,3 +48,24 @@ also available directly, without the web app:
 local directory) and never touches Postgres — no indexing wait, works on any
 local checkout. `eval` scores retrieval + answer quality against a golden-set
 YAML — see `eval/sample_repo.yaml` for the format.
+
+## Standalone REPL package (`sleuth-repl`)
+
+The interactive agentic REPL (bare `sleuth` with no subcommand) is also
+distributed on its own, with none of the Postgres/Voyage/tree-sitter
+machinery the rest of this repo needs — it only ever reads your local
+codebase (grep/list_files/read_file) and calls Groq for generation.
+
+    pip install .          # from repo root, builds the sleuth-repl package
+    sleuth [path]           # launches the REPL against `path` (default: cwd)
+
+First run prompts for a Groq API key (free at
+https://console.groq.com/keys) and saves it to `~/.sleuth/config.json` —
+every later run on that machine reads it back, no re-entry needed. Set the
+`GROQ_API_KEY` env var instead to override the saved key for one run, or
+`SLEUTH_CONFIG_PATH` to change where the key is stored.
+
+This package intentionally does NOT include `add`/`list`/`ask`/`eval` —
+those stay part of the full monorepo checkout above, since they need a real
+Postgres + Voyage/Groq server-side setup this package deliberately ships
+without.

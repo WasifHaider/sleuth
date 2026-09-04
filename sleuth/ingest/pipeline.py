@@ -8,7 +8,9 @@ from sleuth.ingest.clone import CloneError, clone_repo, list_source_files
 from sleuth.ingest.embed import (
     FREE_TIER_BATCH_SIZE,
     FREE_TIER_MAX_CONCURRENCY,
+    FREE_TIER_MAX_TOKENS_PER_BATCH,
     FREE_TIER_REQUESTS_PER_MINUTE,
+    FREE_TIER_TOKENS_PER_MINUTE,
     VoyageEmbedder,
 )
 from sleuth.ingest.parse import LANGUAGES
@@ -65,9 +67,22 @@ async def ingest_repo(github_url: str, conn, config: Config, on_event=None, repo
     try:
         return await _run_ingest_steps(github_url, conn, config, repo_id, emit)
     except Exception as exc:
-        update_repo_status(conn, repo_id, "failed", str(exc))
+        # str(exc) alone can render as a totally empty string for several
+        # real exception types — confirmed live: an httpx.TransportError
+        # subclass (ReadTimeout/ConnectTimeout/etc, raised deep inside
+        # VoyageEmbedder's embed_batch on a genuine network-level failure)
+        # has an empty message body, so this used to store error_message=''
+        # in Postgres and emit "failed" with error='' — a real failure with
+        # literally no diagnostic content, indistinguishable from a bug
+        # that raised nothing at all. Same fix already applied in
+        # sleuth/llm/generate.py's chat_with_fallback for the identical
+        # reason; applying it here too since this is the other place a
+        # message-less exception can surface with no way to tell what
+        # actually happened.
+        detail = f"{type(exc).__name__}: {exc!r}" if str(exc) else f"{type(exc).__name__} (no message): {exc!r}"
+        update_repo_status(conn, repo_id, "failed", detail)
         conn.commit()
-        emit("failed", error=str(exc))
+        emit("failed", error=detail)
         return repo_id
 
 
@@ -77,6 +92,8 @@ async def _run_ingest_steps(github_url: str, conn, config: Config, repo_id: str,
         batch_size=FREE_TIER_BATCH_SIZE,
         max_concurrency=FREE_TIER_MAX_CONCURRENCY,
         requests_per_minute=FREE_TIER_REQUESTS_PER_MINUTE,
+        max_tokens_per_batch=FREE_TIER_MAX_TOKENS_PER_BATCH,
+        tokens_per_minute=FREE_TIER_TOKENS_PER_MINUTE,
     )
 
     workdir = tempfile.mkdtemp(prefix="sleuth-clone-")
@@ -129,6 +146,22 @@ async def _run_ingest_steps(github_url: str, conn, config: Config, repo_id: str,
                 upsert_repo_summary(conn, repo_id, summary)
                 conn.commit()
                 emit("summarized")
+            else:
+                # summarize_repo_agentic's documented contract is "return
+                # None on ANY failure, never raise" (see its own docstring)
+                # — a fully-failed fallback chain, an AgentSession bug, or a
+                # genuinely empty answer all look identical here: None. That
+                # used to mean NEITHER emit() below ever fired, so the UI's
+                # processing log silently skipped straight from "chunked" to
+                # "embedding_start" with zero trace that summarization was
+                # even attempted — confirmed live: reproduced this exact gap
+                # by calling summarize_repo_agentic directly and observing a
+                # real "all configured generators failed" AnswerEvent that
+                # never got surfaced anywhere. Always emit SOMETHING so the
+                # processing log (and anyone debugging it later) can tell
+                # "summarization silently declined" apart from "this step
+                # never ran".
+                emit("summary_failed", error="summarization produced no usable answer")
         except Exception as exc:
             emit("summary_failed", error=str(exc))
 

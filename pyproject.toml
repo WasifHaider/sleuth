@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sleuth-repl"
+version = "0.1.0"
+description = "Interactive agentic Q&A over a local codebase, powered by Groq."
+readme = "README.md"
+requires-python = ">=3.11"
+# Deliberately NOT the full monorepo requirements.txt: this distribution
+# only ever runs the REPL's agentic tool loop (sleuth/repl.py ->
+# sleuth/retrieve/agent_session.py -> sleuth/llm/generate.py), which never
+# touches Postgres, Voyage, or tree-sitter. Listing just what that code
+# path actually imports keeps `pip install sleuth-repl` fast and avoids
+# forcing a C toolchain (needed by tree-sitter grammars) onto a machine
+# that only wants the REPL.
+dependencies = [
+    "httpx>=0.27,<0.28",
+    "prompt_toolkit>=3.0,<3.1",
+    "python-dotenv>=1.0,<2",
+]
+
+[project.scripts]
+sleuth = "sleuth.repl_entry:run"
+
+[tool.setuptools]
+# NOTE: sleuth/, sleuth/retrieve/, sleuth/llm/ are package DIRECTORIES —
+# setuptools bundles every .py file physically present in a listed
+# package, so this wheel also carries sleuth/cli.py, sleuth/db.py,
+# sleuth/store.py, sleuth/chunking.py, sleuth/summarize.py alongside the
+# files this entry point actually uses (config.py, local_config.py,
+# repl_entry.py, repl.py, http_retry.py, retrieve/agent_session.py,
+# llm/generate.py). Those extra modules are never imported by
+# sleuth.repl_entry and require no extra dependency to be present —
+# they're inert dead weight in the wheel (a few hundred KB of source),
+# not a functional or security issue. Splitting them into a separate
+# "core" package to physically exclude them is a possible future
+# cleanup, not done here.
+packages = ["sleuth", "sleuth.retrieve", "sleuth.llm"]

@@ -647,7 +647,7 @@ actually reflects the surrounding meaning, not just the isolated code text in a 
 
 <h4>Sending it to Voyage, with pacing and concurrency limits</h4>
 <pre class="code"><code>async def embed_batch(self, texts: list[str], on_batch_done=None) -&gt; list[list[float]]:
-    batches = [texts[i : i + self.batch_size] for i in range(0, len(texts), self.batch_size)]
+    batches = self._make_batches(texts)   # token-aware, not just count-aware — see below
     semaphore = asyncio.Semaphore(self.max_concurrency)
     ...
     async with httpx.AsyncClient() as client:
@@ -673,23 +673,128 @@ actually reflects the surrounding meaning, not just the isolated code text in a 
 <div class="warn">
 <strong>The free tier's real, confirmed limit:</strong> a Voyage API key with no billing method attached is
 hard-capped at 3 requests/minute and 10K tokens/minute (confirmed directly against the live API — it comes
-back in an <code>x-api-warning</code> response header). <code>FREE_TIER_BATCH_SIZE = 10</code>,
-<code>FREE_TIER_MAX_CONCURRENCY = 1</code>, and <code>FREE_TIER_REQUESTS_PER_MINUTE = 3</code> are tuned
-specifically to stay under that cap: small batches keep any single request's token count well under 10K,
-and a <em>request pacer</em> (a separate mechanism from the semaphore — it spaces out when requests
-<em>start</em>, not just how many run at once) guarantees consecutive requests are never closer than 20
-seconds apart, regardless of how fast responses actually come back. Retrying a 429 alone can't fix a
-request pattern that's structurally over the limit — the pacer is what actually keeps you under it in the
-first place.
+back in an <code>x-api-warning</code> response header). Adding a payment method (free to unlock — no
+minimum spend) lifts this immediately to 2,000 RPM / 3M TPM for <code>voyage-code-3</code>, per Voyage's own
+published rate-limit docs — the fixes below are specifically what let SLEUTH's own indexing (1990 chunks)
+actually finish on the free tier instead of failing over and over with 429s, not a substitute for adding
+billing if that's an option.
 </div>
 
-<h4>Retrying transient failures</h4>
+<h4>A real bug: batching assumed token counts instead of measuring them</h4>
+<div class="warn">
+<strong>Confirmed live, not theoretical:</strong> <code>FREE_TIER_BATCH_SIZE = 10</code> was originally
+trusted to keep every request's token count safely under Voyage's 10K TPM ceiling, based purely on a
+char-count-divided-by-4 estimate — nobody had ever actually counted tokens against real chunks. Measured
+directly against SLEUTH's own 1990 chunks with Voyage's real published tokenizer: the average chunk is only
+~201 tokens, but a handful run far denser (max 1884 tokens in a single chunk, 116 chunks over 1000 tokens
+each) — 6 of 199 fixed-size-10 batches came in <em>over</em> 10,000 tokens (max observed: 11,547), which is
+exactly what a live 429 partway through a real ingest run looks like.
+</div>
+<pre class="code"><code>def _default_token_counter(text: str) -&gt; int:
+    global _tokenizer_cache
+    if _tokenizer_cache is None:
+        from tokenizers import Tokenizer
+        _tokenizer_cache = Tokenizer.from_file(str(_VOYAGE_TOKENIZER_PATH))
+    return len(_tokenizer_cache.encode(text).ids)
+
+def _make_batches(self, texts: list[str]) -&gt; list[list[str]]:
+    if not self.max_tokens_per_batch:
+        return [texts[i : i + self.batch_size] for i in range(0, len(texts), self.batch_size)]
+    batches, current, current_tokens = [], [], 0
+    for text in texts:
+        text_tokens = self.token_counter(text)
+        would_exceed = current and (current_tokens + text_tokens) &gt; self.max_tokens_per_batch
+        if current and (would_exceed or len(current) &gt;= self.batch_size):
+            batches.append(current)
+            current, current_tokens = [], 0
+        current.append(text)
+        current_tokens += text_tokens
+    if current:
+        batches.append(current)
+    return batches</code></pre>
+<div class="explain">
+<ul>
+  <li>The fix uses Voyage's own open-sourced tokenizer — the exact same one the API uses server-side,
+      published specifically so callers can count tokens accurately instead of guessing (see
+      <code>docs.voyageai.com/docs/tokenization</code>) — instead of a char/4 estimate. The tokenizer file
+      is vendored into <code>vendor/voyage-code-3-tokenizer/</code> rather than fetched at runtime: a live
+      network HEAD request to huggingface.co on <em>every</em> call (confirmed — <code>Tokenizer.
+      from_pretrained(...)</code> does this even when already cached locally) would have made every real
+      ingest run silently depend on Hugging Face being reachable, a dependency that never existed before.
+      Same reasoning already applied elsewhere in this repo to <code>vendor/tree-sitter-vue</code>.</li>
+  <li>Batch boundaries are now <strong>token-aware</strong>, not just count-aware: a batch closes early —
+      even under the 10-chunk cap — the moment the next chunk would push its running token total over
+      <code>FREE_TIER_MAX_TOKENS_PER_BATCH</code> (9000, a safety margin under Voyage's stated 10K ceiling).
+      A single chunk that alone exceeds the budget still gets its own one-item batch rather than being
+      split mid-text, which would corrupt what's actually being embedded.</li>
+</ul>
+</div>
+
+<h4>A second real bug: pacing only counted request STARTS, never token VOLUME</h4>
+<div class="warn">
+<strong>Two independent limits, only one was ever paced:</strong> Voyage enforces both 3 RPM <em>and</em>
+10K TPM simultaneously — these are separate budgets. The original pacer only tracked request timing
+(<code>_wait_for_pacing_slot</code>, spacing consecutive request starts &ge;20s apart) — nothing anywhere
+tracked cumulative <em>tokens</em> sent within a trailing 60-second window. Even with perfectly-spaced
+requests, three consecutive ~10K-token batches inside one rolling minute can total 30K tokens — 3x over
+budget — while remaining fully compliant with the RPM pacing alone.
+</div>
+<pre class="code"><code>async def _wait_for_tpm_slot(self, batch_tokens: int) -&gt; None:
+    if not self.tokens_per_minute:
+        return
+    async with self._tpm_lock:
+        while True:
+            now = self._clock()
+            while self._tpm_window and now - self._tpm_window[0][0] &gt;= 60.0:
+                self._tpm_window.popleft()
+            used = sum(tokens for _, tokens in self._tpm_window)
+            if used + batch_tokens &lt;= self.tokens_per_minute:
+                self._tpm_window.append((now, batch_tokens))
+                return
+            wait = 60.0 - (now - self._tpm_window[0][0])
+            await self._sleep(max(wait, 0.1))</code></pre>
+<p class="explain">
+This tracks a real rolling 60-second window of <code>(timestamp, tokens_sent)</code> pairs in a
+<code>deque</code>, aging entries out once they pass 60 seconds old, and only lets a batch through once the
+window's total plus this batch's tokens still fits under <code>FREE_TIER_TOKENS_PER_MINUTE</code>. A
+matching bug existed on the RPM side too — the original pacer used a fixed 20-second interval, which is
+<em>not</em> mathematically equivalent to a true rolling window (requests at t=0/20/40/60 are all spaced
+exactly 20s apart, yet 4 of them sit inside the same 60-second span). Both pacers now use the identical
+sliding-window technique, guarded by their own locks (<code>_pacer_lock</code>/<code>_tpm_lock</code>) so
+two batches running concurrently can't both read stale state and both slip through over budget.
+</p>
+
+<h4>Retrying transient failures — and the bug that let retries bypass the pacer entirely</h4>
 <p>
 Every HTTP call to Voyage/Groq/NIM goes through one shared helper, <code>post_with_retry</code>
-(<code>sleuth/http_retry.py</code>): on a 429 or 5xx or network-level error, it waits briefly and retries
-<em>once</em>, then gives up and lets the real exception propagate. One centralized retry policy means
-every provider gets the same resilience without each embedder/generator re-implementing its own backoff
-logic — and it means there's exactly one place to look if retry behavior is ever wrong.
+(<code>sleuth/http_retry.py</code>): on a 429 or 5xx or network-level error, it waits (honoring the
+server's own <code>Retry-After</code> header when present) and retries up to 5 times before giving up and
+letting the real exception propagate.
+</p>
+<div class="warn">
+<strong>The actual reason 429s kept recurring even after the token-aware batching fix:</strong> confirmed
+live against a real SLEUTH ingest — <code>post_with_retry</code>'s internal retries ran completely outside
+the pacer's view. Only the <em>first</em> attempt of a batch ever called
+<code>_wait_for_pacing_slot</code>/<code>_wait_for_tpm_slot</code>; a retry — even one correctly waiting out
+a real <code>Retry-After</code> — is a genuinely new HTTP request against Voyage's own server-side budget,
+but the pacer's bookkeeping had already logged that slot as consumed back at the original attempt's
+timestamp. That drift between "what we think we've sent" and "what actually hit the server" compounds over
+a long batch run.
+</div>
+<p>Fixed with an <code>on_attempt</code> hook, awaited before <em>every</em> real network attempt
+<code>post_with_retry</code> makes, not just the first:</p>
+<pre class="code"><code>async def on_attempt() -&gt; None:
+    await self._wait_for_pacing_slot()
+    await self._wait_for_tpm_slot(batch_tokens)
+
+response = await post_with_retry(
+    client, VOYAGE_EMBEDDINGS_URL, headers=..., json=...,
+    on_attempt=on_attempt,
+)</code></pre>
+<p class="explain">
+Verified end to end after this fix: a real re-index of SLEUTH's own repo (1990 chunks, 201 batches) ran to
+completion with <strong>zero</strong> 429s, where every previous attempt (before this fix) had failed
+somewhere between batch 12 and batch 26.
 </p>
 
 </section>
@@ -831,8 +936,50 @@ async def summarize_repo_agentic(
         upsert_repo_summary(conn, repo_id, summary)
         conn.commit()
         emit("summarized")
+    else:
+        emit("summary_failed", error="summarization produced no usable answer")
 except Exception as exc:
     emit("summary_failed", error=str(exc))</code></pre>
+<div class="warn">
+<strong>Real bug, found and fixed: a silent third outcome nobody could see.</strong>
+<code>summarize_repo_agentic</code>'s documented contract is "return <code>None</code> on ANY failure, never
+raise" — a fully-failed fallback chain, an <code>AgentSession</code> bug, and a genuinely empty answer all
+look identical from the outside: <code>None</code>. The original <code>if summary: emit("summarized")</code>
+had no <code>else</code> branch at all, so when <code>summary</code> was <code>None</code> <em>without</em>
+an exception being raised, <strong>neither</strong> <code>emit</code> call ever fired — the Indexing
+screen's processing log silently skipped straight from "chunked" to "embedding_start" with zero trace that
+summarization was even attempted. Confirmed live by calling <code>summarize_repo_agentic</code> directly
+and observing a real "all configured generators failed" answer that never surfaced anywhere. The fix is the
+<code>else</code> branch above — always emit <em>something</em>, so "summarization silently declined" is
+now visibly distinguishable from "this step never ran."
+</div>
+
+<div class="warn">
+<strong>Root cause of the summarization failures themselves, once made visible: an oversized tool result.</strong>
+The agentic tool loop's <code>read_file</code> tool (<code>sleuth/retrieve/agent_session.py</code>) only
+ever capped its output by <em>line count</em> (400 lines) — never by character count. This project's own
+<code>CLAUDE.md</code> is 217 lines but 32,235 bytes (long prose paragraphs, not code), so it sailed straight
+past the line cap while still dumping ~32KB back into the running conversation as a single tool result.
+Feeding that much text back pushed the <em>next</em> LLM call past the generator's 60-second timeout —
+confirmed live: a plain <code>httpx.ReadTimeout</code> on <em>both</em> the primary and NIM fallback
+generator, not a rate limit at all. Fixed on two levels: a genuine <code>READ_FILE_MAX_CHARS</code> cap
+(8000 characters, truncating on a line boundary) closes the gap the line-count cap alone left open for any
+prose-heavy file, and the agentic generator chain's timeout was separately raised to 150 seconds as
+headroom for the cumulative context size a long multi-turn tool loop can legitimately reach.
+</div>
+
+<div class="note">
+<strong>Still genuinely optional and non-fatal — and still occasionally flaky.</strong> Even after both
+fixes above, <code>qwen/qwen3.8-27b</code> (the model the agentic tool-call protocol is pinned to — see
+<code>docs/how-repl-and-agent-session-works.html</code> for why) doesn't <em>reliably</em> produce a real
+final answer within its iteration budget: sometimes it returns a genuine multi-paragraph summary, sometimes
+a near-empty one-character response, sometimes it exhausts both configured generators outright. This is a
+pre-existing, already-documented risk in the code (not something introduced by the fixes above) — repo
+summary generation was always designed to fail gracefully rather than block the rest of indexing, and that
+design held up: even on a run where summarization degrades to a one-character non-answer or times out
+completely, embedding/storing/marking-ready proceed exactly as normal. Worth its own follow-up if reliable
+summaries matter, separate from the indexing-crash fixes this section covers.
+</div>
 <div class="note">
 <strong>Still deliberately non-fatal, on two levels now.</strong> <code>summarize_repo_agentic</code> has
 its own internal <code>try/except</code> that swallows anything unexpected and returns <code>None</code>

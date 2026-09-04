@@ -279,6 +279,37 @@ def test_tool_read_file_caps_at_400_lines(tmp_path):
     assert len(result.splitlines()) <= 400
 
 
+def test_tool_read_file_caps_at_max_chars_even_under_400_lines(tmp_path):
+    """Regression: the line cap alone assumes short/code-like lines. A file
+    with FEW lines but long prose (this project's real CLAUDE.md: 217
+    lines, 32,235 bytes) passed the 400-line cap cleanly while still
+    dumping a huge tool result back into the conversation — confirmed live,
+    this caused a ReadTimeout on the NEXT LLM call during real repo
+    summarization (both the primary and NIM fallback generator), because
+    only a line count was ever bounded, never a character count."""
+    from sleuth.retrieve.agent_session import READ_FILE_MAX_CHARS, _tool_read_file
+
+    # 50 lines, each individually huge — well under 400 lines, but the
+    # total text should still exceed READ_FILE_MAX_CHARS.
+    long_line = "x" * 500
+    (tmp_path / "prose.md").write_text("\n".join(long_line for _ in range(50)))
+
+    result = _tool_read_file(tmp_path, "prose.md")
+
+    assert len(result) <= READ_FILE_MAX_CHARS + 200  # + truncation note's own length
+    assert "truncated" in result.lower()
+
+
+def test_tool_read_file_does_not_truncate_when_under_char_cap(tmp_path):
+    from sleuth.retrieve.agent_session import _tool_read_file
+
+    (tmp_path / "small.py").write_text("x = 1\ny = 2\n")
+
+    result = _tool_read_file(tmp_path, "small.py")
+
+    assert "truncated" not in result.lower()
+
+
 # --- Regression tests: the three Windows/ripgrep tool-layer bugs ---------
 # All three were reproduced end-to-end on a real repo before fixing:
 # (1) locale (cp1252) decoding of UTF-8 tool output crashing on a

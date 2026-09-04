@@ -158,3 +158,43 @@ async def test_ingest_repo_still_marks_ready_when_summarization_fails(pg_conn, l
 
     from sleuth.store import get_repo_summary
     assert get_repo_summary(pg_conn, repo_id) is None
+
+
+@pytest.mark.asyncio
+@respx.mock
+async def test_ingest_repo_emits_summary_failed_event_when_summary_is_none_without_raising(
+    pg_conn, local_git_repo, monkeypatch
+):
+    # Real bug this covers: summarize_repo_agentic's documented contract is
+    # "return None on ANY failure, never raise" — a fully-failed fallback
+    # chain, an AgentSession bug, or a genuinely empty answer all look
+    # identical: None. Before this fix, pipeline.py's `if summary:` meant
+    # neither emit("summarized") nor emit("summary_failed") ever fired in
+    # this case, so the UI's processing log silently skipped straight from
+    # "chunked" to "embedding_start" with zero trace summarization was even
+    # attempted. Confirmed live against the real SLEUTH repo: the agentic
+    # summarizer hit a genuine httpx.ReadTimeout on both configured
+    # generators partway through a real multi-turn tool loop, which
+    # summarize_repo_agentic's own except-and-return-None swallowed exactly
+    # as designed — this test reproduces that same "returns None, doesn't
+    # raise" shape without needing a real timeout.
+    import sleuth.ingest.pipeline as pipeline_module
+
+    async def fake_summarize(*args, **kwargs):
+        return None
+
+    monkeypatch.setattr(pipeline_module, "summarize_repo_agentic", fake_summarize)
+    _mock_voyage()
+    config = _config()
+    events = []
+
+    repo_id = await ingest_repo(
+        str(local_git_repo), pg_conn, config,
+        on_event=lambda step, detail: events.append((step, detail)),
+    )
+
+    steps = [step for step, _detail in events]
+    assert "summary_failed" in steps, "summarization returning None silently skipped both events"
+
+    row = pg_conn.execute("SELECT status FROM repos WHERE id = %s", (repo_id,)).fetchone()
+    assert row[0] == "ready"  # still must not fail the whole repo over this

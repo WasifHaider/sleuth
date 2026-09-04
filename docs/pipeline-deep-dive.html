@@ -1415,13 +1415,15 @@ class VoyageEmbedder(Embedder):
     model_name = "voyage-code-3"
     dim = 1024
 
-    def __init__(self, api_key: str, batch_size: int = 128, max_concurrency: int = 5):
+    def __init__(self, api_key: str, batch_size: int = 128, max_concurrency: int = 5,
+                 requests_per_minute=None, max_tokens_per_batch=None, tokens_per_minute=None):
         self.api_key = api_key
         self.batch_size = batch_size
         self.max_concurrency = max_concurrency
+        ...  # see below — real pacing state, not just these constructor args
 
     async def embed_batch(self, texts: list[str]) -> list[list[float]]:
-        batches = [texts[i : i + self.batch_size] for i in range(0, len(texts), self.batch_size)]
+        batches = self._make_batches(texts)   # token-aware batching, not just count-aware
         semaphore = asyncio.Semaphore(self.max_concurrency)
 
         async with httpx.AsyncClient() as client:
@@ -1435,11 +1437,18 @@ class VoyageEmbedder(Embedder):
         return vectors
 
     async def _embed_one_batch(self, client, semaphore, batch: list[str]) -> list[list[float]]:
+        batch_tokens = sum(self.token_counter(t) for t in batch) if self.tokens_per_minute else 0
+
+        async def on_attempt() -> None:
+            await self._wait_for_pacing_slot()
+            await self._wait_for_tpm_slot(batch_tokens)
+
         async with semaphore:
             response = await post_with_retry(
                 client, VOYAGE_EMBEDDINGS_URL,
                 headers={"Authorization": f"Bearer {self.api_key}"},
                 json={"input": batch, "model": self.model_name},
+                on_attempt=on_attempt,
             )
 
         data = response.json()["data"]
@@ -1457,9 +1466,6 @@ class VoyageEmbedder(Embedder):
       — a correctness bug that wouldn't throw any error, just quietly return wrong search results
       forever. This is exactly the kind of subtle contract that's easy to get wrong once and never
       notice.</li>
-  <li><code>batch_size=128</code>, <code>max_concurrency=5</code> are constructor defaults, not magic
-      numbers buried in the method — meaning tests (and, if needed later, tuning) can override them per
-      instance without touching this file.</li>
   <li>Notice <code>httpx.AsyncClient()</code> is created fresh, once, inside <code>embed_batch</code>
       (not per sub-batch) and shared across all the concurrent <code>_embed_one_batch</code> calls via
       the closure — <code>AsyncClient</code> internally pools TCP connections, so reusing one client
@@ -1473,6 +1479,49 @@ class VoyageEmbedder(Embedder):
 </ul>
 </div>
 
+<h3>Two real bugs, found and fixed against a live re-index of SLEUTH's own repo</h3>
+<div class="warn">
+<strong>Bug 1 — batching trusted a guess instead of a real token count.</strong>
+<code>FREE_TIER_BATCH_SIZE = 10</code> was originally sized on the assumption that 10 chunks would keep
+any request comfortably under Voyage's 10K-tokens-per-minute free-tier ceiling — a char-count-divided-by-4
+estimate, never actually verified against real code. Measured directly against SLEUTH's own 1990 chunks
+with Voyage's own published <code>voyage-code-3</code> tokenizer: average chunk is only ~201 tokens, but a
+handful run far denser (max 1884 tokens in one chunk), and 6 of 199 fixed-size-10 batches came in
+<em>over</em> 10,000 tokens — exactly matching the live 429s this project was hitting partway through a
+real ingest run.
+</div>
+<div class="explain">
+Fixed with a real tokenizer (vendored from Hugging Face into <code>vendor/voyage-code-3-tokenizer/</code>
+rather than fetched at runtime — <code>Tokenizer.from_pretrained(...)</code> does a live network HEAD
+request on <em>every</em> call, even when already cached, which would have made every ingest run silently
+depend on Hugging Face being reachable) and a rewritten <code>_make_batches</code> that closes a batch
+early — even under the 10-chunk count cap — the instant the next chunk would push its running token total
+over <code>FREE_TIER_MAX_TOKENS_PER_BATCH</code> (9000, a safety margin under Voyage's stated ceiling). A
+single oversized chunk still gets its own one-item batch rather than being split mid-text.
+</div>
+
+<div class="warn">
+<strong>Bug 2 — the pacer only ever counted the FIRST attempt of each batch, never retries.</strong>
+<code>post_with_retry</code> (Part 9) can retry a single batch up to 5 times on a 429, honoring Voyage's own
+<code>Retry-After</code> header. But those retries ran completely outside the rate-limit pacer's
+bookkeeping — only the first attempt of a batch ever called the RPM/TPM wait functions, so a retry (a
+genuinely new HTTP request against Voyage's server-side budget) was invisible to SLEUTH's own accounting.
+That drift compounds over a long run and was the real reason 429s kept recurring even after Bug 1 was
+fixed.
+</div>
+<div class="explain">
+Fixed with an <code>on_attempt</code> callback (visible in <code>_embed_one_batch</code> above), threaded
+into <code>post_with_retry</code> and awaited before <em>every</em> real network attempt it makes, not just
+the first. A related, smaller bug was fixed alongside it: the RPM pacer originally used a fixed
+20-second interval between request starts, which is <em>not</em> mathematically equivalent to a true
+rolling 60-second window (four requests at t=0/20/40/60 are all evenly spaced, yet land 4-in-60-seconds at
+the instant t=60 fires) — both the RPM and TPM pacers now use the same real sliding-window technique (a
+<code>deque</code> of timestamps, aged out past 60 seconds), each behind its own lock so two concurrently
+running batches can't both read stale state and both slip through over budget. Verified end to end: a real
+re-index of SLEUTH's own 1990 chunks (201 batches) completed with zero 429s after both fixes, where every
+attempt before them had failed somewhere between batch 12 and batch 26.
+</div>
+
 </section>
 
 <section class="part" id="p9">
@@ -1481,35 +1530,50 @@ class VoyageEmbedder(Embedder):
 <p class="filebar">Files: <code>sleuth/http_retry.py</code></p>
 
 <div class="concept">
-<strong class="tag">Concept — why retry at all, and why only once?</strong>
+<strong class="tag">Concept — why retry at all, and how many times is enough?</strong>
 Networks and third-party APIs fail transiently, constantly, for reasons that have nothing to do with your
 request being wrong: a brief network blip, the provider being momentarily overloaded (HTTP 429 "too many
-requests", or 5xx server errors), a connection reset. Retrying once, after a short pause, resolves the
-vast majority of these without any user-visible impact. Retrying <em>unboundedly</em>, though, is
-dangerous — if the failure isn't transient (bad API key → permanent 401, malformed request → permanent
-400), infinite retries just hang forever or hammer a struggling server harder. This code retries exactly
-once, only for status codes that are conventionally transient, and gives up immediately (no retry) for
-anything else — like a 401, which retrying will never fix.
+requests", or 5xx server errors), a connection reset. A REAL per-minute rate limit (not just a blip) needs
+the caller to actually wait out most of a minute, not just try once more a second later — confirmed live:
+ingesting a real repo's embedding batch hit Voyage's rate limit, and an earlier version of this helper
+(<code>retries=1</code>, a flat 1-second wait) gave up and raised straight through the ingest pipeline's
+failure path long before the limit could plausibly have cleared. Retrying <em>unboundedly</em> is still
+dangerous the other direction — a permanently bad API key (401) or malformed request (400) will never
+succeed no matter how many times you retry, so this only retries codes that are conventionally transient,
+and gives up immediately for anything else.
 </div>
 
 <pre class="code"><code>TRANSIENT_STATUS_CODES = {429, 500, 502, 503, 504}
 
+def _sleep_seconds(response, attempt, base_backoff, max_backoff) -> float:
+    if response is not None:
+        retry_after = response.headers.get("retry-after")
+        if retry_after is not None:
+            try:
+                return min(float(retry_after), max_backoff)
+            except ValueError:
+                pass
+    exponential = base_backoff * (2**attempt)
+    return min(exponential, max_backoff) * (0.5 + random.random())
 
-async def post_with_retry(client, url, *, retries=1, backoff_seconds=1.0, **kwargs) -> httpx.Response:
+async def post_with_retry(client, url, *, retries=5, backoff_seconds=1.0,
+                           max_backoff_seconds=60.0, on_attempt=None, **kwargs) -> httpx.Response:
     attempt = 0
     while True:
+        if on_attempt is not None:
+            await on_attempt()
         try:
             response = await client.post(url, **kwargs)
         except httpx.TransportError:
             if attempt < retries:
+                await asyncio.sleep(_sleep_seconds(None, attempt, backoff_seconds, max_backoff_seconds))
                 attempt += 1
-                await asyncio.sleep(backoff_seconds)
                 continue
             raise
 
         if response.status_code in TRANSIENT_STATUS_CODES and attempt < retries:
+            await asyncio.sleep(_sleep_seconds(response, attempt, backoff_seconds, max_backoff_seconds))
             attempt += 1
-            await asyncio.sleep(backoff_seconds)
             continue
 
         response.raise_for_status()
@@ -1517,16 +1581,38 @@ async def post_with_retry(client, url, *, retries=1, backoff_seconds=1.0, **kwar
 
 <div class="explain">
 <ul>
-  <li><code>*, retries=1, backoff_seconds=1.0, **kwargs</code> — the <code>*</code> forces every
-      parameter after it to be passed <strong>by keyword only</strong> (you cannot call
-      <code>post_with_retry(client, url, 1, 1.0)</code> positionally — you must write
-      <code>post_with_retry(client, url, retries=1)</code>). This is a deliberate readability choice at
-      a call site — <code>retries=1</code> is self-documenting, whereas a bare positional
-      <code>1</code> tells you nothing without checking the function signature.
-      <code>**kwargs</code> forwards any other keyword arguments (like <code>headers=</code> and
-      <code>json=</code>, as used by both the embedder and the generator callers) straight through to
-      <code>client.post(...)</code> untouched — this function doesn't need to know or care what those
-      are, it just needs to add retry behavior around whatever POST call the caller wants to make.</li>
+  <li><code>retries=5</code>, exponential backoff with jitter, capped at 60 seconds per wait — a
+      meaningfully more patient policy than a single flat 1-second retry, specifically because a real
+      per-minute provider rate limit (Voyage's embeddings API, in particular) needs the caller to
+      genuinely wait out most of a minute, not give up after one blip. <code>_sleep_seconds</code>
+      prefers the server's own <code>Retry-After</code> header when the response actually carries one
+      (a 429 is required by spec to be allowed to send it, and Voyage's real responses do) — that's a
+      direct instruction from the server about how long to wait, more reliable than guessing. Falling
+      back to exponential backoff (<code>base * 2**attempt</code>, capped) with <strong>jitter</strong>
+      (the <code>* (0.5 + random.random())</code> multiplier) spreads out when multiple concurrent
+      retriers wake up, rather than every one of them retrying at the exact same instant and re-failing
+      together.</li>
+  <li><code>*, retries=5, backoff_seconds=1.0, max_backoff_seconds=60.0, on_attempt=None, **kwargs</code>
+      — the <code>*</code> forces every parameter after it to be passed <strong>by keyword only</strong>.
+      <code>**kwargs</code> forwards any other keyword arguments (<code>headers=</code>,
+      <code>json=</code>) straight through to <code>client.post(...)</code> untouched — this function
+      doesn't need to know or care what those are, it just adds retry behavior around whatever POST call
+      the caller wants to make.</li>
+  <li><strong><code>on_attempt</code> — a real bug fix, not part of the original design.</strong> This
+      optional async callback is awaited immediately before <em>every</em> attempt this function makes —
+      the first send AND every retry. It didn't exist originally, and its absence was a real, confirmed
+      production bug: <code>VoyageEmbedder</code>'s own client-side rate-limit pacer (Part 8) only ever
+      ran once, before the FIRST attempt of a batch — a retry firing minutes later (honoring a real
+      <code>Retry-After</code>) is a genuinely new HTTP request against the same per-minute budget, but
+      the pacer's bookkeeping had already recorded that slot as consumed at the ORIGINAL attempt's
+      timestamp. That drift between "when we think budget was spent" and "when the request actually hit
+      the server" compounds across a long batch run, and was the real explanation for a live SLEUTH
+      ingest continuing to hit 429s even after its batch-sizing was fixed. <code>on_attempt</code> lets a
+      caller re-acquire its own pacing state on every real network attempt, not just the first — see Part
+      8's coverage of <code>VoyageEmbedder._embed_one_batch</code> for the actual call site. Every OTHER
+      existing caller (generation's fallback chain, Part 13) simply doesn't pass it, so
+      <code>on_attempt=None</code> is a no-op for them — nothing about this change altered behavior for
+      call sites that don't opt in.</li>
   <li>Two distinct failure modes are handled separately: <code>httpx.TransportError</code> (the request
       never even got a response — DNS failure, connection refused, timeout) is caught with a Python
       <code>try/except</code>, since it's a raised exception. A "successful" request that came back with
@@ -1539,20 +1625,18 @@ async def post_with_retry(client, url, *, retries=1, backoff_seconds=1.0, **kwar
       line without ever matching the transient-code check, gets converted to an exception immediately,
       and propagates up to the caller (further retry/fallback logic — like the Groq→NIM chain in
       Part 13 — decides what to do with it from there).</li>
-  <li><code>while True: ... continue</code> is the actual retry loop shape — rather than recursion, it's
-      a straightforward "keep looping until we successfully return or raise." <code>attempt</code>
-      tracks how many retries have been used so far; once <code>attempt >= retries</code>, the next
-      failure is allowed to propagate instead of being retried again.</li>
 </ul>
 </div>
 
 <div class="note">
-<strong>Notice what's absent:</strong> no exponential backoff (it's a fixed 1-second pause, not
-1s-then-2s-then-4s), no jitter (randomized delay to avoid many clients retrying in lockstep), no
-distinction between different transient codes needing different backoff strategies. This is a
-deliberately minimal implementation — appropriate for "retry once" semantics where a more elaborate
-backoff strategy wouldn't add much value; it would matter more if <code>retries</code> were routinely
-set higher than 1.
+<strong>Generation deliberately uses a much smaller retry budget than embedding.</strong> Every call site
+can override <code>retries</code>/<code>backoff_seconds</code>/<code>max_backoff_seconds</code> — the
+generator classes (Part 13) explicitly pass <code>retries=1, backoff_seconds=1.0, max_backoff_seconds=2.0</code>
+instead of this module's own defaults, with a comment explaining why: generation has a whole
+<strong>fallback chain</strong> (try Groq, then NIM) as its real resilience mechanism, so retrying the
+same provider for up to a minute before ever trying the fallback would defeat the entire point of having
+one. Embedding has no such fallback (Voyage-only, Part 8's scope note explains why), so it leans
+correspondingly harder on retry/backoff to actually wait out a real rate limit.
 </div>
 
 </section>

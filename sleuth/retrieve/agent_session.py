@@ -49,6 +49,16 @@ MAX_ITERATIONS = 6
 GREP_MAX_MATCHES = 50
 LIST_FILES_MAX_RESULTS = 200
 READ_FILE_MAX_LINES = 400
+# read_file's line cap alone assumes lines are short/code-like — a
+# 217-line prose file (CLAUDE.md, long paragraphs) passed that cap cleanly
+# while still totaling 32,235 bytes, and feeding that whole block back as
+# one tool result pushed the running conversation over Groq's response
+# timeout on the NEXT call (confirmed live: a plain ReadTimeout on both the
+# primary and NIM fallback generator, not a 429/rate-limit — see
+# AGENTIC_GENERATOR_TIMEOUT_SECONDS below for the other half of this fix).
+# A char cap closes the gap the line cap alone leaves open for any
+# prose-heavy file, not just this one repo's CLAUDE.md.
+READ_FILE_MAX_CHARS = 8000
 
 # Globs that match everything, and are therefore no-ops as *filters*. They
 # are anything but no-ops to ripgrep, though: passing any explicit --glob
@@ -334,7 +344,16 @@ def _tool_read_file(root: Path, path: str, start_line: int | None = None, end_li
         return f"(error reading {path}: {proc.stderr.strip()})"
 
     lines = proc.stdout.splitlines()
-    return "\n".join(f"{start + i}: {line}" for i, line in enumerate(lines))
+    text = "\n".join(f"{start + i}: {line}" for i, line in enumerate(lines))
+    if len(text) > READ_FILE_MAX_CHARS:
+        # Truncate on a line boundary where possible rather than mid-line,
+        # so the model doesn't see a line cut off mid-word/mid-token.
+        truncated = text[:READ_FILE_MAX_CHARS]
+        last_newline = truncated.rfind("\n")
+        if last_newline > 0:
+            truncated = truncated[:last_newline]
+        return truncated + f"\n... (truncated at {READ_FILE_MAX_CHARS} characters; file has more content past this point, use start_line/end_line to read a narrower range)"
+    return text
 
 
 def _dispatch_tool(name: str, args: dict, root: Path) -> str:
@@ -348,9 +367,26 @@ def _dispatch_tool(name: str, args: dict, root: Path) -> str:
 
 
 def _default_agentic_chain(config: Config) -> list[Generator]:
-    chain: list[Generator] = [GroqGenerator(api_key=config.groq_api_key, model_name=AGENTIC_GROQ_MODEL)]
+    # timeout override: the agentic tool loop's conversation grows with
+    # every tool result appended to messages (list_files/grep/read_file
+    # output, see _trim_messages's cap of 60 total messages) — a
+    # multi-thousand-token cumulative context is normal here in a way a
+    # single Q&A chat completion never sees. Confirmed live: the DEFAULT
+    # 60s Generator timeout (generate.py) genuinely wasn't enough once a
+    # read_file result plus prior tool history pushed the request past
+    # Groq's response time for this size of prompt — a plain httpx
+    # ReadTimeout on BOTH the primary and NIM fallback generator, not a
+    # 429/rate-limit at all. Doesn't replace READ_FILE_MAX_CHARS (which
+    # bounds how large any single result can get) — this is headroom for
+    # the cumulative case that one result cap alone can't fully prevent.
+    agentic_timeout = 150
+    groq_gen = GroqGenerator(api_key=config.groq_api_key, model_name=AGENTIC_GROQ_MODEL)
+    groq_gen.timeout = agentic_timeout
+    chain: list[Generator] = [groq_gen]
     if config.nim_api_key:
-        chain.append(NimGenerator(api_key=config.nim_api_key))
+        nim_gen = NimGenerator(api_key=config.nim_api_key)
+        nim_gen.timeout = agentic_timeout
+        chain.append(nim_gen)
     return chain
 
 
