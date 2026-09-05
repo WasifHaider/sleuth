@@ -34,7 +34,9 @@ def _configure_pooled_connection(conn: psycopg.Connection) -> None:
     conn.execute(f"SET lock_timeout = '{LOCK_TIMEOUT}'")
 
 
-def create_pool(database_url: str, *, min_size: int = 1, max_size: int = 10) -> ConnectionPool:
+def create_pool(
+    database_url: str, *, min_size: int = 1, max_size: int = 10, max_idle: float = 120.0
+) -> ConnectionPool:
     # A per-request `psycopg.connect(...)` (get_connection above) is a real,
     # blocking TCP+TLS handshake out to Postgres (Supabase in prod is a
     # cross-region round trip). Doing that inside `async def` FastAPI
@@ -64,12 +66,32 @@ def create_pool(database_url: str, *, min_size: int = 1, max_size: int = 10) -> 
     # out — every write path here is already single-statement-per-commit,
     # not relying on grouping multiple statements into one transaction, so
     # nothing loses atomicity it was actually using.
+    # check=ConnectionPool.check_connection: psycopg_pool's built-in pre-flight
+    # ping. Without it, getconn() hands back whatever's sitting in the pool on
+    # trust alone — if Supabase (or any managed Postgres/pgbouncer) has since
+    # closed that connection server-side for being idle, the pool doesn't find
+    # out until the caller's first real query blows up with
+    # `psycopg.OperationalError: server closed the connection unexpectedly`
+    # (hit in prod: signup's SELECT in store.py::create_user, after the app
+    # sat idle for a while). With check= set, a dead connection found on
+    # borrow is discarded and silently replaced before request code ever sees
+    # it.
+    #
+    # max_idle=120: proactively recycles connections that have sat unused past
+    # 2 minutes, so this process's pool retires them on its own schedule
+    # instead of racing whatever idle timeout Supabase enforces server-side.
+    # Belt-and-braces with check= above, not a replacement for it — max_idle
+    # only prunes idle connections between requests, it can't catch one that
+    # dies while genuinely borrowed, and reconnect_timeout could dodge it a
+    # dozen unrelated ways.
     return ConnectionPool(
         conninfo=database_url,
         min_size=min_size,
         max_size=max_size,
         kwargs={"autocommit": True},
         configure=_configure_pooled_connection,
+        check=ConnectionPool.check_connection,
+        max_idle=max_idle,
         open=True,
     )
 
