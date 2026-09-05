@@ -1,0 +1,88 @@
+name: Deploy Sleuth backend
+
+# HireFlow's own workflow deploys on every push to master too — this only
+# triggers on changes to the backend's actual source (not web/, which
+# Vercel deploys separately, and not docs/ or Note.md), so editing the
+# frontend or docs doesn't rebuild/redeploy the backend container for no
+# reason.
+on:
+  push:
+    branches: [master]
+    paths:
+      - "sleuth/**"
+      - "schema.sql"
+      - "requirements.txt"
+      - "vendor/**"
+      - "Dockerfile"
+      - "docker-compose.prod.yml"
+      - ".github/workflows/deploy.yml"
+
+env:
+  AWS_REGION: ap-south-1
+  ECR_REPOSITORY: sleuth-backend
+  # Same EC2 instance as HireFlow — see docker-compose.prod.yml's comment
+  # for why this is a single-service compose file, and why port 4000 (not
+  # HireFlow's 3200) is used on that shared box.
+  BACKEND_PORT: 4000
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Build and push backend image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:latest -f Dockerfile .
+          docker push $ECR_REGISTRY/$ECR_REPOSITORY:latest
+
+      - name: Render docker-compose.prod.yml with real ECR image
+        env:
+          ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
+        run: |
+          sed "s|SLEUTH_ECR_IMAGE_PLACEHOLDER|$ECR_REGISTRY/$ECR_REPOSITORY|" \
+            docker-compose.prod.yml > docker-compose.rendered.yml
+
+      - name: Copy compose file + .env.backend to EC2
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          source: "docker-compose.rendered.yml"
+          target: "~/sleuth"
+          strip_components: 0
+
+      - name: Deploy on EC2
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.EC2_HOST }}
+          username: ${{ secrets.EC2_USERNAME }}
+          key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
+          script: |
+            aws ecr get-login-password --region ${{ env.AWS_REGION }} | \
+              docker login --username AWS --password-stdin ${{ steps.login-ecr.outputs.registry }}
+            cd ~/sleuth
+            mv docker-compose.rendered.yml docker-compose.prod.yml
+            # .env.backend is created once, by hand, directly on the EC2
+            # instance (VOYAGE_API_KEY / GROQ_API_KEY / DATABASE_URL /
+            # SESSION_SECRET / FRONTEND_ORIGIN) — never generated or
+            # touched by this workflow, so those secrets never pass
+            # through GitHub Actions logs or this repo.
+            docker compose -f docker-compose.prod.yml pull
+            docker compose -f docker-compose.prod.yml up -d --force-recreate
+            docker image prune -f

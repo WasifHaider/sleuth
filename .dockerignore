@@ -1,0 +1,18 @@
+# Backend Docker build context only (Dockerfile at repo root).
+.venv/
+.venv-win/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+.env.*
+tests/
+docs/
+web/
+eval/
+Note.md
+*.md
+.git/
+.github/
+docker-compose.yml
+docker-compose.prod.yml

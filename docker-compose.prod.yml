@@ -1,0 +1,20 @@
+# Runs on the EC2 instance (43.205.199.193), alongside HireFlow's own
+# containers on that same box — SLEUTH deliberately does NOT run its own
+# Postgres container (prod DB is Supabase, see CLAUDE.md), so this is a
+# single service, unlike the multi-service compose the deployment guide
+# describes.
+#
+# Pulled from ECR by the GitHub Actions workflow
+# (.github/workflows/deploy.yml), not built here — `image:` below is
+# rewritten to the real ECR registry URL by that workflow's deploy step
+# before this file is copied to the server.
+services:
+  backend:
+    image: SLEUTH_ECR_IMAGE_PLACEHOLDER:latest
+    restart: unless-stopped
+    ports:
+      # Host port 4000 chosen deliberately to not collide with HireFlow's
+      # own backend port (3200) on the same instance.
+      - "4000:8000"
+    env_file:
+      - .env.backend
