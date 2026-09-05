@@ -27,7 +27,22 @@ def _set_session_cookie(response: Response, user: dict, request: Request) -> Non
         SESSION_COOKIE_NAME,
         create_session_cookie(user, config),
         httponly=True,
-        samesite="lax",
+        # Frontend (Vercel) and backend (this API, behind Cloudflare Tunnel)
+        # are different registrable domains in every real deployment — the
+        # browser only ever sends a cookie on a cross-site fetch when it's
+        # SameSite=None, and SameSite=None requires Secure (HTTPS-only) or
+        # browsers reject the cookie outright. "lax" (the old value) is
+        # only sent same-site, so it silently never reached the backend
+        # once frontend/backend split across domains: login would set the
+        # cookie fine, but the very next /me call had no cookie to read,
+        # surfacing as an inexplicable 401 right after a successful login.
+        # Both localhost:5717 (dev, http) and the real deployment (https)
+        # need this to work — a plain hardcoded "none"/secure=True pair
+        # would break local dev, since Secure cookies are dropped outright
+        # over http. frontend_origin's own scheme decides which mode is
+        # correct for the environment actually running.
+        samesite="none" if config.frontend_origin.startswith("https://") else "lax",
+        secure=config.frontend_origin.startswith("https://"),
         max_age=SESSION_MAX_AGE_SECONDS,
     )
 
