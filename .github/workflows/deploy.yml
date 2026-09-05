@@ -83,6 +83,13 @@ jobs:
             # SESSION_SECRET / FRONTEND_ORIGIN) — never generated or
             # touched by this workflow, so those secrets never pass
             # through GitHub Actions logs or this repo.
-            docker compose -f docker-compose.prod.yml pull
-            docker compose -f docker-compose.prod.yml up -d --force-recreate
+            #
+            # docker-compose (hyphenated standalone binary), not `docker
+            # compose` — this EC2 box only has /usr/local/bin/docker-compose
+            # installed (v5.3.0), no compose CLI plugin, confirmed by hand
+            # (`docker compose version` -> "'compose' is not a docker
+            # command"). Matches the deployment guide's own Phase 2.8
+            # install step, which installs the standalone binary too.
+            docker-compose -f docker-compose.prod.yml pull
+            docker-compose -f docker-compose.prod.yml up -d --force-recreate
             docker image prune -f
