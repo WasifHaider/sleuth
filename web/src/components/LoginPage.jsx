@@ -35,6 +35,24 @@ export default function LoginPage() {
     }
   }
 
+  // Deliberately hardcoded, not read from anywhere secret — this is a
+  // public, shared demo login (see CLAUDE.md), same credentials the
+  // account was actually created with. Reuses the same `login()` call the
+  // real form uses, so it exercises the identical session-cookie path.
+  async function handleDemoLogin() {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await login('demo@sleuth.app', 'Demo12345!');
+      setEntering(true);
+      navigate('/app', { replace: true });
+    } catch (err) {
+      setError(err.message);
+      setBusy(false);
+    }
+  }
+
   if (entering) {
     return <FullScreenLoader label={mode === 'login' ? 'Logging in…' : 'Setting up your account…'} />;
   }
@@ -78,6 +96,16 @@ export default function LoginPage() {
             {busy ? 'Please wait…' : mode === 'login' ? 'Log in' : 'Sign up'}
           </button>
         </form>
+        {mode === 'login' && (
+          <button
+            type="button"
+            className="btn-secondary login-demo-btn"
+            disabled={busy}
+            onClick={handleDemoLogin}
+          >
+            Try the demo
+          </button>
+        )}
         <button
           type="button"
           className="login-switch"

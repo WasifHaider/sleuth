@@ -143,6 +143,7 @@ a:hover { color: var(--accent-hover); }
 .login-switch { background: none; border: none; color: var(--text-muted); font-size: 13px; cursor: pointer;
   padding: 0; text-align: left; }
 .login-switch:hover { color: var(--accent); }
+.login-demo-btn { width: 100%; justify-content: center; }
 
 /* landing page — ported from docs/design/Sleuth Landing.dc.html */
 :root { --pad-x: clamp(20px, 5vw, 72px); }
